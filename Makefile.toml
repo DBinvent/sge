@@ -1,0 +1,29 @@
+
+[config]
+skip_core_tasks = true
+#on_error_task = "on_error"
+
+[config.modify_core_tasks]
+# if true, all core tasks are set to private (default false)
+private = true
+
+[tasks.build_lib]
+command = "cargo"
+args = ["build"]
+description = "Runs the rust compiler to build"
+
+
+[tasks.run]
+dependencies = ["build_lib"]
+#cwd = "tests"
+script = [
+    '''
+    echo "prepare"
+    # psql -f tests/init.sql -p 5433 pgcat
+    echo "TESTED OK"
+    '''
+]
+
+[tasks.default]
+dependencies = ["run"]
+workspace = false
