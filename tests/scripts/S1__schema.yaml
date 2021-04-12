@@ -1,0 +1,33 @@
+# databaseChangeLog
+database:
+  - schema: # changeSet
+    schemaName: test_schema
+    owner: postgres
+    tables: # changes for tables
+      - table: # createTable
+        tableName: test_table
+        description: The new table
+        sql: -- some suffix on table create
+        unlogged: false
+        columns:
+          - column:
+            name: id
+            type: serial
+            autoIncrement: true # obsolete
+            constraint:
+              primaryKey: true
+              nullable: false
+            description:
+          - column:
+            name: test
+            type: varchar(250)
+            constraint:
+              nullable: false
+              def: not null
+        triggers:
+          - trigger:
+            name: uniq_name_of_trigegr
+            event: before update
+            when: for each row
+            proc:
+
