@@ -10,8 +10,9 @@ declarative (liquibase inspired)
 imperative (flyway inspired)
     with script execution tracking
 
+orchestrator for multiple db instances, hosts and environments
 microservise ready with multidatabase (microservice configuration) & (multi)environment support
-TODO: and UI / api to rdbm as a service (phpadmin inspired)
+(TODO:) and UI / api to rdbm as a service (phpadmin inspired)
 
 TODO:
 scheduled deploy

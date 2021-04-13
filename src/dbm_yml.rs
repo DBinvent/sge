@@ -16,12 +16,13 @@ use crate::dbm_log::{LS_TYPE, StatementLog};
 use self::yaml_rust::{ScanError, Yaml};
 use std::fmt::Write;
 use std::result::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use lazy_static::lazy_static;
 use std::fmt::Display;
 use std::fmt;
 use slog::Logger;
+use clap::ArgMatches;
 
 
 const STATEMENT_LOG_TABLE_YML: &str = "
@@ -35,10 +36,7 @@ columns:
     name: source
     type: varchar(250)
   - column:
-    name: database
-    type: varchar(150)
-  - column:
-    name: schemas_regxp
+    name: target
     type: varchar(250)
   - column:
     name: source_type
@@ -46,26 +44,26 @@ columns:
     description: 'S: Schema, V: Version, R: Re-runnable'
   - column:
     name: version
-    type: varchar(50)
+    type: varchar(80)
   - column:
     name: created
     type: timestamp
     dfn: default current_timestamp()
   - column:
     name: checksum
-    type: varchar(50)
+    type: varchar(80)
   - column:
     name: scheduled_on
     type: timestamp
   - column:
-    name: script_ver
-    type: varchar(150)
+    name: script_tag
+    type: varchar(80)
   - column:
     name: executed_on
     type: timestamp
   - column:
     name: executed_by
-    type: varchar(50)
+    type: varchar(80)
   - column:
     name: ok
     type: bool
@@ -75,52 +73,11 @@ columns:
     name: msg
     type: varchar(250)
   - column:
-    name: applied_by
-    type: bigint
-  - column:
-    name: applied_from
-    type: bigint
-  - column:
-    name: applied_to
+    name: took_sec
     type: bigint
 "
 ;
 
-
-/// default configurations with a description
-const CONFIG_DEF: &str = "
-(params: {
-\"db_name\": (val: \"postgres\", dsr: \"Postgres database\"),
-\"db_host\": (val: \"/var/run/postgresql\", dsr: \"Postgres host\"),
-\"db_port\": (val: \"5432\", dsr: \"Postgres port\"),
-\"db_user\": (val: \"postgres\", dsr: \"\"),
-\"db_password\": (val: \"\", dsr: \"\"),
-\"db_sslmode\": (val: \"verify-full\", dsr: \"\"),
-\"db_sslrootcert\": (val: \"\", dsr: \"/path/to/server-ca.crt\"),
-\"db_sslcert\": (val: \"\", dsr: \"/path/to/client.crt\"),
-\"db_sslkey\": (val: \"\", dsr: \"/path/to/client.key\"),
-\"logdb_name\": (val: \"postgres\", dsr: \"Postgres database\"),
-\"logdb_host\": (val: \"/var/run/postgresql\", dsr: \"Postgres host\"),
-\"logdb_port\": (val: \"5432\", dsr: \"Postgres port\"),
-\"logdb_user\": (val: \"postgres\", dsr: \"\"),
-\"logdb_password\": (val: \"\", dsr: \" \"),
-\"logdb_sslmode\": (val: \"verify-full\", dsr: \"\"),
-\"logdb_sslrootcert\": (val: \"\", dsr: \"/path/to/server-ca.crt\"),
-\"logdb_sslcert\": (val: \"\", dsr: \"/path/to/client.crt\"),
-\"logdb_sslkey\": (val: \"\", dsr: \"/path/to/client.key\"),
-\"ignore_order\": (val: \"false\", dsr: \"Perform Versions order execution\"),
-\"schema_regxp\": (val: \"*\", dsr: \"Scan schemas\"),
-\"schema_deploy\": (val: \"*\", dsr: \"Perform Deploy (S)chema files, i.e. target schema files to deploy, up to the target version (* means all)\"),
-\"version_deploy\": (val: \"*\", dsr: \"Perform Deploy (V)ersion files up to the target version (* means all)\"),
-\"version_checksum\": (val: \"false\", dsr: \"Fail on deployed scripts version checksum mismatch\"),
-\"rr_deploy\": (val: \"*\", dsr: \"Perform Deploy (R)e-runable scripts files up to the target version (* means all)\"),
-\"schema\": (val: \"public\", dsr: \"deployment history statement_log location\"),
-\"source_dir\": (val: \".\", dsr: \"Directory scripts location\"),
-\"source_recur\": (val: \"true\", dsr: \"Scan Directory recursively\"),
-\"fail_safe\": (val: \"false\", dsr: \"Fail the app if applied file different the file provided\"),
-\"dry_run\": (val: \"false\", dsr: \"generate, but do not run schema, also log all operations\"),
-})"
-;
 
 lazy_static! {
 	pub(crate) static ref STATEMENT_LOG_TBL: crate::dbm_yml::YTable = match YamlLoader::load_from_str(STATEMENT_LOG_TABLE_YML) {
@@ -132,10 +89,6 @@ lazy_static! {
 		Err(e) => {panic!(format!("wrong config: {}", e));}
 	};
 
-	pub(crate) static ref CONFIG_MAP: ConfigDefMap = match ron::de::from_str(CONFIG_DEF) {
-		Ok(c) => c,
-		Err(e) => { panic!(format!("wrong config: {}", e)); }
-	};
 }
 
 pub fn history_table_name() -> String {
@@ -143,7 +96,7 @@ pub fn history_table_name() -> String {
 }
 
 /// version is a [parse_type]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct FilesMap {
     /// version: schemaName : schema (with name)
     pub schemas: SchemaTableMap,
@@ -156,7 +109,7 @@ pub(crate) struct FilesMap {
 }
 
 pub(crate) type FileVersion = String;
-pub(crate) type SchemaTableMap = HashMap<FileVersion, HashMap<String, YSchema>>;
+pub(crate) type SchemaTableMap = HashMap<FileVersion, (String, HashMap<String, YSchema>)>;
 pub(crate) type VersionTableMap = HashMap<FileVersion, String>;
 
 pub(crate) fn load_all(cfg: &ConfigMap) -> Result<FilesMap, String> {
@@ -221,8 +174,7 @@ fn load_dir(dir: &str, schema: &mut FilesMap,
                                                                 let _ = ss.append(s, fail_safe)?;
                                                             }
                                                         }
-
-                                                        schema.schemas.insert(key, schema_schemas);
+                                                        schema.schemas.insert(key, (file_name, schema_schemas));
                                                     }
                                                 }
                                             }
@@ -347,7 +299,7 @@ fn load(filename: &str) -> Result<Yaml, String> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct YSchema {
     pub schema_name: String,
     pub owner: String,
@@ -357,7 +309,7 @@ pub(crate) struct YSchema {
     pub file: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct YTable {
     pub table_name: String,
     /// comments
@@ -365,7 +317,9 @@ pub(crate) struct YTable {
     /// suffix on table create
     pub sql: String,
     pub unlogged: bool,
+    #[serde(skip_serializing)]
     pub columns: HashMap<String, Yaml>,
+    #[serde(skip_serializing)]
     pub triggers: HashMap<String, Yaml>,
 }
 
@@ -387,6 +341,15 @@ pub(crate) fn as_bool(input: &Yaml, field: &str, default: bool) -> bool {
     match input[field].as_str() {
         None => default,
         Some(s) => { if default { s != "false" } else { s != "true" } }
+    }
+}
+
+#[inline]
+fn str2bool(input: &str, default: bool) -> bool {
+    if input.len() == 0 {
+        default
+    } else {
+        input == "true" || input == "yes" || input == "TRUE" || input == "YES" || input == "ok"  || input == "OK" || input == "Y"  || input == "T" || input == "+" || input == "1"
     }
 }
 
@@ -426,20 +389,25 @@ impl YTable {
     pub(crate) fn deploy(&self, dbc: &mut IS_TYPE, db: &mut Transaction, schema: &String, cfg: &ConfigMap, file: &str, log: &Logger) -> Result<(), String> {
         let mut sql = String::new();
         let mut comments = String::new();
-        let (create_schema, create_table) = match dbc.get(schema) {
+        let (create_schema, create_table) = match dbc.get_mut(schema) {
             None => (true, true),
-            Some(ss) => {
-                match ss.get(&self.table_name) {
+            Some(mut ss) => {
+                match ss.get_mut(&self.table_name) {
                     None => (false, true),
-                    Some(ts) => {
+                    Some(mut ts) => {
                         for (dcn, dc) in &self.columns {
                             if !ts.columns.contains_key(dcn) {
-                                write!(sql, "ALTER TABLE {}.{} ADD COLUMN {};", schema, self.table_name, self.column_def(dcn, dc, file)?);
+                                let def = self.column_def(dcn, dc, file)?;
+                                write!(sql, "ALTER TABLE {}.{} ADD COLUMN {};", schema, self.table_name, def);
+                                ts.columns.insert(dcn.clone(), def);
                             }
                         }
                         for (dcn, dt) in &self.triggers {
                             if !ts.triggers.contains_key(dcn) {
-                                writeln!(sql, "{}", self.trig_def(schema, dcn, dt));
+                                if let Some( def) = self.trig_def(schema, dcn, dt) {
+                                    writeln!(sql, "{}", def);
+                                    ts.triggers.insert(dcn.clone(), def);
+                                }
                             }
                         }
                         (false, false)
@@ -447,13 +415,18 @@ impl YTable {
                 }
             }
         };
-        // TODO FIX NOW update dbc
+        if create_schema {
+            dbc.insert(schema.clone(), HashMap::new());
+        }
         // TODO ADD FK
         if create_table {
             let owner = "";
             let mut columns = String::new();
+            let mut st = STable{ columns: HashMap::new(), triggers: HashMap::new()};
             for (dcn, dc) in &self.columns {
-                write!(sql, "{}, ", self.column_def(dcn, dc, file)?);
+                let cd =  self.column_def(dcn, dc, file)?;
+                write!(sql, "{}, ", cd);
+                st.columns.insert(dcn.clone(), cd);
                 self.comments(&mut comments, schema, dcn, dc);
             }
             if columns.len() > 0 {
@@ -471,9 +444,12 @@ impl YTable {
                 }
             }
             for (dcn, dt) in &self.triggers {
-                // add trigger
-                writeln!(sql, "{}", self.trig_def(schema, dcn, dt));
+                if let Some(td) =  self.trig_def(schema, dcn, dt) {
+                    writeln!(sql, "{}", td);
+                    st.triggers.insert(dcn.clone(), td);
+                }
             }
+            dbc.get_mut(schema).unwrap().insert(self.table_name.clone(), st);
         }
         if comments.len() > 0 {
             writeln!(sql, "{}", comments);
@@ -497,7 +473,7 @@ impl YTable {
             if let Err(e) = db.batch_execute(sql.as_str()) {
                 Err(format!("DB execute: {}", e))
             } else { Ok(()) }
-         }
+        }
     }
 
     /// column defenition to SQL string
@@ -526,10 +502,15 @@ impl YTable {
 
     /// column defenition to SQL string
     #[inline]
-    fn trig_def(&self, schema: &String, trig_name: &String, input: &Yaml) -> String {
-        format!("CREATE TRIGGER {}.{} {} ON {}.{} {} EXECUTE PROCEDURE {};",
-                schema, trig_name, as_str_def(input, "event", "BEFORE UPDATE"), schema, self.table_name,
-                as_str_def(input, "when", "FOR EACH ROW"), as_str(input, "proc") )
+    fn trig_def(&self, schema: &String, trig_name: &String, input: &Yaml) -> Option<String> {
+        let proc = as_str(input, "proc");
+        if proc.len() > 0 {
+            Some(format!("CREATE TRIGGER {}.{} {} ON {}.{} {} EXECUTE PROCEDURE {};",
+                    schema, trig_name, as_str_def(input, "event", "BEFORE UPDATE"), schema, self.table_name,
+                    as_str_def(input, "when", "FOR EACH ROW"), proc))
+        } else {
+            None
+        }
     }
 }
 //YTable
@@ -575,9 +556,10 @@ impl YSchema {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ConfigMap {
-	params: HashMap<String, String>,
+#[derive(Debug)]
+pub enum ConfigMap<'a> {
+    Cli(ArgMatches<'a>),
+    Map((HashMap<String, String>, Yaml)),
 }
 
 #[derive(Debug, Deserialize)]
@@ -593,75 +575,76 @@ pub struct CfgMod {
 	pub dsr: String,
 }
 
-impl ConfigMap {
+impl<'a> ConfigMap<'a> {
     #[inline]
-	pub fn new(param: &str, value: &str) -> Self {
-		let mut params = HashMap::new();
-		params.insert(param.to_string(),   value.into() );
-		ConfigMap{
-			params
-		}
-	}
-    #[inline]
-	pub fn set(&mut self, param: &str, value: &str)  {
-		let _ = self.params.insert(param.into(), value.into());
+	pub fn new(params: HashMap<String, String>) -> Self {
+		ConfigMap::Map((params, crate::CONFIG_YAML["args"].clone()))
 	}
 
     #[inline]
 	pub fn get(&self, param: &str, default: &str) -> String {
-		match self.params.get(param) {
-			None => {
-				match CONFIG_MAP.params.get(param) {
-					None => default.into(),
-					Some(x) => x.val.clone()
-				}
-			}
-			Some(x) => x.clone(),
-		}
+	    match &self {
+            ConfigMap::Cli(cli) => {
+                match cli.value_of(param) {
+                    None => default.into(),
+                    Some(v) => v.into()
+                }
+            }
+            ConfigMap::Map((map, cm)) => {
+                match map.get(param) {
+                    None => {
+                        match cm[param].as_str() {
+                            None => default.into(),
+                            Some(x) => x.into()
+                        }
+                    }
+                    Some(x) => x.clone(),
+                }
+            }
+        }
 	}
 
     #[inline]
 	pub fn get_opt(&self, param: &str) -> Result<String, String> {
-		match self.params.get(param) {
-			None => {
-				match CONFIG_MAP.params.get(param) {
-					None => Err(format!("Param not exists: {}", param)),
-					Some(x) => Ok(x.val.clone())
-				}
-			}
-			Some(x) => Ok(x.clone()),
-		}
+	    match &self {
+            ConfigMap::Cli(cli) => {
+                match cli.value_of(param) {
+                    None => Err(format!("Param not exists: {}", param)),
+                    Some(v) => Ok(v.into())
+                }
+            }
+            ConfigMap::Map((map, cm)) => {
+                match map.get(param) {
+                    None => {
+                        match cm[param].as_str() {
+                            None => Err(format!("Param not exists: {}", param)),
+                            Some(x) => Ok(x.into())
+                        }
+                    }
+                    Some(x) => Ok(x.clone()),
+                }
+            }
+        }
 	}
 
     #[inline]
 	pub fn get_po(&self, prefix: &str, param: &str) -> Result<String, String> {
-		let key = format!("{}{}", prefix, param);
-		match self.params.get(key.as_str()) {
-			None => {
-				match CONFIG_MAP.params.get(key.as_str()) {
-					None => Err(format!("Param not exists: {}", key)),
-					Some(x) => Ok(x.val.clone())
-				}
-			}
-			Some(x) => Ok(x.clone()),
-		}
+		self.get_opt(format!("{}{}", prefix, param).as_str())
 	}
 
     #[inline]
 	pub fn get_bool(&self, param: &str, default: bool) -> bool{
-		match self.params.get(param) {
-			Some(f) => {
-				let s = f.as_str();
-				if default { s != "false" } else { s != "true" }
-			}
-			None => default
-		}
+		let f = self.get(param, format!("{}", default).as_str());
+		if default { f != "false" } else { f != "true" }
 	}
 
+	/// find the target database name for log storage, use a database from connection if not set
+	/// use 'dbname'
     #[inline]
-	pub(crate) fn len(&self) -> usize {
-		self.params.len()
+	pub fn target(&self) -> String{
+		self.get("db_target", "")
 	}
+
 }
 
 impl Display for  CfgMod {
@@ -698,6 +681,30 @@ mod tests {
 	fn statementlog_deser_test() {
 		assert!(STATEMENT_LOG_TBL.table_name.len() > 1);
 		assert!(STATEMENT_LOG_TBL.description.len() > 10);
-		assert!(STATEMENT_LOG_TBL.columns.len() > 16);
+		assert!(STATEMENT_LOG_TBL.columns.len() > 10);
+		assert!(crate::CONFIG_YAML["args"].as_vec().unwrap().len() > 10);
 	}
+
+    #[test]
+	fn defb_test() {
+        defb_test_t(true);
+        defb_test_t(false);
+        assert!(str2bool("", true));
+        defb_test_f(true);
+        defb_test_f(false);
+        assert!(!str2bool("", false));
+    }
+
+	fn defb_test_t(def: bool) {
+        for v in vec!["true", "yes", "+", "Y", "OK", "ok"] {
+            assert!(str2bool(v, def));
+        }
+    }
+
+	fn defb_test_f(def: bool) {
+        for v in vec!["false", "no"] { //
+            assert!(!str2bool(v, def));
+        }
+    }
+
 }

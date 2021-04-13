@@ -2,7 +2,7 @@ extern crate postgres;
 use postgres::{Client, NoTls};
 use std::result::Result;
 use std::collections::{HashMap, HashSet, BTreeMap};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use crate::dbm_yml::{ConfigMap};
 use std::collections::hash_map::RandomState;
 
@@ -10,7 +10,7 @@ use std::collections::hash_map::RandomState;
 /// information schema types: schema, table, column
 pub (crate) type IS_TYPE = HashMap<String, HashMap<String, STable>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 /// information schema data
 pub (crate) struct STable {
     /// column name,
