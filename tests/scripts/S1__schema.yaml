@@ -7,23 +7,23 @@ database:
       - table: # createTable
         tableName: test_table
         description: The new table
-        sql: -- some suffix on table create
+        sql: -- some SQL suffix on table create
         unlogged: false
         columns:
           - column:
             name: id
             type: serial
-            autoIncrement: true # obsolete
-            constraint:
+            constraint: # changes on PK & NULL wont apply
               primaryKey: true
               nullable: false
+              foreignKey:
+                references: fk_table
+                sql: -- some SQL suffix on new FK create- on delete no action on update no action
             description:
+            sql: -- some SQL suffix on new column create
           - column:
             name: test
             type: varchar(250)
-            constraint:
-              nullable: false
-              def: not null
         triggers:
           - trigger:
             name: uniq_name_of_trigegr

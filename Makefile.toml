@@ -7,21 +7,42 @@ skip_core_tasks = true
 # if true, all core tasks are set to private (default false)
 private = true
 
-[tasks.build_lib]
+[tasks.build]
 command = "cargo"
 args = ["build"]
 description = "Runs the rust compiler to build"
 
+[tasks.test]
+command = "cargo"
+args = ["test"]
+description = "Runs the rust test"
+
+[tasks.postgres-up]
+command = "./tests/postgres.sh"
+args = ["start", "db", "5434", "rt", "12"]
+description = "Prepare and run postgres"
+
+[tasks.postgres-drop]
+command = "./tests/postgres.sh"
+args = ["stop", "db", "5434", "rt", "12"]
+description = "Prepare and run postgres"
+
+[tasks.clean]
+dependencies = ["postgres-drop"]
+script = "rm -rf tests/db/5434"
 
 [tasks.run]
-dependencies = ["build_lib"]
-#cwd = "tests"
+dependencies = ["test", "build", "postgres-up"]
+cwd = "tests"
 script = [
-    '''
-    echo "prepare"
-    # psql -f tests/init.sql -p 5433 pgcat
-    echo "TESTED OK"
-    '''
+'''
+../target/debug/rdbm -c ./test_cfg.yaml prepare
+psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" rt
+
+# ./postgres.sh stop db 5434 12
+
+echo "TESTED OK"
+'''
 ]
 
 [tasks.default]

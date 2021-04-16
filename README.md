@@ -1,5 +1,5 @@
 # rdbm
-SQL deployment tracker and schema def on Rust for Postgres
+SQL script tracker and DB deployment by schema definition for Postgres
 
 Combined two way:
 
@@ -16,3 +16,13 @@ microservise ready with multidatabase (microservice configuration) & (multi)envi
 
 TODO:
 scheduled deploy
+
+
+Schema deploy restriction notice:
+The column definition includes 'sql' and constraints (except FK) will apply only for a new columns or new table.
+Adding constraint on existing column wont produce an ALTER TABLE SQL  (except FK)
+ 
+The multi primary key column will fail. 
+The multi column FK definition column will fail. 
+
+ 

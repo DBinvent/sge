@@ -4,29 +4,25 @@ use lazy_static::lazy_static;
 
 extern crate semver;
 
-pub mod dbm_yml;
 mod dbm_dbc;
 mod dbm_log;
+pub mod dbm_yml;
 
+use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
 use crate::dbm_yml::*;
-use postgres::{NoTls, Client, Transaction};
+use openssl::ssl::{SslConnector, SslMethod};
+use postgres::{Client, NoTls, Transaction};
+use postgres_openssl::MakeTlsConnector;
 use slog::Logger;
-use crate::dbm_dbc::IS_TYPE;
-use std::sync::{Mutex, Arc};
-use std::borrow::BorrowMut;
 use std::fs;
 
 extern crate yaml_rust;
 
 use yaml_rust::YamlLoader;
 
-use self::yaml_rust::{ScanError, Yaml};
-use std::ops::Deref;
-
-
-
-
+use self::yaml_rust::Yaml;
+use openssl::error::ErrorStack;
 
 pub const CONFIG_DEF_YML: &str = "
 name: rdbm
@@ -53,7 +49,7 @@ args:
     - db_password:
         long: db_password
         takes_value: true
-        help: password
+        help: Password or SSL certificates (see db_sslxxx params)
     - db_sslmode:
         long: db_sslmode
         default_value: verify-full
@@ -89,7 +85,7 @@ args:
     - logdb_password:
         long: logdb_password
         takes_value: true
-        help: pwd
+        help: Password or SSL certificates (see xx_sslxxx params)
     - logdb_sslmode:
         long: logdb_sslmode
         default_value: verify-full
@@ -111,9 +107,7 @@ args:
         long: ignore_order
         default_value: \"false\"
         help: Perform Versions order execution
-        possible_values:
-            - \"true\"
-            - \"false\"
+        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - schema_regxp:
         long: schema_regxp
         default_value: \"*\"
@@ -121,22 +115,26 @@ args:
     - schema_deploy:
         long: schema_deploy
         default_value: \"*\"
-        help: Scan for files to perform deploy (S)chema scripts, i.e. target schema files to deploy, up to the target version (* means all)
+        help: Scan for files to perform deploy (S)chema scripts, i.e. target schema files to deploy, up to the target version (* - means all). \
+            Yaml schema files will be parsed, compared with DB information schema and tables will append with missed columns. \
+            Existing columns wont change neither delete.
     - version_checksum:
         long: version_checksum
         default_value: \"false\"
         help: Fail on deployed scripts version checksum mismatch
-        possible_values:
-            - \"true\"
-            - \"false\"
+        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - rr_deploy:
         long: rr_deploy
         default_value: \"*\"
-        help: Scan for files to perform deploy (R)e-runable scripts
+        help: Scan for files to perform deploy (R)e-runable scripts. Found file with suitable versions will check for hashsum and if file absent or changes detected, than script will execute.
     - schema:
         long: schema
         default_value: public
-        help: deployment history statement_log location
+        help: The deployment history 'table' schema location
+    - table:
+        long: table
+        default_value: rdbm_history
+        help: The deployment history table name in 'schema'
     - source_dir:
         long: source_dir
         default_value: \"./\"
@@ -145,16 +143,12 @@ args:
         long: source_recur
         default_value: \"true\"
         help: Scan Directory recursively
-        possible_values:
-            - \"true\"
-            - \"false\"
+        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - fail_safe:
         long: fail_safe
         default_value: \"false\"
         help: Fail the app if applied file different the file provided
-        possible_values:
-            - \"true\"
-            - \"false\"
+        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - executed_by:
         long: executed_by
         takes_value: true
@@ -178,35 +172,53 @@ args:
     - dry_run:
         long: dry_run
         default_value: \"false\"
-        help: generate, but do not run schema, also log all operations
-        possible_values:
-            - \"true\"
-            - \"false\"
+        help: Generate all SQL, but do not run on DB, also log all attempts to script run
+        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - dry_run_to:
         long: dry_run_to
         takes_value: true
         help: The name of file to dump the generated SQL script
+    - config_file:
+        long: config
+        short: c
+        takes_value: true
+        help: Load all params from config file, all other command line params will be ignored!
+    - after:
+        long: after
+        default_value: \"after.sql\"
+        takes_value: true
+        help: Try the find and run the script after successful migration execution. Do not fail if not found. This script execution wont log into history table.
+    - after_each:
+        long: after_each
+        default_value: \"after_each.sql\"
+        takes_value: true
+        help: Try to find and run the script after each 'V' or 'R' successful execution. Do not fail if not found. This script execution wont log into history table.
 
 
 subcommands:
     - migrate:
-        about: Perform migration to version_deploy or all posible
+        about: Perform migration to version_deploy or all possible scripts
     - info:
-        about: Return deployment status
+        about: Return deployment status, schema dump and schema parsed
     - prepare:
-        about: Create a history table to track scripts executions
-:
+        about: Create a history table use to track scripts executions
+
 ";
 
 pub(crate) const BASELINE: &str = "baseline";
 
 lazy_static! {
-	pub static ref CONFIG_YAML: Yaml = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
-		Ok(y) => if y.len() > 0 {
-            y[0].clone()
-		}else{panic!(format!("zero def config"));},
-		Err(e) => { panic!(format!("wrong config: {}", e)); }
-	};
+    pub static ref CONFIG_YAML: Yaml = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
+        Ok(y) =>
+            if y.len() > 0 {
+                y[0].clone()
+            } else {
+                panic!("zero def config");
+            },
+        Err(e) => {
+            panic!("wrong config: {}", e);
+        }
+    };
 }
 
 /**
@@ -230,11 +242,12 @@ Library Key Features:
 runs by tests
 */
 pub fn migrate(cfg: ConfigMap, po: bool, log: &Logger) -> Result<(), String> {
-    let mut client = connect("logdb", &cfg)?;
-    let result = {
-         migrate_db(&mut client, &cfg, po, log)
-    };
-    client.close();
+    let mut client = connect("logdb_", &cfg)?;
+    let result = { migrate_db(&mut client, &cfg, po, log) };
+    match client.close() {
+        Ok(_) => {}
+        Err(_) => {}
+    }
     result
 }
 
@@ -247,95 +260,134 @@ pub fn migrate(cfg: ConfigMap, po: bool, log: &Logger) -> Result<(), String> {
 /// - lock history table to prevent parallel dbm execution
 /// - run pre_run files, if exists
 /// - migrate 'S'chema files, save log
-/// - define target versions: from - to, check logs
-///    -- psql "host=localhost user=vk password=1 dbname=vk port=5433" -X -1 -f
-///       sslmode=verify-full \
-///       sslrootcert=/path/to/server-ca.crt \
-///       sslcert=/path/to/client.crt \
-///       sslkey=/path/to/client.key
 /// - migrate 'V'ersion files, save log
 /// - define re-run by logs
 /// - migrate 'R'e-runable files, save log
 /// - run post_run files
 #[inline]
-fn migrate_db(log_client: &mut Client, cfg: &ConfigMap, po: bool, log: &Logger) -> Result<(), String> {
+fn migrate_db(
+    log_client: &mut Client,
+    cfg: &ConfigMap,
+    prepare_only: bool,
+    log: &Logger,
+) -> Result<(), String> {
     // prepare schema
-    let schema = cfg.get("schema", "public");
+    let schema = cfg.schema();
     let mut dbc = crate::dbm_dbc::load_info_schema(log_client, cfg)?;
     let yschemas = crate::dbm_yml::load_all(cfg)?;
     let mut t = log_client.transaction().unwrap(); // begin
-    // self install if not exists
+                                                   // self install if not exists
     let err = {
         match STATEMENT_LOG_TBL.deploy(&mut dbc, &mut t, &schema, cfg, BASELINE, log) {
-            Ok(_) => None,
-            Err(e) => Some(e)
+            Ok(exec) => {
+                if exec {
+                    debug!(log, "self deployed");
+                    if let Err(e) = StatementLog::new(cfg)
+                        .instance('S', &BASELINE.into(), &BASELINE.into())
+                        .persist(None, &mut t)
+                    {
+                        Some(e)
+                    } else { None }
+                } else { None }
+            }
+            Err(e) => Some(e),
         }
     };
     if let Some(e) = err {
-        t.rollback();
+        warn!(log, "rollback on fail self deploy");
+        if let Err(e) = t.rollback() {
+            warn!(log, "rollback on fail self deploy failed: {}", e);
+        }
         return Err(e);
     };
-    let res = if !po {
-        let log_st = format!("{}.{}", &schema, &STATEMENT_LOG_TBL.table_name);
+    let res = if prepare_only {
+        Ok(())
+    } else {
         // select table for update -- row level lock, revert changes
-        let logs = {
-            StatementLog::load_all(&mut t, &log_st, cfg)?
-        };
+        let logs = { StatementLog::load_all(&mut t, cfg)? };
         let pgsrv = format!("~/.rdbm_{}.conf", cfg.target());
-        let res = match deploy_all_schemas(&yschemas, &log_st, &mut dbc, &cfg, &mut t, log) {
-            Ok(_) => {
-                deploy_all_files(&logs, &yschemas, &log_st, pgsrv.as_str(), &cfg, &mut t, log)
-            }
-            Err(error) => {
-                Err(error)
-            }
+        let res = match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
+            Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
+            Err(error) => Err(error),
         };
-        if let Ok(pwd) = cfg.get_opt("db_password") {
+        if cfg.is_pgsrv() {
             let _ = fs::remove_file(pgsrv);
         }
         res
-    } else { Ok(()) };
-    t.commit();
-    res
+    };
+    match t.commit() {
+        Ok(()) => res,
+        Err(e) => {
+            info!(log, "commit history failed: {}", e);
+            match res {
+                Ok(_) => Err(format!("commit history failed: {}", e)),
+                Err(ee) => Err(format!("{}. Also, commit history failed: {}", e, ee)),
+            }
+        }
+    }
 }
 
 #[inline]
 /// deploy changes by files
-fn deploy_all_files(logs: &LS_TYPE, yschemas: &FilesMap, log_st: &String, pgsrv: &str, cfg: &ConfigMap, t: &mut Transaction, log: &Logger)  -> Result<(), String> {
-    if let Ok(pwd) = cfg.get_opt("db_password") {
-        fs::write(pgsrv, format!( "[rdbm]\nhost={}\n{}\npassword={}\n{}\n{}\n{}\n{}\n",
-            cfg.get("db_host", ""),
-            cfg.get_po("db_", "user").unwrap_or("".into()),
-            pwd,
-            cfg.get_po("db_", "sslmode").unwrap_or("".into()),
-            cfg.get_po("db_", "sslrootcert").unwrap_or("".into()),
-            cfg.get_po("db_", "sslcert").unwrap_or("".into()),
-            cfg.get_po("db_", "sslkey").unwrap_or("".into()),
-            ));
+fn deploy_all_files(
+    logs: &LogSchemaType,
+    yschemas: &FilesMap,
+    pgsrv: &str,
+    cfg: &ConfigMap,
+    t: &mut Transaction,
+    log: &Logger,
+) -> Result<(), String> {
+    if cfg.is_pgsrv() {
+        let mut content = String::new();
+        let names = vec![
+            "host",
+            "port",
+            "user",
+            "password",
+            "sslmode",
+            "sslrootcert",
+            "sslcert",
+            "sslkey",
+        ];
+        for name in names.iter() {
+            cfg.get_pow(&mut content, "db_", name, "\n");
+        }
+        if let Err(e) = fs::write(pgsrv, format!("[{}]\n{}", cfg.get("db_name", ""), content)) {
+            return Err(format!("creating PGSERVICEFILE: {}: {}", pgsrv, e));
+        }
     }
-    let draft = StatementLog::new(log_st, cfg);
+    let draft = StatementLog::new(cfg);
     // deploy versions
     for (v, file) in &yschemas.versions {
-        draft.instance('S', v, file).deploy(&logs, pgsrv, cfg, t, log)?;
+        draft
+            .instance('S', v, file)
+            .deploy(&logs, pgsrv, cfg, t, log)?;
+        draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
     }
     // deploy re-runable
     for (v, file) in &yschemas.re_runnable {
-        draft.instance('R', v, file).deploy(&logs, pgsrv, cfg, t, log)?;
+        draft
+            .instance('R', v, file)
+            .deploy(&logs, pgsrv, cfg, t, log)?;
+        draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
     }
-    // deploy deploy after
-    for (v, file) in &yschemas.after {
-        draft.instance('A', v, file).deploy(&logs, pgsrv, cfg, t, log)?;
-    }
+    draft.after("after", yschemas, &logs, pgsrv, cfg, t, log)?;
     Ok(())
 }
 
 #[inline]
 /// deploy schema by definitions - declaratives
-fn deploy_all_schemas(yschemas: &FilesMap, log_st: &String, dbc: &mut IS_TYPE, cfg: &ConfigMap, lt: &mut Transaction, log: &Logger) -> Result<(), String> {
+fn deploy_all_schemas(
+    yschemas: &FilesMap,
+    dbc: &mut InfoSchemaType,
+    cfg: &ConfigMap,
+    lt: &mut Transaction,
+    log: &Logger,
+) -> Result<(), String> {
     let mut err = None;
-    let mut client = connect("db", &cfg)?;
+    let mut client = connect("db_", &cfg)?;
     {
-        let mut stl = StatementLog::new(log_st, cfg);
+        let stl = StatementLog::new(cfg);
         let mut t = client.transaction().unwrap();
         for (ver, (file, ysv)) in &yschemas.schemas {
             for (s, ys) in ysv {
@@ -345,57 +397,99 @@ fn deploy_all_schemas(yschemas: &FilesMap, log_st: &String, dbc: &mut IS_TYPE, c
                         break;
                     }
                 }
-                if let Some(_) = &err {
-                    break;
-                }
+                if let Some(_) = &err { break; }
             }
             if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
                 err = Some(e);
             }
-            if let Some(_) = &err {
-                break;
+            if let Some(_) = &err { break; }
+        }
+        if let None = &err {
+            // deploy FK
+            for (ver, (file, ysv)) in &yschemas.schemas {
+                for (s, ys) in ysv {
+                    for (_, yt) in &ys.tables {
+                        if let Err(e) = yt.deploy_fk( &yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
+                            err = Some(e);
+                            break;
+                        }
+                    }
+                    if let Some(_) = &err { break; }
+                }
+                if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
+                    err = Some(e);
+                }
+                if let Some(_) = &err { break;}
             }
         }
         if let Some(_) = &err {
-            t.rollback();
+            let _ = t.rollback();
         } else {
-            t.commit();
+            let _ = t.commit();
         }
     }
     let _ = client.close();
     match err {
         None => Ok(()),
-        Some(e) => Err(e)
+        Some(e) => Err(e),
     }
 }
 
 #[inline]
 fn connect(prefix: &str, cfg: &ConfigMap) -> Result<Client, String> {
     let mut override_prefix = false;
-    if prefix == "logdb " {
-        if let Err(_) = cfg.get_po(prefix,"_name") {
+    if prefix == "logdb_" {
+        if let None = cfg.get_opt("logdb_name") {
             override_prefix = true;
         }
     };
-    let prefix = if override_prefix { "db" } else { prefix };
-    let db = format!("postgresql:///{}?user={}&password={}&port={}&host={}",
-                     cfg.get_po(prefix,"_name")?, cfg.get_po(prefix, "_user")?, cfg.get_po(prefix, "_password")?,
-                     cfg.get_po(prefix, "_port")?, cfg.get_po(prefix, "_host")?);
-    // TODO add TLS_MODE
-    match Client::connect(db.as_str(), NoTls) {
+    let prefix = if override_prefix { "db_" } else { prefix };
+    let mut url = String::new();
+    let names = vec![
+        "host",
+        "port",
+        "user",
+        "password",
+        "sslmode",
+        "sslrootcert",
+        "sslcert",
+        "sslkey",
+    ];
+    for name in names.iter() {
+        cfg.get_pow(&mut url, prefix, name, "&");
+    }
+    let db = format!(
+        "postgresql:///{}?{}",
+        cfg.get(format!("{}name", prefix).as_str(), ""),
+        url
+    );
+    match if cfg.is_ssl() {
+        let connector = match make_tls_connector(&cfg.get(prefix, "sslcert")) {
+            Ok(c) => c,
+            Err(e) => {
+                return Err(format!("create TLS(SSL) connection: {}", e));
+            }
+        };
+        Client::connect(db.as_str(), connector)
+    } else {
+        Client::connect(db.as_str(), NoTls)
+    } {
         Ok(client) => Ok(client),
-        Err(err) => {
-            return Err(format!("ERROR on Connect to Postgres [{}]: \n{} ", db, err));
-        }
+        Err(err) => Err(format!("Connect to Postgres [{}]: \n{} ", db, err)),
     }
 }
 
 #[inline]
+fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
+    let mut builder = SslConnector::builder(SslMethod::tls())?;
+    builder.set_ca_file(cert)?;
+    Ok(MakeTlsConnector::new(builder.build()))
+}
+
+#[inline]
 pub fn load(cfg: ConfigMap, log: &Logger) -> Result<String, String> {
-    let mut client = connect("logdb", &cfg)?;
-    let result = {
-         load_impl(&mut client, &cfg, log)
-    };
-    client.close();
+    let mut client = connect("logdb_", &cfg)?;
+    let result = { load_impl(&mut client, &cfg, log) };
+    let _ = client.close();
     result
 }

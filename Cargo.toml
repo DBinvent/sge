@@ -26,6 +26,8 @@ slog-term = "^2.8.0"
 sloggers = "^1.0.1"
 lazy_static = "^1.4.0"
 postgres = "^0.19.1"
+postgres-openssl = "^0.5.0"
+openssl = "^0.10.33"
 
 serde = { version = "^1.0", features = ["derive"] }
 

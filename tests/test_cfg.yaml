@@ -1,0 +1,7 @@
+db_name: "vk"
+db_port: "5433"
+db_user: "vk"
+db_password: "1"
+db_host: "localhost"
+_dry_run: "true"
+_dry_run_to: "./tests/test.out"

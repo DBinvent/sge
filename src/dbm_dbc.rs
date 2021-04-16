@@ -1,44 +1,55 @@
 extern crate postgres;
-use postgres::{Client, NoTls};
+use crate::dbm_yml::ConfigMap;
+use postgres::Client;
+use serde::Serialize;
+use std::collections::HashMap;
 use std::result::Result;
-use std::collections::{HashMap, HashSet, BTreeMap};
-use serde::{Deserialize, Serialize};
-use crate::dbm_yml::{ConfigMap};
-use std::collections::hash_map::RandomState;
-
 
 /// information schema types: schema, table, column
-pub (crate) type IS_TYPE = HashMap<String, HashMap<String, STable>>;
+pub(crate) type InfoSchemaType = HashMap<String, HashMap<String, STable>>;
 
 #[derive(Debug, Clone, Serialize)]
 /// information schema data
-pub (crate) struct STable {
+pub(crate) struct STable {
     /// column name,
     pub columns: HashMap<String, String>,
+    /// column name, foreign schema, table, column, fk name
+    pub fks: HashMap<String, FKTable>,
     /// trigger name, trigger's schema
     pub triggers: HashMap<String, String>,
 }
 
-pub (crate) fn load_info_schema(db: &mut Client, cfg: &ConfigMap) -> Result<IS_TYPE, String> {
+/// FK information loaded from DB
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct FKTable {
+    pub schema: String,
+    pub table: String,
+    pub column: String,
+    pub name: String,
+    pub sql: String,
+}
+
+pub(crate) fn load_info_schema(db: &mut Client, cfg: &ConfigMap) -> Result<InfoSchemaType, String> {
     let mut data = load_info_cc(db, cfg)?;
+    let _ = load_info_fk(db, &mut data, cfg)?;
     let _ = load_info_tg(db, &mut data, cfg)?;
     Ok(data)
 }
 
 #[inline]
-fn load_info_cc(db: &mut Client, cfg: &ConfigMap) -> Result<IS_TYPE, String> {
+fn load_info_cc(db: &mut Client, _cfg: &ConfigMap) -> Result<InfoSchemaType, String> {
     let mut data = HashMap::new();
     match db.query("SELECT table_catalog, table_schema, table_name, column_name, column_default, data_type from information_schema.columns where table_schema not in ('pg_catalog', 'information_schema')", &[]) {
-        Err(e) => Err(format!("ERROR on running information_schema: {}", e)),
+        Err(e) => Err(format!("on loading information_schema: {}", e)),
         Ok(result) => {
             for r in result {
-                let table_catalog: &str = r.get(0);
+                let _table_catalog: &str = r.get(0);
                 let table_schema: &str = r.get(1);
                 let table_name: &str = r.get(2);
                 let column_name: &str = r.get(3);
                 let column_default: &str = match r.try_get(4) {
                     Ok(t) => t,
-                    Err(e) => "",
+                    Err(_) => "",
                 };
                 let data_type: &str = r.get(5);
                 let column_data = format!("{} {}", data_type, column_default);
@@ -66,10 +77,14 @@ fn load_info_cc(db: &mut Client, cfg: &ConfigMap) -> Result<IS_TYPE, String> {
 }
 
 #[inline]
-fn load_info_tg(db: &mut Client, data: &mut IS_TYPE, cfg: &ConfigMap) -> Result<(), String> {
+fn load_info_tg(
+    db: &mut Client,
+    data: &mut InfoSchemaType,
+    _cfg: &ConfigMap,
+) -> Result<(), String> {
     match db.query("SELECT trigger_catalog, trigger_schema, trigger_name, event_object_catalog, event_object_schema, event_object_table \
         from information_schema.triggers where event_object_schema not in ('pg_catalog', 'information_schema')", &[]) {
-        Err(e) => Err(format!("ERROR on running information_schema.triggers: {}", e)),
+        Err(e) => Err(format!("on loading information_schema.triggers: {}", e)),
         Ok(result) => {
             for r in result {
                 let trigger_catalog: &str = r.get(0);
@@ -102,6 +117,58 @@ fn load_info_tg(db: &mut Client, data: &mut IS_TYPE, cfg: &ConfigMap) -> Result<
     }
 }
 
+#[inline]
+fn load_info_fk(
+    db: &mut Client,
+    data: &mut InfoSchemaType,
+    _cfg: &ConfigMap,
+) -> Result<(), String> {
+    match db.query("SELECT  tc.table_schema,  tc.table_name, kcu.column_name,
+ ccu.table_schema AS foreign_schema_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, tc.constraint_name
+ FROM information_schema.table_constraints AS tc
+ JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name
+ JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name
+ WHERE constraint_type = 'FOREIGN KEY' ", &[]) {
+        Err(e) => Err(format!("on loading information_schema.fk: {}", e)),
+        Ok(result) => {
+            for r in result {
+                let table_schema: &str = r.get(0);
+                let table_name: &str = r.get(1);
+                let column_name: &str = r.get(2);
+                let foreign_schema_name: &str = r.get(3);
+                let foreign_table_name: &str = r.get(4);
+                let foreign_column_name: &str = r.get(5);
+                let constraint_name: &str = r.get(6);
+                let fk = FKTable {
+                    schema: foreign_schema_name.to_string(),
+                    table: foreign_table_name.to_string(),
+                    column: foreign_column_name.to_string(),
+                    name: constraint_name.to_string(),
+                    sql: "".to_string()
+                };
+                match data.get_mut(table_schema) {
+                    None => {
+                        let mut hd = HashMap::new();
+                        hd.insert(table_name.into(), STable::newf(column_name, fk));
+                        data.insert(table_schema.into(), hd);
+                    }
+                    Some(s) => {
+                        match s.get_mut(table_name) {
+                            None => {
+                                s.insert(table_name.into(), STable::newf(column_name, fk));
+                            }
+                            Some(hd) => {
+                                hd.fks.insert(column_name.into(), fk);
+                            }
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+}
+
 impl STable {
     #[inline]
     fn new(column: &str, column_data: String) -> Self {
@@ -109,6 +176,18 @@ impl STable {
         cls.insert(column.into(), column_data);
         STable {
             columns: cls,
+            fks: HashMap::new(),
+            triggers: HashMap::new(),
+        }
+    }
+
+    #[inline]
+    fn newf(column: &str, fk: FKTable) -> Self {
+        let mut fks = HashMap::new();
+        fks.insert(column.into(), fk);
+        STable {
+            columns: HashMap::new(),
+            fks,
             triggers: HashMap::new(),
         }
     }
@@ -118,9 +197,9 @@ impl STable {
         let mut tgs = HashMap::new();
         tgs.insert(trig.into(), trig_data);
         STable {
-           triggers: tgs,
-           columns  : HashMap::new(),
+            triggers: tgs,
+            fks: HashMap::new(),
+            columns: HashMap::new(),
         }
     }
 }
-
