@@ -24,11 +24,22 @@ use yaml_rust::YamlLoader;
 use self::yaml_rust::Yaml;
 use openssl::error::ErrorStack;
 
+
+
+
 pub const CONFIG_DEF_YML: &str = "
 name: rdbm
 version: \"1.0\"
 author: DBInvent
 about: SQL script tracker and DB deployment by schema definition for Postgres
+group:
+    - db:
+        args: [db_name, db_host, db_port, db_user, db_password, db_sslmode, db_sslrootcert, db_sslcert, db_sslkey]
+    - logdb:
+        args: [logdb_name, logdb_host, logdb_port, logdb_user, logdb_password, logdb_sslmode, logdb_sslrootcert, logdb_sslcert, logdb_sslkey]
+    - deploy:
+        args: [schema_deploy, version_deploy, rr_deploy]
+
 args:
     - db_name:
         long: db_name
@@ -103,11 +114,6 @@ args:
         long: logdb_sslkey
         takes_value: true
         help: /path/to/client.key
-    - ignore_order:
-        long: ignore_order
-        default_value: \"false\"
-        help: Perform Versions order execution
-        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - schema_regxp:
         long: schema_regxp
         default_value: \"*\"
@@ -241,9 +247,9 @@ Library Key Features:
 
 runs by tests
 */
-pub fn migrate(cfg: ConfigMap, po: bool, log: &Logger) -> Result<(), String> {
+pub fn migrate(cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
     let mut client = connect("logdb_", &cfg)?;
-    let result = { migrate_db(&mut client, &cfg, po, log) };
+    let result = { migrate_db(&mut client, &cfg, prepare_only, log) };
     match client.close() {
         Ok(_) => {}
         Err(_) => {}
@@ -275,8 +281,7 @@ fn migrate_db(
     let schema = cfg.schema();
     let mut dbc = crate::dbm_dbc::load_info_schema(log_client, cfg)?;
     let yschemas = crate::dbm_yml::load_all(cfg)?;
-    let mut t = log_client.transaction().unwrap(); // begin
-                                                   // self install if not exists
+    let mut t = log_client.transaction().unwrap(); // begin self install if not exists
     let err = {
         match STATEMENT_LOG_TBL.deploy(&mut dbc, &mut t, &schema, cfg, BASELINE, log) {
             Ok(exec) => {
@@ -305,7 +310,7 @@ fn migrate_db(
     } else {
         // select table for update -- row level lock, revert changes
         let logs = { StatementLog::load_all(&mut t, cfg)? };
-        let pgsrv = format!("~/.rdbm_{}.conf", cfg.target());
+        let pgsrv = format!("/tmp/.rdbm_{}.conf", cfg.get("db_name", ""));
         let res = match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
             Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
             Err(error) => Err(error),
@@ -340,14 +345,8 @@ fn deploy_all_files(
     if cfg.is_pgsrv() {
         let mut content = String::new();
         let names = vec![
-            "host",
-            "port",
-            "user",
-            "password",
-            "sslmode",
-            "sslrootcert",
-            "sslcert",
-            "sslkey",
+            "host", "port", "user", "password",
+            "sslmode", "sslrootcert", "sslcert", "sslkey",
         ];
         for name in names.iter() {
             cfg.get_pow(&mut content, "db_", name, "\n");

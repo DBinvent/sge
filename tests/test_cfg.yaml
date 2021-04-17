@@ -1,5 +1,5 @@
-db_name: "vk"
-db_port: "5433"
+db_name: "rt"
+db_port: "5434"
 db_user: "vk"
 db_password: "1"
 db_host: "localhost"

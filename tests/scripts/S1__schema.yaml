@@ -13,6 +13,7 @@ database:
           - column:
             name: id
             type: serial
+            defaultValue:
             constraint: # changes on PK & NULL wont apply
               primaryKey: true
               nullable: false
@@ -24,10 +25,10 @@ database:
           - column:
             name: test
             type: varchar(250)
-        triggers:
-          - trigger:
-            name: uniq_name_of_trigegr
+
+        triggers: # will generate SQL, if trigger name is absent and proc is valid:
+          - trigger: # CREATE TRIGGER {name} {event} ON {tableName} {when} EXECUTE PROCEDURE {proc}
+            name: uniq_name_of_trigger
             event: before update
             when: for each row
-            proc:
-
+            proc: -- p()

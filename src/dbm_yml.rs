@@ -47,7 +47,7 @@ columns:
   - column:
     name: created_on
     type: timestamp
-    dfn: default current_timestamp()
+    sql: default current_timestamp()
   - column:
     name: checksum
     type: varchar(80)
@@ -69,7 +69,7 @@ columns:
   - column:
     name: ok
     type: bool
-    dfn: not null default false
+    sql: not null default false
     description: Successful execution of the script
   - column:
     name: msg
@@ -77,7 +77,18 @@ columns:
   - column:
     name: took_sec
     type: bigint
+  - column:
+    name: times
+    type: int
+    defaultValue: '1'
+    constraint:
+      nullable: false
 ";
+
+/// Max varchar len for columns name: source, target, msg
+pub(crate) const SRC_T_M_LEN: usize = 250;
+/// Max varchar len for all other columns names
+pub(crate) const SLT_C_LEN: usize = 80;
 
 lazy_static! {
     pub(crate) static ref STATEMENT_LOG_TBL: crate::dbm_yml::YTable =
@@ -399,7 +410,7 @@ pub(crate) struct YTable {
 pub(crate) fn as_str_esc(input: &Yaml, field: &str) -> String {
     let val = as_str_def(input, field, "");
     match val.find("--") {
-        None => val,
+        None => format!(" {}", val),
         Some(i) => val[0..i].into(),
     }
 }
@@ -513,6 +524,7 @@ impl YTable {
                             if let Some(def) = self.trig_def(schema, dcn, dt) {
                                 let _ = writeln!(sql, "{}", def);
                                 let _ = ts.triggers.insert(dcn.clone(), def);
+                                exec = true;
                             }
                         }
                     }
@@ -548,7 +560,7 @@ impl YTable {
                 columns.remove(columns.rfind(",").unwrap());
                 let _ = writeln!(
                     sql,
-                    "CREATE TABLE {}.{} ({}) {}; \n",
+                    "CREATE TABLE {}.{} ({}){}; \n",
                     schema, self.table_name, columns, self.sql
                 );
                 if owner.len() > 0 {
@@ -570,26 +582,35 @@ impl YTable {
                 .insert(self.table_name.clone(), st);
             exec = true;
         }
-        if comments.len() > 0 {
-            let _ = writeln!(sql, "{}\n", comments);
+        if exec {
+            if comments.len() > 0 {
+                let _ = writeln!(sql, "{}\n", comments);
+            }
+            if self.description.len() > 0 {
+                let _ = writeln!(
+                    comments,
+                    "COMMENT ON TABLE {}.{} IS '{}'; \n",
+                    schema, self.table_name, self.description
+                );
+            }
         }
-        if self.description.len() > 0 {
-            let _ = writeln!(
-                sql,
-                "COMMENT ON TABLE {}.{} IS '{}'; \n",
-                schema, self.table_name, self.description
-            );
-        }
-
         if cfg.get_bool("dry_run", false) {
             match StatementLog::dry_store(cfg.get_opt("dry_run_to"), sql, log) {
-                Ok(_) => Ok(false),
+                Ok(_) => {
+                    let _ = StatementLog::dry_store(cfg.get_opt("dry_run_to"), comments, log);
+                    Ok(false)
+                },
                 Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to", ""), e)),
             }
         } else {
             if exec {
-                if let Err(e) = db.batch_execute(sql.as_str()) {
-                    return Err(format!("DB execute [{}]: {}", sql, e));
+                match db.batch_execute(sql.as_str()) {
+                    Ok(()) => {
+                        let _ = db.batch_execute(comments.as_str());
+                    }
+                    Err(e) => {
+                        return Err(format!("[{}]: {}", sql, e));
+                    }
                 }
             }
             Ok(exec)
@@ -618,16 +639,19 @@ impl YTable {
                     if !constraint.is_null() {
                         if let Some(pk) = constraint["primaryKey"].as_bool() {
                             if pk {
-                                let _ = write!(cs, " primary key");
+                                let _ = write!(cs, " primary key ");
                             }
                         }
                         if let Some(nb) = constraint["nullable"].as_bool() {
                             if !nb {
-                                let _ = write!(cs, " not null");
+                                let _ = write!(cs, " not null ");
                             }
                         }
                     }
-                    Ok(format!("{} {} {} {}", column_name, t, cs, as_str_esc(input, "sql")))
+                    let def_val = as_str_esc(input, "defaultValue");
+                    Ok(format!("{} {}{}{}{}{}", column_name, t, cs,
+                               if def_val.len()>0 {" default " } else {""}, def_val,
+                               as_str_esc(input, "sql")))
                 }
             }
         }
@@ -662,11 +686,10 @@ impl YTable {
     /// column defenition to SQL string
     #[inline]
     fn trig_def(&self, schema: &String, trig_name: &String, input: &Yaml) -> Option<String> {
-        let proc = as_str(input, "proc");
+        let proc = as_str_esc(input, "proc");
         if proc.len() > 0 {
             Some(format!(
-                "CREATE TRIGGER {}.{} {} ON {}.{} {} EXECUTE PROCEDURE {};",
-                schema,
+                "CREATE TRIGGER {} {} ON {}.{} {} EXECUTE PROCEDURE {};",
                 trig_name,
                 as_str_def(input, "event", "BEFORE UPDATE"),
                 schema,
@@ -903,7 +926,7 @@ impl<'a> ConfigMap<'a> {
     }
 
     #[inline]
-    pub fn is_pgsrv(&self) -> bool {
+    pub(crate) fn is_pgsrv(&self) -> bool {
         let mut result = false;
         if let Some(_) = self.get_opt("db_password") {
             result = true;
@@ -915,7 +938,7 @@ impl<'a> ConfigMap<'a> {
     }
 
     #[inline]
-    pub fn is_ssl(&self) -> bool {
+    pub(crate) fn is_ssl(&self) -> bool {
         let mut result = false;
         if let Some(_) = self.get_opt("db_sslcert") {
             result = true;

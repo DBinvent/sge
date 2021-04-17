@@ -1,10 +1,8 @@
 
 [config]
 skip_core_tasks = true
-#on_error_task = "on_error"
 
 [config.modify_core_tasks]
-# if true, all core tasks are set to private (default false)
 private = true
 
 [tasks.build]
@@ -36,15 +34,15 @@ dependencies = ["test", "build", "postgres-up"]
 cwd = "tests"
 script = [
 '''
-../target/debug/rdbm -c ./test_cfg.yaml prepare
+../target/debug/rdbm -c ./test_cfg.yaml migrate
 psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" rt
-
-# ./postgres.sh stop db 5434 12
-
-echo "TESTED OK"
 '''
 ]
 
+[tasks.all]
+dependencies = ["test", "build", "postgres-up", "run", "clean"]
+script = "echo TESTED OK"
+
 [tasks.default]
-dependencies = ["run"]
+dependencies = ["all"]
 workspace = false

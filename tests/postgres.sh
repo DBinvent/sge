@@ -13,12 +13,12 @@ case $1 in
 "start")
 
 db=$4
-if [ $# -lt 5 ]; then
+if [ $# -lt 4 ]; then
   db=$USER
 fi
 
 pver=$5
-if [ $# -lt 4 ]; then
+if [ $# -lt 5 ]; then
   pver=12 # default postgres version is 12
 fi
 
@@ -27,7 +27,7 @@ wd=$(dirname $(realpath "$0"))/$2/$3
 # shellcheck disable=SC2046
 mkdir -p $(dirname "$0")/$2
 pdir=$(dirname "$(find /usr  -type f -executable -name initdb | grep $pver | head -n 1)")
-echo "Working dir for this instance set to $wd Postgres$pver bin folder is $pdir"
+echo "Working dir for this DB[$db] instance set to $wd Postgres$pver bin folder is $pdir"
 # find a initdb
 cd "$pdir" || exit 1
 # run if not
@@ -40,7 +40,7 @@ if [ ! -f "$wd/pg_hba.conf" ]; then
 # echo "host all all 127.0.0.1/0 trust" >> "$wd/pg_hba.conf"
 fi
 
-# --listen_addresses="$2"
+# --listen_addresses="$2" \x
 
 if [ ! -f "$wd/postmaster.pid" ]; then
   echo "Starting Postgres$pver on port $3. use '$0 stop $2 $3 && rm -rf $wd' to stop and clean it."

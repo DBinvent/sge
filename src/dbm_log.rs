@@ -10,7 +10,7 @@ use serde::Serialize;
 use slog::Logger;
 
 use crate::dbm_dbc::InfoSchemaType;
-use crate::dbm_yml::{ConfigMap, FilesMap};
+use crate::dbm_yml::{ConfigMap, FilesMap, SRC_T_M_LEN, SLT_C_LEN};
 use crate::BASELINE;
 use std::fs::OpenOptions;
 use std::time::Instant;
@@ -43,8 +43,8 @@ pub(crate) struct StatementLog {
     pub took_sec: i64,
 }
 
-/// information schema types: schema, table, column
-pub(crate) type LogSchemaType = HashMap<String, (bool, String)>;
+/// source_type||version: file, checksum
+pub(crate) type LogSchemaType = HashMap<String, (String, String)>;
 
 impl StatementLog {
     /// select table for update -- row level lock
@@ -54,24 +54,21 @@ impl StatementLog {
         let log_st = format!("{}.{}", cfg.schema(), cfg.history_table_name());
         let dry_run = cfg.get_bool("dry_run", true);
         let lock = format!(
-            "select version from {} where target = '{}' and source_type='S' \
-            and source = $1 {}",
-            log_st,
-            BASELINE,
-            if dry_run { "" } else { "for update" }
+            "select version from {} where target = '{}' and source_type='S' and source = $1 {}",
+            log_st, BASELINE, if dry_run { "" } else { "for update" }
         );
         let mut res = HashMap::new();
         match t.query(lock.as_str(), &[&db]) {
             Ok(_) => {
                 let sql = format!(
-                    "select source_type||version, ok, checksum from {} where target = $1 and ok",
+                    "select source_type||version, source, checksum from {} where target = $1 and ok",
                     log_st
                 );
                 match t.query(sql.as_str(), &[&db]) {
                     Ok(v) => {
                         for r in v {
                             let key: String = r.get(0);
-                            let val: bool = r.get(1);
+                            let val: String = r.get(1);
                             let checksum: String = r.get(2);
                             res.insert(key, (val, checksum));
                         }
@@ -97,13 +94,13 @@ impl StatementLog {
             dry_run: cfg.get_bool("dry_run", false),
             id: 0,
             source: "baseline".to_string(),
-            target: cfg.target(),
+            target: tlim(&cfg.target(), SRC_T_M_LEN),
             source_type: ' ',
             version: "0".to_string(),
             checksum: "".into(),
-            catalog: cfg.get("db_catalog", ""),
-            script_tag: cfg.get("script_tag", ""),
-            executed_by: cfg.get("executed_by", ""),
+            catalog: tlim(&cfg.get("db_catalog", ""), SLT_C_LEN),
+            script_tag: tlim(&cfg.get("script_tag", ""), SLT_C_LEN),
+            executed_by: tlim(&cfg.get("executed_by", ""), SLT_C_LEN),
             ok: false,
             msg: "".to_string(),
             took_sec: 0,
@@ -114,8 +111,8 @@ impl StatementLog {
     pub(crate) fn instance(&self, code: char, version: &String, file: &String) -> Self {
         let mut insta = self.clone();
         insta.source_type = code;
-        insta.version = version.clone();
-        insta.source = file.clone();
+        insta.version = tlim(version, SLT_C_LEN);
+        insta.source = tlim(file, SRC_T_M_LEN);
         insta.checksum = if file.as_str() == BASELINE {
             "".into()
         } else {
@@ -159,22 +156,20 @@ impl StatementLog {
         log: &Logger,
     ) -> Result<(), String> {
         let key = format!("{}{}", self.source_type, self.version);
-        if let Some((ok, checks)) = logs.get(&key) {
-            if *ok {
-                if self.checksum == *checks {
+        if let Some((file, checks)) = logs.get(&key) {
+            if self.checksum == *checks && &self.source == file {
+                return Ok(());
+            } else if self.source_type == 'V' {
+                if cfg.get_bool("version_checksum", false) {
+                    // checksum different
+                    return Err(format!(
+                        "Version [{}] script file [{}] checksum deployment mismatch",
+                            self.version, self.source));
+                } else {
                     return Ok(());
-                } else if self.source_type == 'V' {
-                    if cfg.get_bool("version_checksum", false) {
-                        // checksum different
-                        return Err(format!(
-                            "Version [{}] script file checksum deployment mismatch",
-                            self.version
-                        ));
-                    } else {
-                        return Ok(());
-                    }
                 }
             }
+
         };
         if self.dry_run {
             self.dry_write(cfg, log)
@@ -188,17 +183,20 @@ impl StatementLog {
             }
             match cmd
                 .arg(format!("--dbname={}", cfg.get("db_name", "")))
-                .arg("-X")
-                .arg("-1")
-                .arg("-f")
-                .arg(&self.source)
+                .arg(format!("--host={}", cfg.get("db_host", "")))
+                .arg("-X")//  do not read startup file (~/.psqlrc)
+                .arg("-1")// --single-transaction
+                .arg("-v").arg("ON_ERROR_STOP=1")
+                .arg("-f").arg(&self.source)
                 .output()
             {
                 Ok(output) => {
                     let msg = format!(
                         "{} {}",
-                        String::from_utf8_lossy(output.stderr.as_ref()),
+                        String::from_utf8_lossy(output.stderr.as_ref())
+                            .trim_matches(|c| c == ' ' || c == '\n' || c == '^'),
                         String::from_utf8_lossy(output.stdout.as_ref())
+                            .trim_matches(|c| c == ' ' || c == '\n' || c == '^')
                     );
                     if output.status.success() {
                         info!(log, "{}: OK\n{}", &self.source, msg);
@@ -232,28 +230,25 @@ impl StatementLog {
         };
         let (ok, msg) = match &err {
             None => (true, "".into()),
-            Some(e) => (false, e.clone()),
+            Some(e) => (false, tlim(e, SRC_T_M_LEN)),
         };
         match t.query(
             format!(
-                "select id from {} where target = $1 and source_type = $2 and version = $3",
-                self.table
-            )
-            .as_str(),
+                "select id from {} where target = $1 and source_type = $2 and version = $3", self.table).as_str(),
             &[&self.target, &self.source_type.to_string(), &self.version],
         ) {
             Ok(rows) => {
                 match if rows.len() > 0 {
                     let id: i32 = rows[0].get(0);
                     t.execute(format!("update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
-                        checksum = $5, script_tag = $6, catalog = $7, executed_on=current_timestamp where id = $8",
+                        checksum = $5, script_tag = $6, catalog = $7, source = $8, executed_on=current_timestamp, times = times+1 where id = $9",
                         self.table).as_str(), &[
-                            &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag,& self.catalog,
+                            &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source,
                             &id])
                 } else {
                     t.execute(format!("insert into {} (target, source_type, source, version, ok, msg, took_sec, executed_by, \
                         checksum, script_tag, catalog, executed_on, created_on) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, current_timestamp, current_timestamp)",
-                        self.table).as_str(), &[&self.target, &self.source_type.to_string(), &self.source.to_string(), &self.version,
+                        self.table).as_str(), &[&self.target, &self.source_type.to_string(), &self.source, &self.version,
                             &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog,
                         ])
                 } {
@@ -315,6 +310,15 @@ impl StatementLog {
         }
     }
 }
+
+/// Trim to limit
+#[inline]
+fn tlim(value: &String, max: usize) -> String {
+    if value.len() >= max {
+        value[0..max].into()
+    } else { value.clone() }
+}
+
 
 const BUFFER_SIZE: usize = 1024;
 
