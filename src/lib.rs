@@ -31,7 +31,13 @@ pub const CONFIG_DEF_YML: &str = "
 name: rdbm
 version: \"1.0\"
 author: DBInvent
-about: SQL script tracker and DB deployment by schema definition for Postgres
+about: \"SQL script tracker and DB deployment by schema definition for Postgres. \
+    Execution order is: (P)->(S)->(V)->(R)->(after) \
+    i.e. (P)reDeploy, (S)chema yaml, (V)ersion, (R)e-runable, (a)fter migration. \
+    The (R) scripts will check a file hashsum and run if the file changed. \
+    Other scripts will check for version and execute if version absent in target DB. \
+    The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history. \
+    see more options bellow.\"
 group:
     - db:
         args: [db_name, db_host, db_port, db_user, db_password, db_sslmode, db_sslrootcert, db_sslcert, db_sslkey]
@@ -118,6 +124,10 @@ args:
         long: schema_regxp
         default_value: \"*\"
         help: Scan schemas
+    - pre_deploy:
+        long: pre_deploy
+        default_value: \"*\"
+        help: Scan for files to perform (P)re Deploy scripts. Found file with suitable versions will check for absent in execution and run ahead of (S)chema file.
     - schema_deploy:
         long: schema_deploy
         default_value: \"*\"
@@ -127,7 +137,7 @@ args:
     - version_checksum:
         long: version_checksum
         default_value: \"false\"
-        help: Fail on deployed scripts version checksum mismatch
+        help: Fail on deployed (P)re and (V)ersion scripts checksum mismatch
         possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - rr_deploy:
         long: rr_deploy
@@ -311,9 +321,14 @@ fn migrate_db(
         // select table for update -- row level lock, revert changes
         let logs = { StatementLog::load_all(&mut t, cfg)? };
         let pgsrv = format!("/tmp/.rdbm_{}.conf", cfg.get("db_name", ""));
-        let res = match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
-            Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
-            Err(error) => Err(error),
+        let res = match deploy_pre_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log) {
+            Ok(_) => {
+                match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
+                    Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(error)
         };
         if cfg.is_pgsrv() {
             let _ = fs::remove_file(pgsrv);
@@ -334,7 +349,7 @@ fn migrate_db(
 
 #[inline]
 /// deploy changes by files
-fn deploy_all_files(
+fn deploy_pre_files(
     logs: &LogSchemaType,
     yschemas: &FilesMap,
     pgsrv: &str,
@@ -357,9 +372,30 @@ fn deploy_all_files(
     }
     let draft = StatementLog::new(cfg);
     // deploy versions
+    for (v, file) in &yschemas.pre {
+        draft
+            .instance('P', v, file)
+            .deploy(&logs, pgsrv, cfg, t, log)?;
+        draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
+    }
+    Ok(())
+}
+
+#[inline]
+/// deploy changes by files
+fn deploy_all_files(
+    logs: &LogSchemaType,
+    yschemas: &FilesMap,
+    pgsrv: &str,
+    cfg: &ConfigMap,
+    t: &mut Transaction,
+    log: &Logger,
+) -> Result<(), String> {
+    let draft = StatementLog::new(cfg);
+    // deploy versions
     for (v, file) in &yschemas.versions {
         draft
-            .instance('S', v, file)
+            .instance('V', v, file)
             .deploy(&logs, pgsrv, cfg, t, log)?;
         draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
     }
@@ -388,35 +424,47 @@ fn deploy_all_schemas(
     {
         let stl = StatementLog::new(cfg);
         let mut t = client.transaction().unwrap();
+        let mut do_persist = false;
         for (ver, (file, ysv)) in &yschemas.schemas {
             for (s, ys) in ysv {
                 for (_, yt) in &ys.tables {
-                    if let Err(e) = yt.deploy(dbc, &mut t, &s, &cfg, &ys.file, log) {
-                        err = Some(e);
-                        break;
+                    match yt.deploy(dbc, &mut t, &s, &cfg, &ys.file, log) {
+                        Ok(ok) => { if ok { do_persist = true; }}
+                        Err(e) => {
+                            err = Some(e);
+                            break;
+                        }
                     }
                 }
                 if let Some(_) = &err { break; }
             }
-            if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
-                err = Some(e);
+            if do_persist {
+                if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
+                    err = Some(e);
+                }
             }
             if let Some(_) = &err { break; }
         }
+        let mut do_persist = false;
         if let None = &err {
             // deploy FK
             for (ver, (file, ysv)) in &yschemas.schemas {
                 for (s, ys) in ysv {
                     for (_, yt) in &ys.tables {
-                        if let Err(e) = yt.deploy_fk( &yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
-                            err = Some(e);
-                            break;
+                        match yt.deploy_fk( &yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
+                        Ok(ok) => { if ok { do_persist = true; }}
+                            Err(e) => {
+                                err = Some(e);
+                                break;
+                            }
                         }
                     }
                     if let Some(_) = &err { break; }
                 }
-                if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
-                    err = Some(e);
+                if do_persist {
+                    if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
+                        err = Some(e);
+                    }
                 }
                 if let Some(_) = &err { break;}
             }

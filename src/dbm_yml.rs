@@ -34,6 +34,8 @@ columns:
   - column:
     name: source
     type: varchar(250)
+    constraint:
+      nullable: false
   - column:
     name: target
     type: varchar(250)
@@ -41,13 +43,19 @@ columns:
     name: source_type
     type: char
     description: 'S: Schema, V: Version, R: Re-runnable'
+    constraint:
+      nullable: false
   - column:
     name: version
     type: varchar(80)
+    constraint:
+      nullable: false
   - column:
     name: created_on
     type: timestamp
-    sql: default current_timestamp()
+    defaultValue: current_timestamp
+    constraint:
+      nullable: false
   - column:
     name: checksum
     type: varchar(80)
@@ -69,7 +77,9 @@ columns:
   - column:
     name: ok
     type: bool
-    sql: not null default false
+    constraint:
+      nullable: false
+    defaultValue: \"false\"
     description: Successful execution of the script
   - column:
     name: msg
@@ -77,6 +87,9 @@ columns:
   - column:
     name: took_sec
     type: bigint
+    constraint:
+      nullable: false
+    defaultValue: \"0\"
   - column:
     name: times
     type: int
@@ -118,6 +131,8 @@ pub(crate) struct FilesMap {
     /// version: schemaName : schema (with name)
     pub schemas: SchemaTableMap,
     /// version: file
+    pub pre: VersionTableMap,
+    /// version: file
     pub versions: VersionTableMap,
     /// version: file
     pub re_runnable: VersionTableMap,
@@ -134,9 +149,12 @@ pub(crate) fn load_all(cfg: &ConfigMap) -> Result<FilesMap, String> {
     load_dir(
         cfg.get("source_dir", "./").as_str(),
         &mut schema,
-        cfg.get("schema_deploy", "*").as_str(),
-        cfg.get("version_deploy", "*").as_str(),
-        cfg.get("rr_deploy", "*").as_str(),
+        &FileFilter {
+            pre: cfg.get("pre_deploy", "*"),
+            schema_deploy:  cfg.get("schema_deploy", "*"),
+            version_deploy: cfg.get("version_deploy", "*"),
+            rr_deploy:  cfg.get("rr_deploy", "*")
+        },
         cfg.get_bool("fail_safe", true),
         cfg.get_bool("source_recur", true),
     )?;
@@ -146,6 +164,7 @@ pub(crate) fn load_all(cfg: &ConfigMap) -> Result<FilesMap, String> {
 impl FilesMap {
     fn new() -> Self {
         FilesMap {
+            pre: HashMap::new(),
             schemas: HashMap::new(),
             versions: HashMap::new(),
             re_runnable: HashMap::new(),
@@ -171,14 +190,18 @@ impl FilesMap {
         pk
     }
 }
+struct FileFilter {
+   pub pre: String,
+   pub schema_deploy: String,
+   pub version_deploy: String,
+   pub rr_deploy: String,
+}
 
 #[inline(never)]
 fn load_dir(
     dir: &str,
     schema: &mut FilesMap,
-    schema_deploy: &str,
-    version_deploy: &str,
-    rr_deploy: &str,
+    ff: &FileFilter,
     fail_safe: bool,
     recursive: bool,
 ) -> Result<(), String> {
@@ -190,15 +213,7 @@ fn load_dir(
                         let fm = p.metadata().unwrap();
                         let file_name = p.path().to_string_lossy().to_string();
                         if fm.is_dir() && recursive {
-                            load_dir(
-                                file_name.as_str(),
-                                schema,
-                                schema_deploy,
-                                version_deploy,
-                                rr_deploy,
-                                fail_safe,
-                                recursive,
-                            )?;
+                            load_dir(file_name.as_str(), schema, ff, fail_safe, recursive,)?;
                         } else if fm.is_file() && file_name.len() > 5 {
                             let starting_pos = match file_name.rfind("/") {
                                 None => 0,
@@ -208,7 +223,7 @@ fn load_dir(
                                 b'S' => {
                                     let (key, ok) = parse_type(
                                         file_name.as_str(),
-                                        schema_deploy,
+                                        ff.schema_deploy.as_str(),
                                         ".yaml",
                                         starting_pos,
                                         fail_safe,
@@ -247,10 +262,22 @@ fn load_dir(
                                         }
                                     }
                                 }
+                                b'P' => {
+                                    let (key, ok) = parse_type(
+                                        file_name.as_str(),
+                                        ff.pre.as_str(),
+                                        ".sql",
+                                        starting_pos,
+                                        fail_safe,
+                                    )?;
+                                    if ok {
+                                        schema.pre.insert(key, file_name);
+                                    }
+                                }
                                 b'V' => {
                                     let (key, ok) = parse_type(
                                         file_name.as_str(),
-                                        version_deploy,
+                                        ff.version_deploy.as_str(),
                                         ".sql",
                                         starting_pos,
                                         fail_safe,
@@ -262,7 +289,7 @@ fn load_dir(
                                 b'R' => {
                                     let (key, ok) = parse_type(
                                         file_name.as_str(),
-                                        rr_deploy,
+                                        ff.rr_deploy.as_str(),
                                         ".sql",
                                         starting_pos,
                                         fail_safe,
@@ -410,7 +437,7 @@ pub(crate) struct YTable {
 pub(crate) fn as_str_esc(input: &Yaml, field: &str) -> String {
     let val = as_str_def(input, field, "");
     match val.find("--") {
-        None => format!(" {}", val),
+        None => if val.len() > 0 { format!(" {}", val) } else {"".into()},
         Some(i) => val[0..i].into(),
     }
 }
@@ -961,28 +988,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn statement_deser_test() {
-        let mut schema = FilesMap::new();
-        match load_dir(&"./tests", &mut schema, "*", "1.1", "1.1", true, true) {
-            Ok(_) => {
-                assert_eq!(schema.schemas.len(), 1);
-                // assert_eq!(schema.schemas.iter().next().unwrap().1.tables.len(), 1);
-                assert_eq!(schema.re_runnable.len(), 1);
-                assert_eq!(schema.versions.len(), 1);
-                assert!(schema.after.len() >= 1);
-                println!("{:?}", schema);
-            }
-            Err(e) => {
-                assert!(false, "{}", e);
-            }
-        }
-    }
-
-    #[test]
     fn statementlog_deser_test() {
         assert!(STATEMENT_LOG_TBL.table_name.len() > 1);
         assert!(STATEMENT_LOG_TBL.description.len() > 10);
         assert!(STATEMENT_LOG_TBL.columns.len() > 10);
+    }
+
+    #[test]
+    fn config_log_deser_test() {
         assert!(crate::CONFIG_YAML["args"].as_vec().unwrap().len() > 10);
     }
 

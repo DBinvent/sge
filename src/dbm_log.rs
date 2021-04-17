@@ -156,17 +156,17 @@ impl StatementLog {
         log: &Logger,
     ) -> Result<(), String> {
         let key = format!("{}{}", self.source_type, self.version);
-        if let Some((file, checks)) = logs.get(&key) {
-            if self.checksum == *checks && &self.source == file {
+        if let Some((_sl_file, checks)) = logs.get(&key) {
+            if self.checksum == *checks {
                 return Ok(());
-            } else if self.source_type == 'V' {
-                if cfg.get_bool("version_checksum", false) {
+            } else if self.source_type == 'V' || self.source_type == 'P' {
+                return if cfg.get_bool("version_checksum", false) {
                     // checksum different
-                    return Err(format!(
+                    Err(format!(
                         "Version [{}] script file [{}] checksum deployment mismatch",
-                            self.version, self.source));
+                        self.version, self.source))
                 } else {
-                    return Ok(());
+                    Ok(())
                 }
             }
 
