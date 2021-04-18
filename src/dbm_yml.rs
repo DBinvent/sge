@@ -1,17 +1,17 @@
 extern crate yaml_rust;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, BTreeMap};
 use std::fs;
 
 use postgres::Transaction;
-use semver::Version;
+use semver::{Version, SemVerError};
 use yaml_rust::YamlLoader;
 
 use crate::dbm_dbc::{InfoSchemaType, STable, FKTable};
 
 use self::yaml_rust::Yaml;
 use serde::{Deserialize, Serialize};
-use std::fmt::Write;
+use std::fmt::{Write, Formatter};
 use std::result::Result;
 
 use crate::dbm_log::StatementLog;
@@ -20,6 +20,7 @@ use lazy_static::lazy_static;
 use slog::Logger;
 use std::fmt;
 use std::fmt::Display;
+use std::cmp::Ordering;
 
 const STATEMENT_LOG_TABLE_YML: &str = "
 tableName: rdbm_history
@@ -137,24 +138,61 @@ pub(crate) struct FilesMap {
     /// version: file
     pub re_runnable: VersionTableMap,
     /// After scritps
-    pub after: VersionTableMap,
+    pub after: HashMap<String, String>,
 }
 
-pub(crate) type FileVersion = String;
-pub(crate) type SchemaTableMap = HashMap<FileVersion, (String, HashMap<String, YSchema>)>;
-pub(crate) type VersionTableMap = HashMap<FileVersion, String>;
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct FileVersion {
+    #[serde(skip_serializing)]
+    v: Version,
+    pub s: String,
+}
+
+pub(crate) type SchemaTableMap = BTreeMap<FileVersion, (String, HashMap<String, YSchema>)>;
+pub(crate) type VersionTableMap = BTreeMap<FileVersion, String>;
+
+impl FileVersion {
+    #[inline]
+    fn new(vv: Version, key: String) -> Self {
+        FileVersion {v: vv, s: key}
+    }
+    #[inline]
+    fn from(key: &str) -> Result<Self, SemVerError> {
+        Ok(FileVersion {v: Version::parse(key)?, s: key.into()})
+    }
+}
+
+impl PartialEq for FileVersion {
+    fn eq(&self, other:&Self) -> bool {
+        self.v == other.v
+    }
+}
+
+impl Eq for FileVersion { }
+
+impl PartialOrd for FileVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some( self.v.cmp(&other.v) )
+    }
+}
+
+impl Ord for FileVersion {
+    fn cmp(&self, other:&Self) -> Ordering {
+        self.v.cmp(&other.v)
+    }
+}
+impl Display for FileVersion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.s)
+    }
+}
 
 pub(crate) fn load_all(cfg: &ConfigMap) -> Result<FilesMap, String> {
     let mut schema = FilesMap::new();
     load_dir(
         cfg.get("source_dir", "./").as_str(),
         &mut schema,
-        &FileFilter {
-            pre: cfg.get("pre_deploy", "*"),
-            schema_deploy:  cfg.get("schema_deploy", "*"),
-            version_deploy: cfg.get("version_deploy", "*"),
-            rr_deploy:  cfg.get("rr_deploy", "*")
-        },
+        &FileFilters::new(cfg)?,
         cfg.get_bool("fail_safe", true),
         cfg.get_bool("source_recur", true),
     )?;
@@ -164,11 +202,11 @@ pub(crate) fn load_all(cfg: &ConfigMap) -> Result<FilesMap, String> {
 impl FilesMap {
     fn new() -> Self {
         FilesMap {
-            pre: HashMap::new(),
-            schemas: HashMap::new(),
-            versions: HashMap::new(),
-            re_runnable: HashMap::new(),
-            after: HashMap::new(),
+            pre: Default::default(),
+            schemas: Default::default(),
+            versions: Default::default(),
+            re_runnable: Default::default(),
+            after: Default::default(),
         }
     }
 
@@ -190,18 +228,32 @@ impl FilesMap {
         pk
     }
 }
-struct FileFilter {
-   pub pre: String,
-   pub schema_deploy: String,
-   pub version_deploy: String,
-   pub rr_deploy: String,
+
+#[derive(Debug, Clone)]
+struct FileFilters {
+   pub pre: FileFilter,
+   pub schema_deploy: FileFilter,
+   pub version_deploy: FileFilter,
+   pub rr_deploy: FileFilter,
+}
+
+impl FileFilters {
+    #[inline]
+    fn new(cfg: &ConfigMap) -> Result<Self, String> {
+        Ok(FileFilters{
+            pre: FileFilter::new("pre_deploy", cfg,  ".sql")?,
+            schema_deploy: FileFilter::new("schema_deploy", cfg, ".yaml")?,
+            version_deploy: FileFilter::new("version_deploy", cfg, ".sql")?,
+            rr_deploy: FileFilter::new("rr_deploy", cfg, ".sql")?,
+        })
+    }
 }
 
 #[inline(never)]
 fn load_dir(
     dir: &str,
     schema: &mut FilesMap,
-    ff: &FileFilter,
+    ff: &FileFilters,
     fail_safe: bool,
     recursive: bool,
 ) -> Result<(), String> {
@@ -221,14 +273,7 @@ fn load_dir(
                             };
                             match file_name.as_bytes()[starting_pos] {
                                 b'S' => {
-                                    let (key, ok) = parse_type(
-                                        file_name.as_str(),
-                                        ff.schema_deploy.as_str(),
-                                        ".yaml",
-                                        starting_pos,
-                                        fail_safe,
-                                    )?;
-                                    if ok {
+                                    if let Some((vv, key)) = ff.schema_deploy.parse_type(&file_name, starting_pos)? {
                                         match load(file_name.as_str()) {
                                             Ok(y) => match y["database"].as_vec() {
                                                 None => {}
@@ -244,14 +289,14 @@ fn load_dir(
                                                             );
                                                         }
                                                         if let Some(ss) =
-                                                            schema_schemas.get_mut(&ysn)
+                                                        schema_schemas.get_mut(&ysn)
                                                         {
                                                             let _ = ss.append(s, fail_safe)?;
                                                         }
                                                     }
                                                     schema
                                                         .schemas
-                                                        .insert(key, (file_name, schema_schemas));
+                                                        .insert(FileVersion::new(vv,  key), (file_name, schema_schemas));
                                                 }
                                             },
                                             Err(e) => {
@@ -263,51 +308,23 @@ fn load_dir(
                                     }
                                 }
                                 b'P' => {
-                                    let (key, ok) = parse_type(
-                                        file_name.as_str(),
-                                        ff.pre.as_str(),
-                                        ".sql",
-                                        starting_pos,
-                                        fail_safe,
-                                    )?;
-                                    if ok {
-                                        schema.pre.insert(key, file_name);
+                                   if let Some((vv, key)) = ff.pre.parse_type(&file_name, starting_pos)? {
+                                        schema.pre.insert(FileVersion::new(vv,  key), file_name);
                                     }
                                 }
                                 b'V' => {
-                                    let (key, ok) = parse_type(
-                                        file_name.as_str(),
-                                        ff.version_deploy.as_str(),
-                                        ".sql",
-                                        starting_pos,
-                                        fail_safe,
-                                    )?;
-                                    if ok {
-                                        schema.versions.insert(key, file_name);
+                                   if let Some((vv, key)) = ff.version_deploy.parse_type(&file_name, starting_pos)? {
+                                        schema.versions.insert(FileVersion::new(vv,  key), file_name);
                                     }
                                 }
                                 b'R' => {
-                                    let (key, ok) = parse_type(
-                                        file_name.as_str(),
-                                        ff.rr_deploy.as_str(),
-                                        ".sql",
-                                        starting_pos,
-                                        fail_safe,
-                                    )?;
-                                    if ok {
-                                        schema.re_runnable.insert(key, file_name);
+                                   if let Some((vv, key)) = ff.rr_deploy.parse_type(&file_name, starting_pos)? {
+                                        schema.re_runnable.insert(FileVersion::new(vv,  key), file_name);
                                     }
                                 }
                                 b'a' => {
-                                    let (key, ok) = parse_type(
-                                        file_name.as_str(),
-                                        "*",
-                                        ".sql",
-                                        starting_pos,
-                                        false,
-                                    )?;
-                                    if ok {
-                                        schema.after.insert(key, file_name);
+                                    if file_name.ends_with(".sql") {
+                                        schema.after.insert(file_name[starting_pos..file_name.len()-4].into(), file_name);
                                     }
                                 }
                                 _ => {
@@ -327,50 +344,57 @@ fn load_dir(
     }
 }
 
-#[inline]
-fn parse_type(
-    filename: &str,
-    filter: &str,
-    filetype: &str,
-    from_pos: usize,
-    fail_safe: bool,
-) -> Result<(String, bool), String> {
-    if filename.ends_with(filetype) {
-        match filename.find("__") {
-            None => {
-                if fail_safe {
-                    Err(format!("unrecognizable version of file: {}", filename))
-                } else {
-                    Ok((filename[from_pos..filename.len() - 4].into(), true))
+#[derive(Debug, Clone)]
+struct FileFilter {
+    /// None for any
+    filter: Option<Version>,
+    file_type: String,
+}
+
+impl FileFilter {
+    #[inline]
+    fn new(field: &str, cfg: &ConfigMap, file_type: &str) -> Result<Self, String> {
+        let f = cfg.get(field, "*");
+        let filter = if f.as_bytes()[0] == b'*' {
+            None
+        } else {
+             Some(semver_parse(f.as_str())?)
+        };
+        Ok(FileFilter {
+            filter,
+            file_type: file_type.into(),
+            // fail_safe: fail_safe: cfg.get_bool("fail_safe", true)
+        })
+    }
+
+    #[inline]
+    fn parse_type(&self, filename: &String, from_pos: usize) -> Result<Option<(Version, String)>, String> {
+        if filename.ends_with(&self.file_type) {
+            match filename.find("__") {
+                None => Err(format!("unrecognizable version of file: {}", filename)),
+                Some(i) => {
+                    let ver = filename[from_pos + 1..i].replace("_", ".");
+                    match &self.filter {
+                        None => Ok(Some((semver_parse(ver.as_str())?, ver))),
+                        Some(fv) => {
+                            let vv = semver_parse(ver.as_str())?;
+                            if fv >= &vv {
+                                Ok(Some((vv, ver)))
+                            } else {
+                                Ok(None)
+                            }
+                        }
+                    }
                 }
             }
-            Some(i) => {
-                let ver = filename[from_pos + 1..i].replace("_", ".");
-                let ok = cmp(ver.as_str(), filter, fail_safe)?;
-                Ok((ver, ok))
-            }
+        } else {
+            Ok(None)
         }
-    } else {
-        Ok(("".into(), false))
     }
 }
 
 #[inline]
-fn cmp(ver: &str, filter: &str, fail_safe: bool) -> Result<bool, String> {
-    if filter.len() == 0 {
-        Ok(false)
-    } else if filter.as_bytes()[0] == b'*' {
-        //|| (filter.len() == 1 && filter.as_bytes()[0] == b'^') {
-        Ok(true)
-    } else {
-        let (fv, f_ok) = semver_parse(filter, fail_safe)?;
-        let (vv, v_ok) = semver_parse(ver, fail_safe)?;
-        Ok(f_ok && v_ok && fv.unwrap() >= vv.unwrap())
-    }
-}
-
-#[inline]
-fn semver_parse(input: &str, fail_safe: bool) -> Result<(Option<Version>, bool), String> {
+fn semver_parse(input: &str) -> Result<Version, String> {
     let fd = match input.find(".") {
         None => 0,
         Some(i) => i,
@@ -387,14 +411,8 @@ fn semver_parse(input: &str, fail_safe: bool) -> Result<(Option<Version>, bool),
         format!("{}.0", input)
     };
     match semver::Version::parse(input.as_str()) {
-        Ok(v) => Ok((Some(v), true)),
-        Err(e) => {
-            if fail_safe {
-                Err(format!("version parsing: {} error: {}", input, e))
-            } else {
-                Ok((None, false))
-            }
-        }
+        Ok(v) => Ok(v),
+        Err(e) => Err(format!("version parsing: {} error: {}", input, e))
     }
 }
 
@@ -426,7 +444,7 @@ pub(crate) struct YTable {
     pub description: String,
     /// suffix on table create
     pub sql: String,
-    pub unlogged: bool,
+    pub constraint: String,
     #[serde(skip_serializing)]
     pub columns: HashMap<String, Yaml>,
     #[serde(skip_serializing)]
@@ -469,7 +487,7 @@ fn str2bool(input: &str, default: bool) -> bool {
         default
     } else {
         input == "true" || input == "yes" || input == "TRUE" || input == "YES" || input == "Y"
-            || input == "ok" || input == "OK" || input == "ON" || input == "on"
+            || input == "ok" || input == "OK" || input == "ON" || input == "on" || input == "y"
             || input == "T" || input == "+" || input == "1"
     }
 }
@@ -515,7 +533,7 @@ impl YTable {
             table_name: table_name.into(),
             description: as_str(input, "description"),
             sql: as_str_esc(input, "sql"),
-            unlogged: as_bool(input, "unlogged", false),
+            constraint: as_str_esc(input, "constraint"),
             columns,
             triggers,
         })
@@ -587,8 +605,10 @@ impl YTable {
                 columns.remove(columns.rfind(",").unwrap());
                 let _ = writeln!(
                     sql,
-                    "CREATE TABLE {}.{} ({}){}; \n",
-                    schema, self.table_name, columns, self.sql
+                    "CREATE TABLE {}.{} ({}{}{}){}; \n",
+                    schema, self.table_name, columns,
+                    if self.constraint.len() > 0 {", "} else {""}, self.constraint,
+                    self.sql
                 );
                 if owner.len() > 0 {
                     let _ = writeln!(
@@ -917,13 +937,18 @@ impl<'a> ConfigMap<'a> {
     #[inline]
     pub(crate) fn get_pow(&self, content: &mut String, prefix: &str, param: &str, amp: &str) {
         if let Some(v) = self.get_opt(format!("{}{}", prefix, param).as_str()) {
-            let _ = write!(
-                content,
-                "{}{}={}",
+            let _ = write!(content, "{}{}={}",
                 if content.len() > 0 { amp } else { "" },
                 param,
                 v
             );
+        }
+    }
+
+    #[inline]
+    pub(crate) fn get_pow_scr(&self, content: &mut String, prefix: &str, param: &str, amp: &str) {
+        if let Some(_) = self.get_opt(format!("{}{}", prefix, param).as_str()) {
+            let _ = write!(content, "{}{}=***", if content.len() > 0 { amp } else { "" }, param);
         }
     }
 
@@ -955,9 +980,9 @@ impl<'a> ConfigMap<'a> {
     #[inline]
     pub(crate) fn is_pgsrv(&self) -> bool {
         let mut result = false;
-        if let Some(_) = self.get_opt("db_password") {
-            result = true;
-        }
+        // if let Some(_) = self.get_opt("db_password") {
+        //     result = true;
+        // }
         if let Some(_) = self.get_opt("db_sslmode") {
             result = true
         }
@@ -1021,4 +1046,22 @@ mod tests {
             assert!(!str2bool(v, def));
         }
     }
+
+    #[test]
+    fn iter_test() {
+        let list = vec![FileVersion::from("0.0.3").unwrap(),
+            FileVersion::from("0.0.1").unwrap(),
+            FileVersion::from("0.0.2").unwrap()];
+        let mut ff = BTreeMap::new();
+        for l in list {
+            ff.insert(l.clone(), l.s.clone());
+        }
+        let mut i = 1;
+        for (f, s) in ff {
+            // println!("{}({})", f, s);
+            assert_eq!(f.v.patch, i);
+            i += 1;
+        }
+    }
+
 }

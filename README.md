@@ -16,6 +16,23 @@ Also suitable as orchestrator for multiple db instances, hosts and environments.
 The app intend to be a microservise ready with multidatabase (microservice configuration) & (multi)environment support
 
 
+#### Key features
+
+ - create database if absent
+ - connect by certs
+ - use both: schema definition and script execution tracking
+ - support separate db connection for history table
+ - use psql client for script execution
+ - no jvm nor python required to run
+ - lightweight (just 8MB) and fast
+
+
+#### Limitations
+
+ - Postgres DB only
+ - see 'Schema deploy restriction'
+
+
 ### Schema deploy restriction notice
 
  - The column definitions 'sql' field and constraints (except FK) will apply only for a new columns or new table.
@@ -28,8 +45,14 @@ The app intend to be a microservise ready with multidatabase (microservice confi
 ### TODO
 
 - Lift column restrictions for Schema deploy for multiprimary keys, etc
+- Order column on table creation by yaml appearance
 - Add git as a source 
 - Add keyvault cloud integration
 - Add UI / api to work as a service (phpadmin inspired)
 - Add scheduled deploy
 - Add data migration: dump - upgrade 
+
+### License
+
+This software is licensing just for $10
+

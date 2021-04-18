@@ -36,7 +36,7 @@ script = [
 '''
 grep -q db_user ./test_cfg.yaml || echo "db_user: \"$USER\" " >> ./test_cfg.yaml
 ../target/debug/rdbm -c ./test_cfg.yaml migrate
-psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" rt
+psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" rtx
 '''
 ]
 

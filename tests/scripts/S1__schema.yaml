@@ -7,8 +7,8 @@ database:
       - table: # createTable
         tableName: test_table
         description: The new table
+        constraint: -- some SQL as table constraint
         sql: -- some SQL suffix on table create
-        unlogged: false
         columns:
           - column:
             name: id

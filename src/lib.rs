@@ -23,8 +23,11 @@ use yaml_rust::YamlLoader;
 
 use self::yaml_rust::Yaml;
 use openssl::error::ErrorStack;
-
-
+use postgres::error::SqlState;
+use std::fmt::Write;
+use chrono::{TimeZone,Utc};
+// use chrono::{DateTime, NaiveDateTime,  Timelike, TimeZone,Utc};
+use std::time::SystemTime;
 
 
 pub const CONFIG_DEF_YML: &str = "
@@ -37,7 +40,7 @@ about: \"SQL script tracker and DB deployment by schema definition for Postgres.
     The (R) scripts will check a file hashsum and run if the file changed. \
     Other scripts will check for version and execute if version absent in target DB. \
     The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history. \
-    see more options bellow.\"
+    see more options bellow. Check http://rdbm.dbinvent.com/ for more information and best practice.\"
 group:
     - db:
         args: [db_name, db_host, db_port, db_user, db_password, db_sslmode, db_sslrootcert, db_sslcert, db_sslkey]
@@ -203,12 +206,38 @@ args:
         long: after
         default_value: \"after.sql\"
         takes_value: true
-        help: Try the find and run the script after successful migration execution. Do not fail if not found. This script execution wont log into history table.
+        help: Try to find and run the script after successful migration execution. Do not fail if not found. This script execution wont log into history table.
     - after_each:
         long: after_each
         default_value: \"after_each.sql\"
         takes_value: true
         help: Try to find and run the script after each 'V' or 'R' successful execution. Do not fail if not found. This script execution wont log into history table.
+    - createdb:
+        long: createdb
+        default_value: \"false\"
+        help: Create DB if the db_name/log_dbname not exists. Will try to use same credentials and db postgres
+        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
+    - createdb_user:
+        long: createdb_user
+        default_value: postgres
+        help: Create DB user to use during 'Create DB' step.
+    - createdb_pwd:
+        long: createdb_pwd
+        takes_value: true
+        help: Postgres user password to use during 'Create DB' step. If not set, then will be use db_sslxxx.
+    - createdblog_user:
+        long: createdblog_user
+        default_value: postgres
+        help: Create DB user to use during 'Create LOGDB' step. LOGDB use if logdb_name set.
+    - createlogdb_pwd:
+        long: createlogdb_pwd
+        takes_value: true
+        help: Postgres user password to use during 'Create LOGDB' step. If not set, then will be use logdb_sslxxx.
+    - license:
+        long: license
+        short: l
+        default_value: \"rdbm.license\"
+        help: The license file. Check http://rdbm.dbinvent.com/ to get one. Also use the source_dir to search.
 
 
 subcommands:
@@ -235,7 +264,20 @@ lazy_static! {
             panic!("wrong config: {}", e);
         }
     };
+    static ref EPOC_2020: i64 = Utc.ymd(2020, 2, 2).and_hms(0, 0, 0).timestamp();
+	static ref EPOC_2020H: u64 = EPOC_2020.clone() as u64 >> 12;
 }
+
+/// pseudo hours (real hours + 14% as divided to 4096 (>> 12) instead of 3600)
+/// science 2020
+#[inline]
+pub(crate) fn hp() -> u32 {
+    let r = if let Ok(n) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
+        (n.as_secs() >> 12) - *EPOC_2020H
+    } else { EPOC_2020.clone() as u64 >> 12 };
+    r as u32
+}
+
 
 /**
 ##Description:
@@ -258,7 +300,7 @@ Library Key Features:
 runs by tests
 */
 pub fn migrate(cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
-    let mut client = connect("logdb_", &cfg)?;
+    let mut client = connect("logdb_", &cfg, None, log)?;
     let result = { migrate_db(&mut client, &cfg, prepare_only, log) };
     match client.close() {
         Ok(_) => {}
@@ -296,7 +338,7 @@ fn migrate_db(
         match STATEMENT_LOG_TBL.deploy(&mut dbc, &mut t, &schema, cfg, BASELINE, log) {
             Ok(exec) => {
                 if exec {
-                    debug!(log, "self deployed");
+                    debug!(log, "self deployed: {}", BASELINE);
                     if let Err(e) = StatementLog::new(cfg)
                         .instance('S', &BASELINE.into(), &BASELINE.into())
                         .persist(None, &mut t)
@@ -374,7 +416,7 @@ fn deploy_pre_files(
     // deploy versions
     for (v, file) in &yschemas.pre {
         draft
-            .instance('P', v, file)
+            .instance('P', &v.s, file)
             .deploy(&logs, pgsrv, cfg, t, log)?;
         draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
     }
@@ -395,14 +437,14 @@ fn deploy_all_files(
     // deploy versions
     for (v, file) in &yschemas.versions {
         draft
-            .instance('V', v, file)
+            .instance('V', &v.s, file)
             .deploy(&logs, pgsrv, cfg, t, log)?;
         draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
     }
     // deploy re-runable
     for (v, file) in &yschemas.re_runnable {
         draft
-            .instance('R', v, file)
+            .instance('R', &v.s, file)
             .deploy(&logs, pgsrv, cfg, t, log)?;
         draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
     }
@@ -420,7 +462,7 @@ fn deploy_all_schemas(
     log: &Logger,
 ) -> Result<(), String> {
     let mut err = None;
-    let mut client = connect("db_", &cfg)?;
+    let mut client = connect("db_", &cfg, None, log)?;
     {
         let stl = StatementLog::new(cfg);
         let mut t = client.transaction().unwrap();
@@ -439,7 +481,7 @@ fn deploy_all_schemas(
                 if let Some(_) = &err { break; }
             }
             if do_persist {
-                if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
+                if let Err(e) = stl.instance('S', &ver.s, file).persist(err.clone(), lt) {
                     err = Some(e);
                 }
             }
@@ -462,7 +504,7 @@ fn deploy_all_schemas(
                     if let Some(_) = &err { break; }
                 }
                 if do_persist {
-                    if let Err(e) = stl.instance('S', ver, file).persist(err.clone(), lt) {
+                    if let Err(e) = stl.instance('S', &ver.s, file).persist(err.clone(), lt) {
                         err = Some(e);
                     }
                 }
@@ -483,7 +525,7 @@ fn deploy_all_schemas(
 }
 
 #[inline]
-fn connect(prefix: &str, cfg: &ConfigMap) -> Result<Client, String> {
+fn connect(prefix: &str, cfg: &ConfigMap, create: Option<bool>, log: &Logger) -> Result<Client, String> {
     let mut override_prefix = false;
     if prefix == "logdb_" {
         if let None = cfg.get_opt("logdb_name") {
@@ -492,24 +534,49 @@ fn connect(prefix: &str, cfg: &ConfigMap) -> Result<Client, String> {
     };
     let prefix = if override_prefix { "db_" } else { prefix };
     let mut url = String::new();
-    let names = vec![
-        "host",
-        "port",
-        "user",
-        "password",
-        "sslmode",
-        "sslrootcert",
-        "sslcert",
-        "sslkey",
-    ];
+    // TODO test with cert
+    let names = vec!["host", "port",  // "user", "password",
+        "sslmode", "sslrootcert", "sslcert", "sslkey"];
     for name in names.iter() {
         cfg.get_pow(&mut url, prefix, name, "&");
     }
-    let db = format!(
-        "postgresql:///{}?{}",
-        cfg.get(format!("{}name", prefix).as_str(), ""),
-        url
-    );
+
+    let as_postgres_user = match create {
+        None => false,
+        Some(pc) => pc
+    };
+
+    let (dbname, log_url) = if as_postgres_user {
+        let _ = write!(url, "{}user={}", if url.len() > 0 { "&" } else { "" },
+            cfg.get(format!("create{}user", prefix).as_str(), "postgres"));
+
+        let mut log_url = url.clone();
+        match cfg.get_opt(format!("create{}pwd", prefix).as_str()) {
+            None => {
+                cfg.get_pow(&mut url, prefix, "password", "&");
+                cfg.get_pow_scr(&mut log_url, prefix, "password", "&");
+            }
+            Some(pwd) => {
+                let _ = write!(url, "&password={}", pwd);
+                let _ = write!(log_url, "&password=***");
+            }
+        }
+        debug!(log, "create db connect: {}", log_url);
+        ("postgres".to_string(), log_url)
+    } else {
+        cfg.get_pow(&mut url, prefix, "user", "&");
+        let mut log_url = url.clone();
+        cfg.get_pow(&mut url, prefix, "password", "&");
+        cfg.get_pow_scr(&mut log_url, prefix, "password", "&");
+        match cfg.get_opt(format!("{}name", prefix).as_str()) {
+            None => {
+                return Err(format!("No DB name set: {}name", prefix));
+            }
+            Some(db) => (db, log_url)
+        }
+    };
+    let db = format!("postgresql:///{}?{}", dbname, url);
+    debug!(log, "connecting: {}", log_url);
     match if cfg.is_ssl() {
         let connector = match make_tls_connector(&cfg.get(prefix, "sslcert")) {
             Ok(c) => c,
@@ -522,8 +589,39 @@ fn connect(prefix: &str, cfg: &ConfigMap) -> Result<Client, String> {
         Client::connect(db.as_str(), NoTls)
     } {
         Ok(client) => Ok(client),
-        Err(err) => Err(format!("Connect to Postgres [{}]: \n{} ", db, err)),
+        Err(err) => {
+            if let None = create {
+                if let Some(code) = err.code() {
+                    if code == &SqlState::UNDEFINED_DATABASE {
+                        if cfg.get_bool("createdb", false) {
+                            return create_connect(dbname.as_str(), prefix, cfg, log);
+                        } else {
+                            error!(log, "NO DB: {}, create or use --createdb=y", dbname);
+                        }
+                    }
+                }
+            }
+            Err(format!("Connect to Postgres [{}]: {} ", log_url, err))
+         },
     }
+}
+
+#[inline(never)]
+fn create_connect(dbname: &str, prefix: &str, cfg: &ConfigMap, log: &Logger) -> Result<Client, String> {
+    info!(log, "NO DB name [{}] found, trying to create...", dbname);
+    let mut client = connect(prefix, cfg, Some(true), log)?;
+    let owner = match cfg.get_opt(format!("{}_user", prefix).as_str()) {
+        None => "".to_string(),
+        Some(user) => format!(" OWNER {}", user),
+    };
+    match client.batch_execute(format!("CREATE DATABASE {} {}", dbname, owner).as_str()) {
+        Ok(()) => {
+            let _ = client.close();
+            connect(prefix, cfg, Some(false), log)
+        }
+        Err(e) => Err(format!("Creating DB [{}] by postgres: {} ", dbname, e))
+    }
+
 }
 
 #[inline]
@@ -535,7 +633,7 @@ fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
 
 #[inline]
 pub fn load(cfg: ConfigMap, log: &Logger) -> Result<String, String> {
-    let mut client = connect("logdb_", &cfg)?;
+    let mut client = connect("logdb_", &cfg, None, log)?;
     let result = { load_impl(&mut client, &cfg, log) };
     let _ = client.close();
     result

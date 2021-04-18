@@ -181,6 +181,10 @@ impl StatementLog {
             if let Some(port) = cfg.get_opt("db_port") {
                 cmd.arg(format!("-p{}", port));
             }
+            if let Some(pgpass) = cfg.get_opt("db_password") {
+                cmd.env("PGPASSWORD", pgpass);
+            }
+            debug!(log, "executing {} ...", self.source);
             match cmd
                 .arg(format!("--dbname={}", cfg.get("db_name", "")))
                 .arg(format!("--host={}", cfg.get("db_host", "")))
@@ -214,6 +218,7 @@ impl StatementLog {
         }
     }
 
+    // TODO if logdb, then set target if not set
     #[inline]
     pub(crate) fn persist(&self, err: Option<String>, t: &mut Transaction) -> Result<(), String> {
         if self.dry_run {
@@ -366,6 +371,8 @@ pub(crate) fn load_impl(
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct LoadResult {
     pub db_info_schema: InfoSchemaType,
+    // TODO FIXME -- ERRO key must be a string
+    #[serde(skip_serializing)]
     pub scripts: FilesMap,
     pub history: LogSchemaType,
 }
