@@ -10,7 +10,7 @@ edition = "2018"
 [lib]
 name = "rdbm"
 path = "src/lib.rs"
-crate-type = ["rlib", "dylib"]
+#crate-type = ["rlib", "dylib"]
 #crate-type = ["rlib", "cdylib", "staticlib"]
 
 [[bin]]
