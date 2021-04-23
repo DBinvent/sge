@@ -46,7 +46,6 @@ if [ ! -f "$wd/postmaster.pid" ]; then
   echo "Starting Postgres$pver on port $3. use '$0 stop $2 $3 && rm -rf $wd' to stop and clean it."
   ./postgres -p "$3" --hba_file="$wd/pg_hba.conf" -k "$wd" -D "$wd" &
   sleep 2
-  psql -p $3 -h $wd -tc "SELECT 1 FROM pg_database WHERE datname = '$db'" postgres | grep -q 1 || psql -p $3 -h $wd -c "CREATE DATABASE $db" postgres
 fi
 
 ;;

@@ -1,13 +1,7 @@
-db_name: "ucb"
+db_name: "rt"
 source_dir: "../user-cabinet-backend/scripts"
 db_port: "5434"
 db_user: "vk"
-db_password: "1"
 db_host: "localhost"
-_dry_run: "true"
-_dry_run_to: "./tests/test.out"
-_version_checksum: "true"
-createdb: y
-createdb_user: "vk"
-createdb_pwd: "1"
-license:
+license_file:
+email:

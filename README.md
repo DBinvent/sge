@@ -42,17 +42,22 @@ The app intend to be a microservise ready with multidatabase (microservice confi
  - All script files executed by psql with a flag --single-transaction, to be able to correctly handle a status and safely repeat
 
 
+### Schema snapshot restriction notice
+
+ - only column name and type
+ - no indexes, foreign keys, constraint, special sql on table or column defenition
+
+
 ### TODO
 
-- Lift column restrictions for Schema deploy for multiprimary keys, etc
-- Order column on table creation by yaml appearance
-- Add git as a source 
-- Add keyvault cloud integration
+- Lift column restrictions for Schema snapshot and deploy for multiprimary keys, etc
+- Add git as a source for scripts and license
+- Add keyvault's cloud integration for DB conenction and license store
 - Add UI / api to work as a service (phpadmin inspired)
 - Add scheduled deploy
 - Add data migration: dump - upgrade 
 
 ### License
 
-This software is licensing just for $10
+This software distributed as commercially licensed
 

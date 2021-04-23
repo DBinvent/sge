@@ -1,130 +1,29 @@
 extern crate yaml_rust;
 
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 
 use postgres::Transaction;
-use semver::{Version, SemVerError};
+use semver::{SemVerError, Version};
 use yaml_rust::YamlLoader;
 
-use crate::dbm_dbc::{InfoSchemaType, STable, FKTable};
+use crate::dbm_dbc::{FKTable, InfoSchemaType, STable};
 
 use self::yaml_rust::Yaml;
-use serde::{Deserialize, Serialize};
-use std::fmt::{Write, Formatter};
+use serde::{Deserialize, Serialize, Serializer};
+use std::fmt::{Formatter, Write};
 use std::result::Result;
 
 use crate::dbm_log::StatementLog;
 use clap::ArgMatches;
 use lazy_static::lazy_static;
 use slog::Logger;
+use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
-use std::cmp::Ordering;
-
-const STATEMENT_LOG_TABLE_YML: &str = "
-tableName: rdbm_history
-description: The schema deployment log
-columns:
-  - column:
-    name: id
-    type: serial
-    constraint:
-      primaryKey: true
-      nullable: false
-  - column:
-    name: source
-    type: varchar(250)
-    constraint:
-      nullable: false
-  - column:
-    name: target
-    type: varchar(250)
-  - column:
-    name: source_type
-    type: char
-    description: 'S: Schema, V: Version, R: Re-runnable'
-    constraint:
-      nullable: false
-  - column:
-    name: version
-    type: varchar(80)
-    constraint:
-      nullable: false
-  - column:
-    name: created_on
-    type: timestamp
-    defaultValue: current_timestamp
-    constraint:
-      nullable: false
-  - column:
-    name: checksum
-    type: varchar(80)
-  - column:
-    name: scheduled_on
-    type: timestamp
-  - column:
-    name: script_tag
-    type: varchar(80)
-  - column:
-    name: catalog
-    type: varchar(80)
-  - column:
-    name: executed_on
-    type: timestamp
-  - column:
-    name: executed_by
-    type: varchar(80)
-  - column:
-    name: ok
-    type: bool
-    constraint:
-      nullable: false
-    defaultValue: \"false\"
-    description: Successful execution of the script
-  - column:
-    name: msg
-    type: varchar(250)
-  - column:
-    name: took_sec
-    type: bigint
-    constraint:
-      nullable: false
-    defaultValue: \"0\"
-  - column:
-    name: times
-    type: int
-    defaultValue: '1'
-    constraint:
-      nullable: false
-";
-
-/// Max varchar len for columns name: source, target, msg
-pub(crate) const SRC_T_M_LEN: usize = 250;
-/// Max varchar len for all other columns names
-pub(crate) const SLT_C_LEN: usize = 80;
-
-lazy_static! {
-    pub(crate) static ref STATEMENT_LOG_TBL: crate::dbm_yml::YTable =
-        match YamlLoader::load_from_str(STATEMENT_LOG_TABLE_YML) {
-            Ok(y) => {
-                if y.len() > 0 {
-                    crate::dbm_yml::YTable::new(
-                        &y[0],
-                        y[0]["tableName"].as_str().unwrap(),
-                        true,
-                        crate::BASELINE,
-                    )
-                    .unwrap()
-                } else {
-                    panic!("zero config");
-                }
-            }
-            Err(e) => {
-                panic!("wrong config: {}", e);
-            }
-        };
-}
+use serde::ser::SerializeSeq;
+use serde::__private::ser::constrain;
+use postgres::types::ToSql;
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -154,30 +53,34 @@ pub(crate) type VersionTableMap = BTreeMap<FileVersion, String>;
 impl FileVersion {
     #[inline]
     fn new(vv: Version, key: String) -> Self {
-        FileVersion {v: vv, s: key}
+        FileVersion { v: vv, s: key }
     }
     #[inline]
+    #[allow(dead_code)]
     fn from(key: &str) -> Result<Self, SemVerError> {
-        Ok(FileVersion {v: Version::parse(key)?, s: key.into()})
+        Ok(FileVersion {
+            v: Version::parse(key)?,
+            s: key.into(),
+        })
     }
 }
 
 impl PartialEq for FileVersion {
-    fn eq(&self, other:&Self) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         self.v == other.v
     }
 }
 
-impl Eq for FileVersion { }
+impl Eq for FileVersion {}
 
 impl PartialOrd for FileVersion {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some( self.v.cmp(&other.v) )
+        Some(self.v.cmp(&other.v))
     }
 }
 
 impl Ord for FileVersion {
-    fn cmp(&self, other:&Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.v.cmp(&other.v)
     }
 }
@@ -193,7 +96,6 @@ pub(crate) fn load_all(cfg: &ConfigMap) -> Result<FilesMap, String> {
         cfg.get("source_dir", "./").as_str(),
         &mut schema,
         &FileFilters::new(cfg)?,
-        cfg.get_bool("fail_safe", true),
         cfg.get_bool("source_recur", true),
     )?;
     Ok(schema)
@@ -215,11 +117,11 @@ impl FilesMap {
     fn pks(&self, schema: &String, table: &String) -> String {
         let mut pk = String::new();
         for (_, (_, sks)) in &self.schemas {
-            if let Some( fkst) = sks.get(schema) {
+            if let Some(fkst) = sks.get(schema) {
                 if let Some(tt) = fkst.tables.get(table) {
-                    for (cc, cy) in &tt.columns {
-                        if tt.is_pk(cy) {
-                            let _ = write!(pk, "{}{}", if pk.len()>0 {", "} else {""}, cc);
+                    for cc in &tt.columns.list {
+                        if cc.is_pk() {
+                            let _ = write!(pk, "{}{}", if pk.len() > 0 { ", " } else { "" }, cc.get_name());
                         }
                     }
                 }
@@ -231,17 +133,17 @@ impl FilesMap {
 
 #[derive(Debug, Clone)]
 struct FileFilters {
-   pub pre: FileFilter,
-   pub schema_deploy: FileFilter,
-   pub version_deploy: FileFilter,
-   pub rr_deploy: FileFilter,
+    pub pre: FileFilter,
+    pub schema_deploy: FileFilter,
+    pub version_deploy: FileFilter,
+    pub rr_deploy: FileFilter,
 }
 
 impl FileFilters {
     #[inline]
     fn new(cfg: &ConfigMap) -> Result<Self, String> {
-        Ok(FileFilters{
-            pre: FileFilter::new("pre_deploy", cfg,  ".sql")?,
+        Ok(FileFilters {
+            pre: FileFilter::new("pre_deploy", cfg, ".sql")?,
             schema_deploy: FileFilter::new("schema_deploy", cfg, ".yaml")?,
             version_deploy: FileFilter::new("version_deploy", cfg, ".sql")?,
             rr_deploy: FileFilter::new("rr_deploy", cfg, ".sql")?,
@@ -254,7 +156,6 @@ fn load_dir(
     dir: &str,
     schema: &mut FilesMap,
     ff: &FileFilters,
-    fail_safe: bool,
     recursive: bool,
 ) -> Result<(), String> {
     match fs::read_dir(dir) {
@@ -265,7 +166,7 @@ fn load_dir(
                         let fm = p.metadata().unwrap();
                         let file_name = p.path().to_string_lossy().to_string();
                         if fm.is_dir() && recursive {
-                            load_dir(file_name.as_str(), schema, ff, fail_safe, recursive,)?;
+                            load_dir(file_name.as_str(), schema, ff, recursive)?;
                         } else if fm.is_file() && file_name.len() > 5 {
                             let starting_pos = match file_name.rfind("/") {
                                 None => 0,
@@ -273,7 +174,9 @@ fn load_dir(
                             };
                             match file_name.as_bytes()[starting_pos] {
                                 b'S' => {
-                                    if let Some((vv, key)) = ff.schema_deploy.parse_type(&file_name, starting_pos)? {
+                                    if let Some((vv, key)) =
+                                        ff.schema_deploy.parse_type(&file_name, starting_pos)?
+                                    {
                                         match load(file_name.as_str()) {
                                             Ok(y) => match y["database"].as_vec() {
                                                 None => {}
@@ -289,42 +192,54 @@ fn load_dir(
                                                             );
                                                         }
                                                         if let Some(ss) =
-                                                        schema_schemas.get_mut(&ysn)
+                                                            schema_schemas.get_mut(&ysn)
                                                         {
-                                                            let _ = ss.append(s, fail_safe)?;
+                                                            let _ = ss.append(s)?;
                                                         }
                                                     }
-                                                    schema
-                                                        .schemas
-                                                        .insert(FileVersion::new(vv,  key), (file_name, schema_schemas));
+                                                    schema.schemas.insert(
+                                                        FileVersion::new(vv, key),
+                                                        (file_name, schema_schemas),
+                                                    );
                                                 }
                                             },
                                             Err(e) => {
-                                                if fail_safe {
-                                                    return Err(format!("{}", e));
-                                                }
+                                                return Err(format!("{}", e));
                                             }
                                         }
                                     }
                                 }
                                 b'P' => {
-                                   if let Some((vv, key)) = ff.pre.parse_type(&file_name, starting_pos)? {
-                                        schema.pre.insert(FileVersion::new(vv,  key), file_name);
+                                    if let Some((vv, key)) =
+                                        ff.pre.parse_type(&file_name, starting_pos)?
+                                    {
+                                        schema.pre.insert(FileVersion::new(vv, key), file_name);
                                     }
                                 }
                                 b'V' => {
-                                   if let Some((vv, key)) = ff.version_deploy.parse_type(&file_name, starting_pos)? {
-                                        schema.versions.insert(FileVersion::new(vv,  key), file_name);
+                                    if let Some((vv, key)) =
+                                        ff.version_deploy.parse_type(&file_name, starting_pos)?
+                                    {
+                                        schema
+                                            .versions
+                                            .insert(FileVersion::new(vv, key), file_name);
                                     }
                                 }
                                 b'R' => {
-                                   if let Some((vv, key)) = ff.rr_deploy.parse_type(&file_name, starting_pos)? {
-                                        schema.re_runnable.insert(FileVersion::new(vv,  key), file_name);
+                                    if let Some((vv, key)) =
+                                        ff.rr_deploy.parse_type(&file_name, starting_pos)?
+                                    {
+                                        schema
+                                            .re_runnable
+                                            .insert(FileVersion::new(vv, key), file_name);
                                     }
                                 }
                                 b'a' => {
                                     if file_name.ends_with(".sql") {
-                                        schema.after.insert(file_name[starting_pos..file_name.len()-4].into(), file_name);
+                                        schema.after.insert(
+                                            file_name[starting_pos..file_name.len() - 4].into(),
+                                            file_name,
+                                        );
                                     }
                                 }
                                 _ => {
@@ -358,17 +273,20 @@ impl FileFilter {
         let filter = if f.as_bytes()[0] == b'*' {
             None
         } else {
-             Some(semver_parse(f.as_str())?)
+            Some(semver_parse(f.as_str())?)
         };
         Ok(FileFilter {
             filter,
             file_type: file_type.into(),
-            // fail_safe: fail_safe: cfg.get_bool("fail_safe", true)
         })
     }
 
     #[inline]
-    fn parse_type(&self, filename: &String, from_pos: usize) -> Result<Option<(Version, String)>, String> {
+    fn parse_type(
+        &self,
+        filename: &String,
+        from_pos: usize,
+    ) -> Result<Option<(Version, String)>, String> {
         if filename.ends_with(&self.file_type) {
             match filename.find("__") {
                 None => Err(format!("unrecognizable version of file: {}", filename)),
@@ -394,7 +312,7 @@ impl FileFilter {
 }
 
 #[inline]
-fn semver_parse(input: &str) -> Result<Version, String> {
+pub(crate) fn semver_parse(input: &str) -> Result<Version, String> {
     let fd = match input.find(".") {
         None => 0,
         Some(i) => i,
@@ -412,7 +330,7 @@ fn semver_parse(input: &str) -> Result<Version, String> {
     };
     match semver::Version::parse(input.as_str()) {
         Ok(v) => Ok(v),
-        Err(e) => Err(format!("version parsing: {} error: {}", input, e))
+        Err(e) => Err(format!("version parsing: {} error: {}", input, e)),
     }
 }
 
@@ -429,44 +347,200 @@ fn load(filename: &str) -> Result<Yaml, String> {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct YSchema {
+    #[serde(rename = "schemaName")]
     pub schema_name: String,
     pub owner: String,
     /// tableName: table(with name)
-    pub tables: HashMap<String, YTable>,
+    pub tables: OrderedHashMap<YTable>,
     /// the table definition loaded from file
     pub file: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct YTable {
+    #[serde(rename = "tableName")]
     pub table_name: String,
     /// comments
     pub description: String,
+    /// transaction: -- single (default) OR table OR column OR retry (wrap to psql)
+    pub transaction: String,
     /// suffix on table create
     pub sql: String,
     pub constraint: String,
-    #[serde(skip_serializing)]
-    pub columns: HashMap<String, Yaml>,
-    #[serde(skip_serializing)]
-    pub triggers: HashMap<String, Yaml>,
+    pub columns: OrderedHashMap<YColumn>,
+    pub triggers: OrderedHashMap<YTrig>,
+}
+
+pub trait Named {
+    fn get_name(&self) -> String;
+}
+
+impl Named for YTable {
+    fn get_name(&self) -> String {
+        self.table_name.clone()
+    }
+}
+
+impl Named for YColumn {
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+impl Named for YTrig {
+    fn get_name(&self) -> String {
+        self.name.clone()
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct YColumn {
+    pub name: String, // id
+    #[serde(rename = "type")]
+    pub column_type: String, // serial
+    #[serde(rename = "defaultValue")]// pub defaultValue: String, //
+    pub default_value: String, //
+    pub constraint: Option<YConstr>,//# changes on PK & NULL wont apply
+    pub description: String, //
+    pub sql: String, // -- some SQL suffix on new column create
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct YConstr {
+    #[serde(rename = "primaryKey")]// pub primaryKey: bool, //true
+    pub primary_key: bool, //true
+    pub nullable: bool, //false
+    #[serde(rename = "foreignKey")]// pub foreignKey: Option<YForeignKey>
+    pub foreign_key: Option<YForeignKey>
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct YForeignKey {
+    pub references: String, //fk_table
+    pub sql: String, //-- some SQL suffix on new FK create- on delete no action on update no action
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct YTrig {
+    pub name: String, //uniq_name_of_trigger
+    pub event: String, // before update
+    pub when: String, //  for each row
+    pub proc: String, //  -- p()
+}
+
+impl YColumn {
+    fn new(input: &Yaml) -> Self {
+        let constraint = &input["constraint"];
+        YColumn {
+            name: safe_sql( as_str_esc(input, "name")),
+            column_type:  as_str_esc(input, "type"),
+            default_value:  as_str_esc(input, "defaultValue"),
+            description:  as_str_esc(input, "description"),
+            sql:  as_str_esc(input, "sql"),
+            constraint:  if constraint.is_null() { None } else {
+                let foreignKey = &constraint["foreignKey"];
+                Some(YConstr{
+                    primary_key: as_bool(constraint, "primaryKey", false),
+                    nullable: as_bool(constraint, "nullable", false),
+                    foreign_key: if foreignKey.is_null() { None } else {
+                        Some(YForeignKey{
+                            references: as_str_esc(foreignKey, "references"),
+                            sql: as_str_esc(foreignKey, "sql"),
+                        })
+                    }
+                })
+            },
+        }
+    }
+
+    pub(crate) fn is_pk(&self) -> bool {
+        match &self.constraint {
+            None => false,
+            Some(c) => c.primary_key,
+        }
+    }
+
+    /// column defenition to SQL string
+    #[inline]
+    fn column_def(&self, schema: &String, table_name: &String, file: &str) -> Result<String, String> {
+        if self.column_type.len() == 0 {
+            Err(format!(
+                "Error column definition on table: {}.{} column {} file {}",
+                schema, table_name, self.name, file
+            ))
+        } else {
+            let mut cs = String::new();
+            if let Some(constraint) = &self.constraint {
+                if constraint.primary_key {
+                    let _ = write!(cs, " primary key ");
+                }
+                if !constraint.nullable{
+                    let _ = write!(cs, " not null ");
+                }
+            }
+            Ok(format!(
+                "{} {}{}{}{}{}",
+                self.name,
+                self.column_type,
+                cs,
+                if self.default_value.len() > 0 { " default " } else { "" },
+                self.default_value,
+                self.sql
+            ))
+        }
+    }
+
+}
+
+impl YTrig {
+    fn new(input: &Yaml) -> Self {
+        YTrig {
+            name: safe_sql( as_str_esc(input, "name")),
+            event: as_str_esc(input, "event"),
+            when: as_str_esc(input, "when"),
+            proc: as_str_esc(input, "proc")
+        }
+    }
+
+        /// column defenition to SQL string
+    #[inline]
+    // pub(crate)
+    fn trig_def(&self, schema: &String, table_name: &String) -> Option<String> {
+        // let proc = as_str_esc(input, "proc");
+        if self.proc.len() > 0 {
+            Some(format!(
+                "CREATE TRIGGER {} {} ON {}.{} {} EXECUTE PROCEDURE {};",
+                self.name,
+                self.event,
+                schema,
+                table_name,
+                self.when,
+                self.proc
+            ))
+        } else {
+            None
+        }
+    }
+
 }
 
 #[inline]
-pub(crate) fn as_str_esc(input: &Yaml, field: &str) -> String {
-    let val = as_str_def(input, field, "");
-    match val.find("--") {
-        None => if val.len() > 0 { format!(" {}", val) } else {"".into()},
+fn as_str_esc(input: &Yaml, field: &str) -> String {
+    let val = as_str(input, field, "");
+    match val.find(" --") {
+        None => {
+            if val.len() > 0 {
+                format!(" {}", val)
+            } else {
+                "".into()
+            }
+        }
         Some(i) => val[0..i].into(),
     }
 }
 
 #[inline]
-pub(crate) fn as_str(input: &Yaml, field: &str) -> String {
-    as_str_def(input, field, "")
-}
-
-#[inline]
-pub(crate) fn as_str_def(input: &Yaml, field: &str, def: &str) -> String {
+fn as_str(input: &Yaml, field: &str, def: &str) -> String {
     match input[field].as_str() {
         None => def.into(),
         Some(s) => s.into(),
@@ -474,7 +548,7 @@ pub(crate) fn as_str_def(input: &Yaml, field: &str, def: &str) -> String {
 }
 
 #[inline]
-pub(crate) fn as_bool(input: &Yaml, field: &str, default: bool) -> bool {
+fn as_bool(input: &Yaml, field: &str, default: bool) -> bool {
     match input[field].as_str() {
         None => default,
         Some(s) => str2bool(s, default),
@@ -486,52 +560,110 @@ fn str2bool(input: &str, default: bool) -> bool {
     if input.len() == 0 {
         default
     } else {
-        input == "true" || input == "yes" || input == "TRUE" || input == "YES" || input == "Y"
-            || input == "ok" || input == "OK" || input == "ON" || input == "on" || input == "y"
-            || input == "T" || input == "+" || input == "1"
+        input == "+"
+            || input == "yes"
+            || input == "YES"
+            || input == "true"
+            || input == "TRUE"
+            || input == "ok"
+            || input == "OK"
+            || input == "on"
+            || input == "ON"
+            || input == "y"
+            || input == "Y"
+            || input == "T"
+            || input == "1"
+    }
+}
+
+#[inline]
+fn safe_sql(input: String) -> String {
+    match input
+        .chars()
+        .position(|c| c == ' ' || c == '.' || c == ';' || c == '\n' || c == '\t')
+    {
+        None => input,
+        Some(i) => input[0..i].into(),
+    }
+}
+
+/// String key for BTreeMap, sorted by adding order
+#[derive(Debug, Clone, Serialize)]
+pub struct OrderedHashMap<T: Named> {
+    #[serde(skip)]
+    map: BTreeMap<String, usize>,
+    // TODO implement #[serde(flatten)] for this as remove list field
+    pub(crate) list: Vec<T>,
+}
+
+impl<T: Named> OrderedHashMap<T> {
+    #[inline]
+    pub(crate) fn new() -> Self {
+        OrderedHashMap {
+            map: Default::default(),
+            list: vec![],
+        }
+    }
+    #[inline]
+    pub(crate) fn append(&mut self, value: T) -> Result<(), String> {
+        let key_name = value.get_name();
+        if key_name.len() == 0 {
+            Err("Empty".into())
+        } else if self.map.contains_key(&key_name) {
+            Err(format!("Duplicate {}", key_name))
+        } else {
+            self.map.insert(key_name, self.list.len());
+            self.list.push(value);
+            Ok(())
+        }
+    }
+    #[inline]
+    pub(crate) fn get(&self, key: &String) -> Option<&T> {
+        match self.map.get(key) {
+            None => None,
+            Some(id) => Some(&self.list[*id]),
+        }
+    }
+    #[inline]
+    pub(crate) fn _len(&self) -> usize {
+        self.list.len()
     }
 }
 
 impl YTable {
-    pub(crate) fn new(
-        input: &Yaml,
-        table_name: &str,
-        fail_safe: bool,
-        file: &str,
-    ) -> Result<Self, String> {
-        let mut columns = HashMap::new();
+    pub(crate) fn new(input: &Yaml, table_name: &str, file: &str) -> Result<Self, String> {
+        let mut columns = OrderedHashMap::new();
         if let Some(cls) = input["columns"].as_vec() {
+            let mut i = 1;
             for c in cls {
-                if let Some(name) = c["name"].as_str() {
-                    if let Some(_) = columns.insert(name.into(), c.clone()) {
-                        if fail_safe {
-                            return Err(format!(
-                                "Duplicate column name: {} on table: {}, found in file: {}",
-                                name, table_name, file
-                            ));
-                        };
+                if let Some(_name) = c["name"].as_str() {
+                    if let Err(e) = columns.append(YColumn::new(c)) {
+                        return Err(format!(
+                            "{} (column name) {}/{} on table: {}, found in file: {}",
+                                e, i, cls.len(), table_name, file
+                        ));
                     };
                 }
+                i += 1;
             }
         }
-        let mut triggers = HashMap::new();
+        let mut triggers = OrderedHashMap::new();
         if let Some(cls) = input["triggers"].as_vec() {
             for c in cls {
                 if let Some(name) = c["name"].as_str() {
-                    if let Some(_) = triggers.insert(name.into(), c.clone()) {
-                        if fail_safe {
-                            return Err(format!(
-                                "Duplicate trigger name: {} on table: {}, found in file: {}",
-                                name, table_name, file
-                            ));
-                        };
+                    if let Err(_) = triggers.append(YTrig::new(c)) {
+                        return Err(format!(
+                            "Duplicate trigger name: {} on table: {}, found in file: {}",
+                            name, table_name, file
+                        ));
                     };
                 }
             }
         }
         Ok(YTable {
             table_name: table_name.into(),
-            description: as_str(input, "description"),
+            description: as_str(input, "description", ""),
+            transaction: as_str(input, "transaction", ""),
             sql: as_str_esc(input, "sql"),
             constraint: as_str_esc(input, "constraint"),
             columns,
@@ -540,9 +672,16 @@ impl YTable {
     }
 
     /// build a create or alter sql
+    // TODO FIXME apply by self.transactions. and schema_transaction
     #[allow(unused_mut)]
-    pub(crate) fn deploy(&self, dbc: &mut InfoSchemaType, db: &mut Transaction,
-        schema: &String, cfg: &ConfigMap, file: &str, log: &Logger,
+    pub(crate) fn deploy(
+        &self,
+        dbc: &mut InfoSchemaType,
+        db: &mut Transaction,
+        schema: &String,
+        cfg: &ConfigMap,
+        file: &str,
+        log: &Logger,
     ) -> Result<bool, String> {
         let mut sql = String::new();
         let mut comments = String::new();
@@ -552,23 +691,23 @@ impl YTable {
             Some(mut ss) => match ss.get_mut(&self.table_name) {
                 None => (false, true),
                 Some(mut ts) => {
-                    for (dcn, dc) in &self.columns {
-                        if !ts.columns.contains_key(dcn) {
-                            let def = self.column_def(dcn, dc, file)?;
+                    for  dc in &self.columns.list {
+                        if !ts.columns.contains_key( &dc.name) {
+                            let def = dc.column_def( schema, &self.table_name, file)?;
                             let _ = write!(
                                 sql,
                                 "ALTER TABLE {}.{} ADD COLUMN {};",
                                 schema, self.table_name, def
                             );
-                            let _ = ts.columns.insert(dcn.clone(), def);
+                            let _ = ts.columns.insert(dc.get_name(), def);
                             exec = true;
                         }
                     }
-                    for (dcn, dt) in &self.triggers {
-                        if !ts.triggers.contains_key(dcn) {
-                            if let Some(def) = self.trig_def(schema, dcn, dt) {
+                    for  dt in &self.triggers.list {
+                        if !ts.triggers.contains_key(&dt.name) {
+                            if let Some(def) = dt.trig_def(schema, &self.table_name) {
                                 let _ = writeln!(sql, "{}", def);
-                                let _ = ts.triggers.insert(dcn.clone(), def);
+                                let _ = ts.triggers.insert(dt.get_name(), def);
                                 exec = true;
                             }
                         }
@@ -588,11 +727,11 @@ impl YTable {
                 fks: Default::default(),
                 triggers: HashMap::new(),
             };
-            for (dcn, dc) in &self.columns {
-                let cd = self.column_def(dcn, dc, file)?;
+            for  dc in &self.columns.list {
+                let cd = dc.column_def(schema, &self.table_name, file)?;
                 let _ = write!(columns, "{}, ", cd);
-                let _ = st.columns.insert(dcn.clone(), cd);
-                self.comments(&mut comments, schema, dcn, dc);
+                let _ = st.columns.insert(dc.get_name(), cd);
+                self.comments(&mut comments, schema, &dc.name, &dc.description);
             }
             if columns.len() > 0 {
                 if create_schema {
@@ -606,8 +745,11 @@ impl YTable {
                 let _ = writeln!(
                     sql,
                     "CREATE TABLE {}.{} ({}{}{}){}; \n",
-                    schema, self.table_name, columns,
-                    if self.constraint.len() > 0 {", "} else {""}, self.constraint,
+                    schema,
+                    self.table_name,
+                    columns,
+                    if self.constraint.len() > 0 { ", " } else { "" },
+                    self.constraint,
                     self.sql
                 );
                 if owner.len() > 0 {
@@ -618,10 +760,11 @@ impl YTable {
                     );
                 }
             }
-            for (dcn, dt) in &self.triggers {
-                if let Some(td) = self.trig_def(schema, dcn, dt) {
+            for dt in &self.triggers.list {
+
+                if let Some(td) = dt.trig_def(schema, &self.table_name) {
                     let _ = writeln!(sql, "{}\n", td);
-                    st.triggers.insert(dcn.clone(), td);
+                    st.triggers.insert(dt.get_name(), td);
                 }
             }
             dbc.get_mut(schema)
@@ -646,7 +789,7 @@ impl YTable {
                 Ok(_) => {
                     let _ = StatementLog::dry_store(cfg.get_opt("dry_run_to"), comments, log);
                     Ok(false)
-                },
+                }
                 Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to", ""), e)),
             }
         } else {
@@ -666,44 +809,6 @@ impl YTable {
 
     //YTable
 
-    /// column defenition to SQL string
-    #[inline]
-    fn column_def(&self, column_name: &String, input: &Yaml, file: &str) -> Result<String, String> {
-        match input["type"].as_str() {
-            None => Err(format!(
-                "Error column definition on table: {} column {} file {}",
-                self.table_name, column_name, file
-            )),
-            Some(t) => {
-                if t.len() == 0 {
-                    Err(format!(
-                        "Error column definition - empty type, on table: {} column {} file {}",
-                        self.table_name, column_name, file
-                    ))
-                } else {
-                    let mut cs = String::new();
-                    let constraint = &input["constraint"];
-                    if !constraint.is_null() {
-                        if let Some(pk) = constraint["primaryKey"].as_bool() {
-                            if pk {
-                                let _ = write!(cs, " primary key ");
-                            }
-                        }
-                        if let Some(nb) = constraint["nullable"].as_bool() {
-                            if !nb {
-                                let _ = write!(cs, " not null ");
-                            }
-                        }
-                    }
-                    let def_val = as_str_esc(input, "defaultValue");
-                    Ok(format!("{} {}{}{}{}{}", column_name, t, cs,
-                               if def_val.len()>0 {" default " } else {""}, def_val,
-                               as_str_esc(input, "sql")))
-                }
-            }
-        }
-    }
-
     #[inline]
     fn is_pk(&self, input: &Yaml) -> bool {
         let mut yes = false;
@@ -718,76 +823,62 @@ impl YTable {
 
     /// column defenition to SQL string
     #[inline]
-    fn comments(&self, sql: &mut String, schema: &String, column_name: &String, input: &Yaml) {
-        if let Some(t) = input["description"].as_str() {
+    fn comments(&self, sql: &mut String, schema: &String, column_name: &String, t: &String) {
+        // if let Some(t) = input["description"].as_str() {
             if t.len() > 0 {
                 let _ = writeln!(
                     sql,
                     "COMMENT ON COLUMN {}.{}.{} IS '{}';",
-                    schema, self.table_name, column_name, self.description
+                    schema, self.table_name, column_name, t
                 );
             }
-        }
-    }
 
-    /// column defenition to SQL string
-    #[inline]
-    fn trig_def(&self, schema: &String, trig_name: &String, input: &Yaml) -> Option<String> {
-        let proc = as_str_esc(input, "proc");
-        if proc.len() > 0 {
-            Some(format!(
-                "CREATE TRIGGER {} {} ON {}.{} {} EXECUTE PROCEDURE {};",
-                trig_name,
-                as_str_def(input, "event", "BEFORE UPDATE"),
-                schema,
-                self.table_name,
-                as_str_def(input, "when", "FOR EACH ROW"),
-                proc
-            ))
-        } else {
-            None
-        }
     }
 
     /// build a create or alter sql
     #[allow(unused, unused_mut)]
-    pub(crate) fn deploy_fk(&self, yschemas: &FilesMap, dbc: &mut InfoSchemaType, db: &mut Transaction,
-        schema: &String, cfg: &ConfigMap, _file: &str, log: &Logger,
+    pub(crate) fn deploy_fk(
+        &self,
+        yschemas: &FilesMap,
+        dbc: &mut InfoSchemaType,
+        db: &mut Transaction,
+        schema: &String,
+        cfg: &ConfigMap,
+        _file: &str,
+        log: &Logger,
     ) -> Result<bool, String> {
         let mut sql = String::new();
         let mut fk_list = Vec::new();
         if let Some(ss) = dbc.get(schema) {
             if let Some(ts) = ss.get(&self.table_name) {
-                for (dcn, dc) in &self.columns {
-                    if ts.columns.contains_key(dcn) {
-                        let constraint = &dc["constraint"];
-                        if !constraint.is_null() {
-                            let fk = &constraint["foreignKey"];
-                            if !fk.is_null() {
-                                if let Some(fk_table) = constraint["references"].as_str() {
-                                    let (fk_schema, fk_table) = match fk_table.find(".") {
-                                        None => (schema.clone(), fk_table.to_string()),
-                                        Some(i) => (fk_table[0..i].to_string(), fk_table[i+1..].to_string())
-                                    };
-                                    // check for absent in DB
-                                    if let Some(a) = dbc.get(schema) {
-                                        if let Some(b) = a.get(&self.table_name) {
-                                            if let Some(_) = b.fks.get(dcn) {
-                                                continue; // FK found in DB, to the next column
-                                            }
-                                        }
-                                    }
-                                    let fk_columns = yschemas.pks(&fk_schema, &fk_table);
-                                    if fk_columns.len() > 0 {
-                                        fk_list.push(FKTable {
-                                            column: fk_columns,
-                                            name: dcn.clone(),
-                                            schema: fk_schema,
-                                            table: fk_table,
-                                            sql: as_str_esc(constraint, "sql")
-                                        });
+                for dc in &self.columns.list {
+                    if let Some(constraint) = &dc.constraint {
+                        if let Some(fk) = &constraint.foreign_key {
+                            let fk_table = &fk.references;
+                            let (fk_schema, fk_table) = match fk_table.find(".") {
+                                None => (schema.clone(), fk_table.to_string()),
+                                Some(i) => (
+                                    fk_table[0..i].to_string(),
+                                    fk_table[i + 1..].to_string(),
+                                ),
+                            };
+                            // check for FK already in DB
+                            if let Some(a) = dbc.get(schema) {
+                                if let Some(b) = a.get(&self.table_name) {
+                                    if let Some(_) = b.fks.get(&dc.name) {
+                                        continue; // FK found as already created in DB, check the next column
                                     }
                                 }
+                            }
+                            let fk_columns = yschemas.pks(&fk_schema, &fk_table);
+                            if fk_columns.len() > 0 {
+                                fk_list.push(FKTable {
+                                    column: fk_columns,
+                                    name: dc.get_name(),
+                                    schema: fk_schema,
+                                    table: fk_table,
+                                    sql: fk.sql.clone(),
+                                });
                             }
                         }
                     }
@@ -812,7 +903,7 @@ impl YTable {
             match StatementLog::dry_store(cfg.get_opt("dry_run_to"), sql, log) {
                 Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to", ""), e)),
                 Ok(_) => Ok(false),
-           }
+            }
         } else {
             if exec {
                 if let Err(e) = db.batch_execute(sql.as_str()) {
@@ -822,7 +913,6 @@ impl YTable {
             Ok(exec)
         }
     }
-
 }
 //YTable
 
@@ -839,14 +929,14 @@ impl YSchema {
     fn new(input: &Yaml, file: &String) -> Self {
         YSchema {
             schema_name: YSchema::schema_name(input),
-            owner: as_str(input, "schemaName"),
-            tables: HashMap::new(),
+            owner: as_str(input, "schemaName", ""),
+            tables: OrderedHashMap::new(),
             file: file.clone(),
         }
     }
 
     #[inline]
-    fn append(&mut self, input: &Yaml, fail_safe: bool) -> Result<(), String> {
+    fn append(&mut self, input: &Yaml) -> Result<(), String> {
         if let Some(tbls) = input["tables"].as_vec() {
             for t in tbls {
                 match t["tableName"].as_str() {
@@ -854,16 +944,15 @@ impl YSchema {
                         return Err(format!("no table name set in file: {}", self.file));
                     }
                     Some(tn) => {
-                        if self.tables.contains_key(tn) && fail_safe {
+                        if self.tables.map.contains_key(tn) {
                             return Err(format!(
                                 "duplicate table definition: {} found in file: {}",
                                 tn, self.file
                             ));
                         } else {
-                            self.tables.insert(
-                                tn.into(),
-                                YTable::new(t, tn, fail_safe, self.file.as_str())?,
-                            );
+                            let _ = self
+                                .tables
+                                .append( YTable::new(t, tn, self.file.as_str())?);
                         }
                     }
                 }
@@ -899,7 +988,7 @@ impl<'a> ConfigMap<'a> {
     }
 
     #[inline]
-    pub(crate) fn get(&self, param: &str, default: &str) -> String {
+    pub fn get(&self, param: &str, default: &str) -> String {
         match &self {
             ConfigMap::Cli(cli) => match cli.value_of(param) {
                 None => default.into(),
@@ -916,7 +1005,7 @@ impl<'a> ConfigMap<'a> {
     }
 
     #[inline]
-    pub(crate) fn get_opt(&self, param: &str) -> Option<String> {
+    pub fn get_opt(&self, param: &str) -> Option<String> {
         match &self {
             ConfigMap::Cli(cli) => {
                 if cli.occurrences_of(param) > 0 {
@@ -931,7 +1020,14 @@ impl<'a> ConfigMap<'a> {
                 }
             }
         }
-        None //Err(format!("Param not exists: {}", param))
+        None
+    }
+
+    #[inline]
+    pub(crate) fn write(&self, content: &mut String, prefix: &str, param: &str, amp: &str) {
+        if let Some(v) = self.get_opt(format!("{}{}", prefix, param).as_str()) {
+            let _ = write!(content, " {} {} = '{}'", amp, param, v);
+        }
     }
 
     #[inline]
@@ -953,15 +1049,14 @@ impl<'a> ConfigMap<'a> {
     }
 
     #[inline]
-    pub(crate) fn get_bool(&self, param: &str, default: bool) -> bool {
+    pub fn get_bool(&self, param: &str, default: bool) -> bool {
         str2bool(
             self.get(param, format!("{}", default).as_str()).as_str(),
             default,
         )
     }
 
-    /// find the target database name for log storage, use a database from connection if not set
-    /// use 'dbname'
+    /// find the target database name for log storage, use a database from connection if not set use '' as current db
     #[inline]
     pub(crate) fn target(&self) -> String {
         self.get("db_target", "")
@@ -969,24 +1064,19 @@ impl<'a> ConfigMap<'a> {
 
     #[inline]
     pub(crate) fn schema(&self) -> String {
-        self.get("schema", "public")
+        safe_sql(self.get("schema", "public"))
     }
 
     #[inline]
     pub(crate) fn history_table_name(&self) -> String {
-        self.get("table", STATEMENT_LOG_TBL.table_name.as_str())
+        safe_sql(self.get("table", crate::STATEMENT_LOG_TBL.table_name.as_str()))
     }
 
     #[inline]
     pub(crate) fn is_pgsrv(&self) -> bool {
-        let mut result = false;
-        // if let Some(_) = self.get_opt("db_password") {
-        //     result = true;
-        // }
-        if let Some(_) = self.get_opt("db_sslmode") {
-            result = true
-        }
-        result
+        if let Some(v) = self.get_opt("db_sslmode") {
+            v.as_str() != "disable"
+        } else { false }
     }
 
     #[inline]
@@ -1013,18 +1103,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn statementlog_deser_test() {
-        assert!(STATEMENT_LOG_TBL.table_name.len() > 1);
-        assert!(STATEMENT_LOG_TBL.description.len() > 10);
-        assert!(STATEMENT_LOG_TBL.columns.len() > 10);
-    }
-
-    #[test]
-    fn config_log_deser_test() {
-        assert!(crate::CONFIG_YAML["args"].as_vec().unwrap().len() > 10);
-    }
-
-    #[test]
     fn defb_test() {
         defb_test_t(true);
         defb_test_t(false);
@@ -1049,19 +1127,84 @@ mod tests {
 
     #[test]
     fn iter_test() {
-        let list = vec![FileVersion::from("0.0.3").unwrap(),
+        let list = vec![
+            FileVersion::from("0.0.3").unwrap(),
             FileVersion::from("0.0.1").unwrap(),
-            FileVersion::from("0.0.2").unwrap()];
+            FileVersion::from("0.0.2").unwrap(),
+        ];
         let mut ff = BTreeMap::new();
         for l in list {
             ff.insert(l.clone(), l.s.clone());
         }
         let mut i = 1;
-        for (f, s) in ff {
+        for (f, _s) in ff {
             // println!("{}({})", f, s);
             assert_eq!(f.v.patch, i);
             i += 1;
         }
     }
 
+    #[test]
+    fn safe_test() {
+        assert_eq!("a".to_string(), safe_sql("a;".to_string()));
+        assert_eq!("a".to_string(), safe_sql("a".to_string()));
+        assert_eq!("a".to_string(), safe_sql("a ".to_string()));
+        assert_eq!("".to_string(), safe_sql("".to_string()));
+        assert_eq!("a".to_string(), safe_sql("a. ".to_string()));
+        assert_eq!("a".to_string(), safe_sql("a\n ".to_string()));
+        assert_eq!("a".to_string(), safe_sql("a\t ".to_string()));
+
+    }
+
+    /*
+
+    #[test]
+    fn viter_test() {
+        let mut map = OrderedHashMap::new();
+        let _ = map.append("1".to_string());
+        let _ = map.append("2".to_string());
+        let _ = map.append("3".to_string());
+        let mut i = 1;
+        for (_, key) in &map.list {
+            println!("{}", key);
+            assert_eq!(key, &format!("{}", i));
+            i += 1;
+        }
+    }
+    */
 }
+
+
+/*
+
+// todo use execution retry, wrap alter:
+
+DO
+$do$
+DECLARE
+   lock_timeout CONSTANT text := '50ms';
+   max_attempts CONSTANT INT := 1000;
+   ddl_completed BOOLEAN := FALSE;
+BEGIN
+
+   PERFORM set_config('lock_timeout', lock_timeout, FALSE);
+
+   FOR i IN 1..max_attempts LOOP
+      BEGIN
+         EXECUTE 'ALTER TABLE test add column whatever2 INT4';
+         ddl_completed := TRUE;
+         EXIT;
+      EXCEPTION
+         WHEN lock_not_available THEN
+           NULL;
+      END;
+   END LOOP;
+
+   IF ddl_completed THEN
+      RAISE INFO 'DDL has been successfully completed';
+   ELSE
+      RAISE EXCEPTION 'Failed to perform DDL';
+   END IF;
+END
+$do$;
+*/

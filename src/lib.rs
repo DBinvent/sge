@@ -22,32 +22,18 @@ extern crate yaml_rust;
 use yaml_rust::YamlLoader;
 
 use self::yaml_rust::Yaml;
+use chrono::{TimeZone, Utc};
 use openssl::error::ErrorStack;
 use postgres::error::SqlState;
 use std::fmt::Write;
-use chrono::{TimeZone,Utc};
-// use chrono::{DateTime, NaiveDateTime,  Timelike, TimeZone,Utc};
 use std::time::SystemTime;
-
 
 pub const CONFIG_DEF_YML: &str = "
 name: rdbm
 version: \"1.0\"
 author: DBInvent
-about: \"SQL script tracker and DB deployment by schema definition for Postgres. \
-    Execution order is: (P)->(S)->(V)->(R)->(after) \
-    i.e. (P)reDeploy, (S)chema yaml, (V)ersion, (R)e-runable, (a)fter migration. \
-    The (R) scripts will check a file hashsum and run if the file changed. \
-    Other scripts will check for version and execute if version absent in target DB. \
-    The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history. \
-    see more options bellow. Check http://rdbm.dbinvent.com/ for more information and best practice.\"
-group:
-    - db:
-        args: [db_name, db_host, db_port, db_user, db_password, db_sslmode, db_sslrootcert, db_sslcert, db_sslkey]
-    - logdb:
-        args: [logdb_name, logdb_host, logdb_port, logdb_user, logdb_password, logdb_sslmode, logdb_sslrootcert, logdb_sslcert, logdb_sslkey]
-    - deploy:
-        args: [schema_deploy, version_deploy, rr_deploy]
+about: 'The SQL script tracker and DB deployment by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
+usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
 
 args:
     - db_name:
@@ -150,6 +136,21 @@ args:
         long: schema
         default_value: public
         help: The deployment history 'table' schema location
+    - schema_transaction:
+        long: schema_transaction
+        takes_value: true
+        help: \"The value to override (S)chema file database.schema.table.transaction option \\n \
+        - single: (default) execute the (S)chema file in a single transaction. This is guarantee to have all or neither changes applied by the file marked as OK. \\n \
+        - table: perform all changes for each table per transaction.  \\n \
+        The value pass in parameter will override a value set in (S)chema file on a migration execution.
+        \"
+    - version_transaction:
+        long: version_transaction
+        takes_value: true
+        help: \"The value to override (V)ersion file execution option by psql \\n \
+        - single: (default) execute the (V)ersion file with a --single-transaction psql option. \\n \
+        - statement: execute psql without --single-transaction option. This is also available by set first lien in file as --single-transaction=false\
+        \"
     - table:
         long: table
         default_value: rdbm_history
@@ -162,11 +163,6 @@ args:
         long: source_recur
         default_value: \"true\"
         help: Scan Directory recursively
-        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
-    - fail_safe:
-        long: fail_safe
-        default_value: \"false\"
-        help: Fail the app if applied file different the file provided
         possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - executed_by:
         long: executed_by
@@ -197,11 +193,15 @@ args:
         long: dry_run_to
         takes_value: true
         help: The name of file to dump the generated SQL script
+    - snapshot_to:
+        long: snapshot_to
+        takes_value: true
+        help: 'The name of file to dump the database structure. Used by snapshot command. default_value is: D<next>.0__<database_name>.yaml in the source_dir'
     - config_file:
         long: config
         short: c
         takes_value: true
-        help: Load all params from config file, all other command line params will be ignored!
+        help: Load all params from config file, any command line params will override parameters loaded from file.
     - after:
         long: after
         default_value: \"after.sql\"
@@ -216,6 +216,11 @@ args:
         long: createdb
         default_value: \"false\"
         help: Create DB if the db_name/log_dbname not exists. Will try to use same credentials and db postgres
+        possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
+    - verbose:
+        long: verbose
+        default_value: \"false\"
+        help: Turn DEBUG logging ON.
         possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - createdb_user:
         long: createdb_user
@@ -233,26 +238,168 @@ args:
         long: createlogdb_pwd
         takes_value: true
         help: Postgres user password to use during 'Create LOGDB' step. If not set, then will be use logdb_sslxxx.
-    - license:
-        long: license
-        short: l
-        default_value: \"rdbm.license\"
-        help: The license file. Check http://rdbm.dbinvent.com/ to get one. Also use the source_dir to search.
+    - email:
+        long: email
+        takes_value: true
+        help: The person's email to send a license file.
+    - subscribe:
+        long: subscribe
+        takes_value: true
+        help: 'Use to append license with connections: <db_name> or <host>. possible values: * OR <name>.'
+    - license_file:
+        long: license_file
+        default_value: rdbm.license
+        help: The license file. Use './rdbm --email=your@email license' OR check 'http://rdbm.dbinvent.com/' to get one. Also use the source_dir to search.
 
 
 subcommands:
     - migrate:
-        about: Perform migration to version_deploy or all possible scripts
-    - info:
-        about: Return deployment status, schema dump and schema parsed
+        about: Perform migration to version_deploy of all possible scripts
+        help: \" Perform a migration to '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' \
+        (without a subfolder scan if --source_recur disabled)
+    into DB set in '--db_name' with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set. \\n \
+    The DB will be created if absent and '--createdb' send and '--createdb_xxx' properly configured. \\n \
+    The migration executor will be logged by '--executed_by' value \\n \
+    Also 'script_tag', 'db_target' and 'db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information).\\n \
+    \\n The execution order is: (P)->(S)->(V)->(R)->(after) \\n \\n \
+    i.e. (P)reDeploy SQL, (S)chema YAML, (V)ersion SQL, (R)e-runable SQL, (a)fter (each) migration SQL.\\n \
+    The (P)reDeploy SQL use to be executed before (S)chema YAML.\\n \
+    The (S)chema YAML will try to scan an information DB and apply changes required changes.\\n \
+    The (V)ersion SQL intended to be a major set of files for DB upgrade and will be executed only one time and store into a history log table.\\n \
+    The (R)e-runnable SQL very useful for handling Store Procedure upgrade and with a '--script_tag' very easily trackable.\\n \
+    The (P) and (V) will check for version and execute if version absent in target DB up to a target version. \\n \
+    Also (P) and (V) scripts will check for consistency and fail if the file changed and '--version_checksum' set. \\n \
+    The (S) script will check for version target and try to apply changes if they are absent in target DB. \\n \
+    The (R) script will check a file hashsum and run it if the file was changed to was not run yet on DB. \
+    The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history. \\n \
+    The '--config_file' or '-c' use to put all params by name (without --) into a text file. The args pass in command line will override those from config file. \\n \
+    See more options in './rdbm help' command.\\n \
+    Use --dry_run to avoid DB change. \\n Require a valid license to run (use './rdbm help license' for more information). \\n \
+    Check https://rdbm.dbinvent.com for more information and best practice.\"
     - prepare:
-        about: Create a history table use to track scripts executions
-
+        about: Create a history log table use to track scripts executions
+        help: \"Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or '--db_name' if not set. Use '--dry_run' to avoid DB change.\"
+    - snapshot:
+        about: Perform a schema dump into snapshot_to file in yaml format.
+        help: \"Perform a DB schema dump into a '--snapshot_to' file in yaml format. Only column name and type information for now will be stored.\"
+    - info:
+        about: Return deployment status and a tag version in JSON format
+        help: Return deployment status and a tag version in JSON format
+    - license:
+        about: Create apply, upgrade, subscribe or check a license
+        help: \"Use '--email' and '--license' to request a license file if the file not found in '--license_file'.\\n \
+        If the file exist, than will try to check and upgrade a licenses valid_to date.\\n \
+        Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections). \\n \
+        This is the only command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid api_key to perform upgrade or subscribe. \\n \
+        Check https://rdbm.dbinvent.com/license for more information about license.\"
 ";
+
+// TODO psql make --single-transaction configurable: --single-transaction=false -1
+
+// --schema_transaction:
+//     - (column-TBD): perform all changes on a table per transaction. \\n \
+//     - (repeat-TBD): try to obtain a lock perform changes repetally - suitable on high load systems \\n \
 
 pub(crate) const BASELINE: &str = "baseline";
 
+const STATEMENT_LOG_TABLE_YML: &str = "
+tableName: rdbm_history
+description: The schema deployment log
+columns:
+    - column:
+        name: id
+        type: serial
+        constraint:
+            primaryKey: true
+            nullable: false
+    - column:
+        name: source
+        type: varchar(250)
+        constraint:
+            nullable: false
+    - column:
+        name: target
+        type: varchar(250)
+    - column:
+        name: source_type
+        type: char
+        description: 'S: Schema, V: Version, R: Re-runnable'
+        constraint:
+            nullable: false
+    - column:
+        name: version
+        type: varchar(80)
+        constraint:
+            nullable: false
+    - column:
+        name: created_on
+        type: timestamp
+        defaultValue: current_timestamp
+        constraint:
+            nullable: false
+    - column:
+        name: checksum
+        type: varchar(80)
+    - column:
+        name: scheduled_on
+        type: timestamp
+    - column:
+        name: script_tag
+        type: varchar(80)
+    - column:
+        name: catalog
+        type: varchar(80)
+    - column:
+        name: executed_on
+        type: timestamp WITH TIME ZONE
+    - column:
+        name: executed_by
+        type: varchar(80)
+    - column:
+        name: ok
+        type: bool
+        constraint:
+          nullable: false
+        defaultValue: \"false\"
+        description: Successful execution of the script
+    - column:
+        name: msg
+        type: varchar(250)
+    - column:
+        name: took_sec
+        type: bigint
+        constraint:
+            nullable: false
+        defaultValue: \"0\"
+    - column:
+        name: times
+        type: int
+        defaultValue: '1'
+        constraint:
+            nullable: false
+";
+
+/// Max varchar len for columns name: source, target, msg
+pub(crate) const SRC_T_M_LEN: usize = 250;
+/// Max varchar len for all other columns names
+pub(crate) const SLT_C_LEN: usize = 80;
+
 lazy_static! {
+    pub(crate) static ref STATEMENT_LOG_TBL: crate::dbm_yml::YTable =
+        match YamlLoader::load_from_str(STATEMENT_LOG_TABLE_YML) {
+            Ok(y) => {
+                if y.len() > 0 {
+                    YTable::new(&y[0], y[0]["tableName"].as_str().unwrap(), crate::BASELINE)
+                        .unwrap()
+                } else {
+                    panic!("zero config");
+                }
+            }
+            Err(e) => {
+                panic!("wrong config: {}", e);
+            }
+        };
+
     pub static ref CONFIG_YAML: Yaml = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
         Ok(y) =>
             if y.len() > 0 {
@@ -265,19 +412,20 @@ lazy_static! {
         }
     };
     static ref EPOC_2020: i64 = Utc.ymd(2020, 2, 2).and_hms(0, 0, 0).timestamp();
-	static ref EPOC_2020H: u64 = EPOC_2020.clone() as u64 >> 12;
+    static ref EPOC_2020H: u64 = EPOC_2020.clone() as u64 >> 12;
 }
 
 /// pseudo hours (real hours + 14% as divided to 4096 (>> 12) instead of 3600)
 /// science 2020
 #[inline]
-pub(crate) fn hp() -> u32 {
+pub(crate) fn _hp() -> u32 {
     let r = if let Ok(n) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
         (n.as_secs() >> 12) - *EPOC_2020H
-    } else { EPOC_2020.clone() as u64 >> 12 };
+    } else {
+        EPOC_2020.clone() as u64 >> 12
+    };
     r as u32
 }
-
 
 /**
 ##Description:
@@ -331,7 +479,7 @@ fn migrate_db(
 ) -> Result<(), String> {
     // prepare schema
     let schema = cfg.schema();
-    let mut dbc = crate::dbm_dbc::load_info_schema(log_client, cfg)?;
+    let mut dbc = crate::dbm_dbc::load_info_schema(log_client)?;
     let yschemas = crate::dbm_yml::load_all(cfg)?;
     let mut t = log_client.transaction().unwrap(); // begin self install if not exists
     let err = {
@@ -344,8 +492,12 @@ fn migrate_db(
                         .persist(None, &mut t)
                     {
                         Some(e)
-                    } else { None }
-                } else { None }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
             }
             Err(e) => Some(e),
         }
@@ -361,16 +513,14 @@ fn migrate_db(
         Ok(())
     } else {
         // select table for update -- row level lock, revert changes
-        let logs = { StatementLog::load_all(&mut t, cfg)? };
+        let logs = { StatementLog::load_all(&mut t, cfg.get_bool("dry_run", true), cfg)? };
         let pgsrv = format!("/tmp/.rdbm_{}.conf", cfg.get("db_name", ""));
         let res = match deploy_pre_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log) {
-            Ok(_) => {
-                match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
-                    Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
-                    Err(error) => Err(error),
-                }
-            }
-            Err(error) => Err(error)
+            Ok(_) => match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
+                Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
+                Err(error) => Err(error),
+            },
+            Err(error) => Err(error),
         };
         if cfg.is_pgsrv() {
             let _ = fs::remove_file(pgsrv);
@@ -402,8 +552,14 @@ fn deploy_pre_files(
     if cfg.is_pgsrv() {
         let mut content = String::new();
         let names = vec![
-            "host", "port", "user", "password",
-            "sslmode", "sslrootcert", "sslcert", "sslkey",
+            "host",
+            "port",
+            "user",
+            "password",
+            "sslmode",
+            "sslrootcert",
+            "sslcert",
+            "sslkey",
         ];
         for name in names.iter() {
             cfg.get_pow(&mut content, "db_", name, "\n");
@@ -469,46 +625,62 @@ fn deploy_all_schemas(
         let mut do_persist = false;
         for (ver, (file, ysv)) in &yschemas.schemas {
             for (s, ys) in ysv {
-                for (_, yt) in &ys.tables {
+                for  yt in &ys.tables.list {
                     match yt.deploy(dbc, &mut t, &s, &cfg, &ys.file, log) {
-                        Ok(ok) => { if ok { do_persist = true; }}
+                        Ok(ok) => {
+                            if ok {
+                                do_persist = true;
+                            }
+                        }
                         Err(e) => {
                             err = Some(e);
                             break;
                         }
                     }
                 }
-                if let Some(_) = &err { break; }
+                if let Some(_) = &err {
+                    break;
+                }
             }
             if do_persist {
                 if let Err(e) = stl.instance('S', &ver.s, file).persist(err.clone(), lt) {
                     err = Some(e);
                 }
             }
-            if let Some(_) = &err { break; }
+            if let Some(_) = &err {
+                break;
+            }
         }
         let mut do_persist = false;
         if let None = &err {
             // deploy FK
             for (ver, (file, ysv)) in &yschemas.schemas {
                 for (s, ys) in ysv {
-                    for (_, yt) in &ys.tables {
-                        match yt.deploy_fk( &yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
-                        Ok(ok) => { if ok { do_persist = true; }}
+                    for yt in &ys.tables.list {
+                        match yt.deploy_fk(&yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
+                            Ok(ok) => {
+                                if ok {
+                                    do_persist = true;
+                                }
+                            }
                             Err(e) => {
                                 err = Some(e);
                                 break;
                             }
                         }
                     }
-                    if let Some(_) = &err { break; }
+                    if let Some(_) = &err {
+                        break;
+                    }
                 }
                 if do_persist {
                     if let Err(e) = stl.instance('S', &ver.s, file).persist(err.clone(), lt) {
                         err = Some(e);
                     }
                 }
-                if let Some(_) = &err { break;}
+                if let Some(_) = &err {
+                    break;
+                }
             }
         }
         if let Some(_) = &err {
@@ -525,7 +697,12 @@ fn deploy_all_schemas(
 }
 
 #[inline]
-fn connect(prefix: &str, cfg: &ConfigMap, create: Option<bool>, log: &Logger) -> Result<Client, String> {
+fn connect(
+    prefix: &str,
+    cfg: &ConfigMap,
+    create: Option<bool>,
+    log: &Logger,
+) -> Result<Client, String> {
     let mut override_prefix = false;
     if prefix == "logdb_" {
         if let None = cfg.get_opt("logdb_name") {
@@ -535,20 +712,30 @@ fn connect(prefix: &str, cfg: &ConfigMap, create: Option<bool>, log: &Logger) ->
     let prefix = if override_prefix { "db_" } else { prefix };
     let mut url = String::new();
     // TODO test with cert
-    let names = vec!["host", "port",  // "user", "password",
-        "sslmode", "sslrootcert", "sslcert", "sslkey"];
+    let names = vec![
+        "host",
+        "port", // "user", "password",
+        "sslmode",
+        "sslrootcert",
+        "sslcert",
+        "sslkey",
+    ];
     for name in names.iter() {
         cfg.get_pow(&mut url, prefix, name, "&");
     }
 
     let as_postgres_user = match create {
         None => false,
-        Some(pc) => pc
+        Some(pc) => pc,
     };
 
     let (dbname, log_url) = if as_postgres_user {
-        let _ = write!(url, "{}user={}", if url.len() > 0 { "&" } else { "" },
-            cfg.get(format!("create{}user", prefix).as_str(), "postgres"));
+        let _ = write!(
+            url,
+            "{}user={}",
+            if url.len() > 0 { "&" } else { "" },
+            cfg.get(format!("create{}user", prefix).as_str(), "postgres")
+        );
 
         let mut log_url = url.clone();
         match cfg.get_opt(format!("create{}pwd", prefix).as_str()) {
@@ -572,7 +759,7 @@ fn connect(prefix: &str, cfg: &ConfigMap, create: Option<bool>, log: &Logger) ->
             None => {
                 return Err(format!("No DB name set: {}name", prefix));
             }
-            Some(db) => (db, log_url)
+            Some(db) => (db, log_url),
         }
     };
     let db = format!("postgresql:///{}?{}", dbname, url);
@@ -601,13 +788,21 @@ fn connect(prefix: &str, cfg: &ConfigMap, create: Option<bool>, log: &Logger) ->
                     }
                 }
             }
-            Err(format!("Connect to Postgres [{}]: {} ", log_url, err))
-         },
+            Err(format!(
+                "Connect to Postgres [{}] {}: {} ",
+                log_url, dbname, err
+            ))
+        }
     }
 }
 
 #[inline(never)]
-fn create_connect(dbname: &str, prefix: &str, cfg: &ConfigMap, log: &Logger) -> Result<Client, String> {
+fn create_connect(
+    dbname: &str,
+    prefix: &str,
+    cfg: &ConfigMap,
+    log: &Logger,
+) -> Result<Client, String> {
     info!(log, "NO DB name [{}] found, trying to create...", dbname);
     let mut client = connect(prefix, cfg, Some(true), log)?;
     let owner = match cfg.get_opt(format!("{}_user", prefix).as_str()) {
@@ -619,9 +814,8 @@ fn create_connect(dbname: &str, prefix: &str, cfg: &ConfigMap, log: &Logger) -> 
             let _ = client.close();
             connect(prefix, cfg, Some(false), log)
         }
-        Err(e) => Err(format!("Creating DB [{}] by postgres: {} ", dbname, e))
+        Err(e) => Err(format!("Creating DB [{}] by postgres: {} ", dbname, e)),
     }
-
 }
 
 #[inline]
@@ -632,9 +826,63 @@ fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
 }
 
 #[inline]
-pub fn load(cfg: ConfigMap, log: &Logger) -> Result<String, String> {
-    let mut client = connect("logdb_", &cfg, None, log)?;
-    let result = { load_impl(&mut client, &cfg, log) };
-    let _ = client.close();
-    result
+pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
+    let snapshot_to = cfg.get_opt("snapshot_to");
+    let mut log_client = connect("logdb_", &cfg, None, log)?;
+    let mut db_client = connect("db_", &cfg, None, log)?;
+    let result = { load_impl(dump, &mut db_client, &mut log_client, &cfg) };
+    let _ = db_client.close();
+    let _ = log_client.close();
+    match result {
+        Ok(loaded) => {
+            if dump {
+                match snapshot_to {
+                    None => {
+                        println!("{}", loaded);
+                    }
+                    Some(file) => {
+                        fs::write(file, loaded);
+                    }
+                };
+            } else {
+                info!(log, "{}", loaded);
+            };
+            Ok(())
+        }
+        Err(e) => {
+            if dump {
+                let yaml = format!("error: \"{}\"", e);
+                match snapshot_to {
+                    None => {
+                        println!("{}", yaml);
+                    }
+                    Some(file) => {
+                        fs::write(file, yaml);
+                    }
+                }
+            } else {
+                error!(log, "{}", e);
+            }
+            Err(e)
+        }
+    }
+}
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn statementlog_deser_test() {
+        assert!(STATEMENT_LOG_TBL.table_name.len() > 1);
+        assert!(STATEMENT_LOG_TBL.description.len() > 10);
+        // assert!(STATEMENT_LOG_TBL.columns.len() > 10);
+    }
+
+    #[test]
+    fn config_log_deser_test() {
+        assert!(crate::CONFIG_YAML["args"].as_vec().unwrap().len() > 10);
+    }
+
 }

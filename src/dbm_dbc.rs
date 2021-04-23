@@ -4,9 +4,12 @@ use postgres::Client;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::result::Result;
+use self::postgres::{Error, Row};
 
 /// information schema types: schema, table, column
 pub(crate) type InfoSchemaType = HashMap<String, HashMap<String, STable>>;
+/// information schema types: schema, (owner, table: name: owner)
+pub(crate) type InfoSchemaOwnerType = HashMap<String, (String, HashMap<String, String>)>;
 
 #[derive(Debug, Clone, Serialize)]
 /// information schema data
@@ -29,15 +32,15 @@ pub(crate) struct FKTable {
     pub sql: String,
 }
 
-pub(crate) fn load_info_schema(db: &mut Client, cfg: &ConfigMap) -> Result<InfoSchemaType, String> {
-    let mut data = load_info_cc(db, cfg)?;
-    let _ = load_info_fk(db, &mut data, cfg)?;
-    let _ = load_info_tg(db, &mut data, cfg)?;
+pub(crate) fn load_info_schema(db: &mut Client) -> Result<InfoSchemaType, String> {
+    let mut data = load_info_cc(db)?;
+    let _ = load_info_fk(db, &mut data)?;
+    let _ = load_info_tg(db, &mut data)?;
     Ok(data)
 }
 
 #[inline]
-fn load_info_cc(db: &mut Client, _cfg: &ConfigMap) -> Result<InfoSchemaType, String> {
+fn load_info_cc(db: &mut Client) -> Result<InfoSchemaType, String> {
     let mut data = HashMap::new();
     match db.query("SELECT table_catalog, table_schema, table_name, column_name, column_default, data_type from information_schema.columns where table_schema not in ('pg_catalog', 'information_schema')", &[]) {
         Err(e) => Err(format!("on loading information_schema: {}", e)),
@@ -80,7 +83,6 @@ fn load_info_cc(db: &mut Client, _cfg: &ConfigMap) -> Result<InfoSchemaType, Str
 fn load_info_tg(
     db: &mut Client,
     data: &mut InfoSchemaType,
-    _cfg: &ConfigMap,
 ) -> Result<(), String> {
     match db.query("SELECT trigger_catalog, trigger_schema, trigger_name, event_object_catalog, event_object_schema, event_object_table \
         from information_schema.triggers where event_object_schema not in ('pg_catalog', 'information_schema')", &[]) {
@@ -121,7 +123,6 @@ fn load_info_tg(
 fn load_info_fk(
     db: &mut Client,
     data: &mut InfoSchemaType,
-    _cfg: &ConfigMap,
 ) -> Result<(), String> {
     match db.query("SELECT  tc.table_schema,  tc.table_name, kcu.column_name,
  ccu.table_schema AS foreign_schema_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, tc.constraint_name
@@ -155,6 +156,7 @@ fn load_info_fk(
                     Some(s) => {
                         match s.get_mut(table_name) {
                             None => {
+                                // this should never happens because table must exist for the FK
                                 s.insert(table_name.into(), STable::newf(column_name, fk));
                             }
                             Some(hd) => {
@@ -169,7 +171,39 @@ fn load_info_fk(
     }
 }
 
+#[inline]
+pub(crate) fn load_info_schema_owner(db: &mut Client) -> Result<InfoSchemaOwnerType, String> {
+    let mut res = HashMap::new();
+    match db.query("select schema_name, schema_owner from information_schema.schemata where schema_name not in ('information_schema', 'pg_catalog')", &[]) {
+        Ok(schemas) => {
+            for schema in schemas {
+                let schema_name: &str = schema.get(0);
+                let schema_owner: &str = schema.get(1);
+                let mut tables = HashMap::new();
+                match db.query("select t.table_name, u.usename
+from information_schema.tables t
+join pg_catalog.pg_class c on (t.table_name = c.relname)
+join pg_catalog.pg_user u on (c.relowner = u.usesysid)
+where t.table_schema = $1 ", &[&schema_name]) {
+                    Err(e) => { return Err(format!("on loading information_schema.fk: {}", e)); },
+                    Ok(result) => {
+                        for r in result {
+                            let table_name: &str = r.get(0);
+                            let table_owner: &str = r.get(1);
+                            tables.insert(table_name.into(), table_owner.into());
+                        }
+                    }
+                }
+                res.insert(schema_name.into(), (schema_owner.into(), tables));
+            }
+            Ok(res)
+        }
+        Err(e) => Err(format!("on loading information schema owners: {}", e)),
+    }
+}
+
 impl STable {
+    /// pre loaded on information_schema.columns
     #[inline]
     fn new(column: &str, column_data: String) -> Self {
         let mut cls = HashMap::new();
@@ -181,6 +215,7 @@ impl STable {
         }
     }
 
+    /// loaded by SQL call from information_schema.table_constraints
     #[inline]
     fn newf(column: &str, fk: FKTable) -> Self {
         let mut fks = HashMap::new();

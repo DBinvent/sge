@@ -9,22 +9,32 @@ use postgres::{Client, Error, Transaction};
 use serde::Serialize;
 use slog::Logger;
 
-use crate::dbm_dbc::InfoSchemaType;
-use crate::dbm_yml::{ConfigMap, FilesMap, SRC_T_M_LEN, SLT_C_LEN};
-use crate::BASELINE;
+use crate::dbm_dbc::{InfoSchemaType, STable, InfoSchemaOwnerType};
+use crate::dbm_yml::{ConfigMap, FilesMap, YSchema, OrderedHashMap, YTable, Named, YColumn, semver_parse};
+use crate::*;
 use std::fs::OpenOptions;
 use std::time::Instant;
+use yaml_rust::Yaml;
+use linked_hash_map::LinkedHashMap;
+use postgres::types::ToSql;
+use std::collections::hash_map::RandomState;
+use std::ops::Add;
+use semver::Version;
+use chrono::{Utc, DateTime};
 
 /// loaded from DB or stored to DB, see [STATEMENT_LOG_TBL] and [STATEMENT_LOG_TABLE_YML] for table defenition
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct StatementLog {
     /// [transient] log: schema.table
+    #[serde(skip_serializing)]
     pub table: String,
     /// [transient] will be used to calculate took sec
+    #[serde(skip_serializing)]
     pub started: Instant,
     /// [transient] to ignode on save
+    #[serde(skip_serializing)]
     pub dry_run: bool,
-    pub id: u64,
+    pub id: i32,
     /// filename
     pub source: String,
     /// target is a database name, or empty string if the log schema on same database
@@ -36,7 +46,6 @@ pub(crate) struct StatementLog {
     /// set of schemas i.e. module (microservice)
     pub catalog: String,
     pub script_tag: String,
-    // pub created_on & executed_on: Timestamp<?>,
     pub executed_by: String,
     pub ok: bool,
     pub msg: String,
@@ -46,25 +55,84 @@ pub(crate) struct StatementLog {
 /// source_type||version: file, checksum
 pub(crate) type LogSchemaType = HashMap<String, (String, String)>;
 
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct LogVer {
+    #[serde(skip)]
+    pub ver: Version,
+    pub version: String,
+    pub script_tag: String,
+    pub executed_by: String,
+    #[serde(with = "my_date_format")]
+    pub executed_on: DateTime<Utc>,
+}
+
+mod my_date_format {
+    use chrono::{DateTime, Utc, TimeZone};
+    use serde::{self, Deserialize, Serializer, Deserializer};
+
+    const FORMAT: &'static str = "%Y-%m-%d %H:%M:%S";
+
+    // The signature of a serialize_with function must follow the pattern:
+    //
+    //    fn serialize<S>(&T, S) -> Result<S::Ok, S::Error>
+    //    where
+    //        S: Serializer
+    //
+    // although it may also be generic over the input types T.
+    pub fn serialize<S>(
+        date: &DateTime<Utc>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = format!("{}", date.format(FORMAT));
+        serializer.serialize_str(&s)
+    }
+
+    // The signature of a deserialize_with function must follow the pattern:
+    //
+    //    fn deserialize<'de, D>(D) -> Result<T, D::Error>
+    //    where
+    //        D: Deserializer<'de>
+    //
+    // although it may also be generic over the output types T.
+    pub fn deserialize<'de, D>(
+        deserializer: D,
+    ) -> Result<DateTime<Utc>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Utc.datetime_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
+    }
+}
+type SortedStatementLog = HashMap<String, HashMap<String, LogVer>>;
+
 impl StatementLog {
     /// select table for update -- row level lock
     #[inline]
-    pub(crate) fn load_all(t: &mut Transaction, cfg: &ConfigMap) -> Result<LogSchemaType, String> {
-        let db = cfg.target();
+    pub(crate) fn load_all(
+        t: &mut Transaction,
+        dry_run: bool,
+        cfg: &ConfigMap,
+    ) -> Result<LogSchemaType, String> {
         let log_st = format!("{}.{}", cfg.schema(), cfg.history_table_name());
-        let dry_run = cfg.get_bool("dry_run", true);
         let lock = format!(
             "select version from {} where target = '{}' and source_type='S' and source = $1 {}",
-            log_st, BASELINE, if dry_run { "" } else { "for update" }
+            log_st,
+            BASELINE,
+            if dry_run { "" } else { "for update" }
         );
+        let target = cfg.target();
         let mut res = HashMap::new();
-        match t.query(lock.as_str(), &[&db]) {
+        match t.query(lock.as_str(), &[&target]) {
             Ok(_) => {
                 let sql = format!(
                     "select source_type||version, source, checksum from {} where target = $1 and ok",
                     log_st
                 );
-                match t.query(sql.as_str(), &[&db]) {
+                match t.query(sql.as_str(), &[&target]) {
                     Ok(v) => {
                         for r in v {
                             let key: String = r.get(0);
@@ -86,6 +154,67 @@ impl StatementLog {
             }
         }
     }
+
+
+    /// select table for update -- row level lock
+    // map: db_name(target) -> catalog (schemas) -> max(version)/
+    #[inline]
+    fn load_ok(
+        t: &mut Transaction,
+        cfg: &ConfigMap,
+    ) -> Result<SortedStatementLog, String> {
+        // let mut res = Vec::new();
+        let mut sql = format!(
+            "select target, catalog, version, script_tag, executed_by, executed_on from {}.{} \
+             where ok and version <> 'baseline' ",
+            cfg.schema(), cfg.history_table_name()
+        );
+        cfg.write(&mut sql, "_db", "target", "and");
+        cfg.write(&mut sql, "_db", "catalog", "and");
+        sql.insert_str(sql.len()-1, " order by executed_on, id");
+        match t.query(sql.as_str(), &[]) {
+            Ok(v) => {
+                let mut targets = HashMap::new();
+                for r in v {
+                    let target: String = r.get(0);
+                    let catalog: String = r.get(1);
+                    let version: String = r.get(2);
+                    let script_tag: String = r.get(3);
+                    let executed_by: String = r.get(4);
+                    let executed_on: DateTime<Utc> = r.get(5);
+
+                    let sl = LogVer {
+                        ver: match semver_parse(version.as_str()) { Ok(v) => v, Err(_) => Version::new(0,0,0) },
+                        version, script_tag, executed_by, executed_on};
+
+                    match targets.get_mut(target.as_str()) {
+                        None => {
+                            let mut catalogs = HashMap::new();
+                            let t = target.clone();
+                            catalogs.insert(catalog.clone(), sl);
+                            targets.insert(t, catalogs);
+                        }
+                        Some(mut ts) => {
+                            match ts.get(catalog.as_str()) {
+                                None => {
+                                    ts.insert(catalog.clone(), sl);
+                                }
+                                Some(s) => {
+                                    if sl.ver > s.ver {
+                                        ts.insert(catalog.clone(), sl);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Ok(targets)
+            }
+            Err(e) => Err(format!("trying select: [{}] {}", sql, e)),
+        }
+    }
+
     /// create a default [StatementLog] pointed to schema-table (transient field)
     pub(crate) fn new(cfg: &ConfigMap) -> Self {
         StatementLog {
@@ -164,12 +293,12 @@ impl StatementLog {
                     // checksum different
                     Err(format!(
                         "Version [{}] script file [{}] checksum deployment mismatch",
-                        self.version, self.source))
+                        self.version, self.source
+                    ))
                 } else {
                     Ok(())
-                }
+                };
             }
-
         };
         if self.dry_run {
             self.dry_write(cfg, log)
@@ -184,14 +313,17 @@ impl StatementLog {
             if let Some(pgpass) = cfg.get_opt("db_password") {
                 cmd.env("PGPASSWORD", pgpass);
             }
+
             debug!(log, "executing {} ...", self.source);
             match cmd
                 .arg(format!("--dbname={}", cfg.get("db_name", "")))
                 .arg(format!("--host={}", cfg.get("db_host", "")))
-                .arg("-X")//  do not read startup file (~/.psqlrc)
-                .arg("-1")// --single-transaction
-                .arg("-v").arg("ON_ERROR_STOP=1")
-                .arg("-f").arg(&self.source)
+                .arg("-X") //  do not read startup file (~/.psqlrc)
+                .arg("-1") // --single-transaction TODO check  - version_transaction: single statement: execute psql without --single-transaction option. This is also available by set first lien in file as --single-transaction=false\
+                .arg("-v")
+                .arg("ON_ERROR_STOP=1")
+                .arg("-f")
+                .arg(&self.source)
                 .output()
             {
                 Ok(output) => {
@@ -218,7 +350,6 @@ impl StatementLog {
         }
     }
 
-    // TODO if logdb, then set target if not set
     #[inline]
     pub(crate) fn persist(&self, err: Option<String>, t: &mut Transaction) -> Result<(), String> {
         if self.dry_run {
@@ -239,7 +370,10 @@ impl StatementLog {
         };
         match t.query(
             format!(
-                "select id from {} where target = $1 and source_type = $2 and version = $3", self.table).as_str(),
+                "select id from {} where target = $1 and source_type = $2 and version = $3",
+                self.table
+            )
+            .as_str(),
             &[&self.target, &self.source_type.to_string(), &self.version],
         ) {
             Ok(rows) => {
@@ -321,9 +455,10 @@ impl StatementLog {
 fn tlim(value: &String, max: usize) -> String {
     if value.len() >= max {
         value[0..max].into()
-    } else { value.clone() }
+    } else {
+        value.clone()
+    }
 }
-
 
 const BUFFER_SIZE: usize = 1024;
 
@@ -348,31 +483,80 @@ fn hash_it<R: Read>(reader: &mut R) -> String {
 /// load impl
 #[inline]
 pub(crate) fn load_impl(
+    dump: bool,
+    db_client: &mut Client,
     log_client: &mut Client,
     cfg: &ConfigMap,
-    _log: &Logger,
 ) -> Result<String, String> {
-    let dbc = crate::dbm_dbc::load_info_schema(log_client, cfg)?;
-    let mut t = log_client.transaction().unwrap(); // begin
-    let yschemas = crate::dbm_yml::load_all(cfg)?;
-    let logs = StatementLog::load_all(&mut t, cfg)?;
-    let _ = t.rollback();
-    let res = LoadResult {
-        db_info_schema: dbc,
-        scripts: yschemas,
-        history: logs,
-    };
-    match serde_json::to_string(&res) {
-        Ok(data) => Ok(data),
-        Err(e) => Err(format!("{}", e)),
+    if dump {
+        let dbc = crate::dbm_dbc::load_info_schema(db_client)?;
+        let dbco = crate::dbm_dbc::load_info_schema_owner(db_client)?;
+        let logs = LoadResult::new(dbc, dbco);
+        match serde_yaml::to_string(&logs) {
+            Ok(data) => Ok(data),
+            Err(e) => Err(format!("{}", e)),
+        }
+    } else {
+        let mut t = log_client.transaction().unwrap(); // begin
+        // let yschemas = crate::dbm_yml::load_all(cfg)?;
+        let logs = StatementLog::load_ok(&mut t, cfg)?;
+        let _ = t.rollback();
+        match serde_yaml::to_string(&logs) {
+        // match serde_json::to_string(&logs) {
+            Ok(data) => Ok(data),
+            Err(e) => Err(format!("{}", e)),
+        }
     }
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct LoadResult {
-    pub db_info_schema: InfoSchemaType,
-    // TODO FIXME -- ERRO key must be a string
-    #[serde(skip_serializing)]
-    pub scripts: FilesMap,
-    pub history: LogSchemaType,
+struct LoadResult {
+    pub database: Vec<YSchema>,
 }
+
+impl LoadResult {
+    fn new(input: InfoSchemaType, owners: InfoSchemaOwnerType) -> Self {
+        let mut schemas = Vec::new();
+        for (schema, tables) in input {
+            let mut ytables = OrderedHashMap::new();
+            for (table_name, table) in &tables {
+                let mut yt = YTable {
+                    table_name: table_name.into(),
+                    description: "".to_string(),
+                    transaction: "".to_string(),
+                    sql: "".to_string(),
+                    constraint: "".to_string(),
+                    columns: OrderedHashMap::new(),
+                    triggers: OrderedHashMap::new(),
+                };
+                for (cc, cy) in &table.columns {
+                    let yc = YColumn {
+                        name: cc.into(),
+                        column_type: cy.into(),
+                        default_value: "".to_string(),
+                        constraint: None,
+                        description: "".to_string(),
+                        sql: "".to_string()
+                    };
+                    yt.columns.append(yc);
+                }
+                ytables.append( yt);
+            }
+            let mut ys = YSchema {
+                schema_name: schema.clone(),
+                owner: match owners.get(&schema) {
+                    None => "".to_string(),
+                    Some((o,_)) => o.clone(),
+                },
+                tables: ytables,
+                file: "".to_string()
+            };
+            schemas.push(ys);
+        }
+        LoadResult{
+            database: schemas
+        }
+    }
+}
+
+

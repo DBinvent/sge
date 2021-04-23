@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate slog;
 
-use clap::App;
+use clap::{App, ArgMatches};
 use slog::Logger;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::{Format, Severity};
@@ -11,66 +11,54 @@ use rdbm::dbm_yml::ConfigMap;
 use std::collections::HashMap;
 use std::fs;
 
-#[inline]
-pub fn logger() -> Logger {
-    logger2(Severity::Debug)
-}
+mod license;
 
 #[inline]
-pub fn logger2(level: Severity) -> Logger {
+pub fn logger(debug: bool) -> Logger {
     let mut builder = TerminalLoggerBuilder::new();
     builder.channel_size(1024);
     builder.destination(Destination::Stdout);
     builder.format(Format::Compact);
-    builder.level(level);
+    builder.level(if debug {Severity::Debug} else {Severity::Info});
     builder.build().unwrap()
 }
 
 fn main() -> Result<(), String> {
-    let log = logger();
     let yaml = clap::YamlLoader::load_from_str(rdbm::CONFIG_DEF_YML).unwrap();
     let app = App::from_yaml(&yaml[0]).get_matches();
     let cmd = match app.subcommand_name() {
+        Some(cmd) => cmd.to_owned(),
         None => {
             println!("{}", app.usage());
             return Ok(());
         }
-        Some(c) => c.to_string(),
     };
-    let (cfg, file) = if app.occurrences_of("config_file") > 0 {
+    let cfg = if app.occurrences_of("config_file") > 0 {
         let file = app.value_of("config_file").unwrap();
-        (
-            ConfigMap::new(load(file)),
-            format!("app configs loaded from: {} (other params ignored)", file),
-        )
+        ConfigMap::new(load(file, &app))
     } else {
-        (ConfigMap::Cli(app), "".into())
+        ConfigMap::Cli(app)
     };
-    if cmd == "migrate" {
-        info!(log, "Migrating... {} ", file);
-        rdbm::migrate(cfg, false, &log)
-    } else if cmd == "prepare" {
-        info!(log, "Preparing... {}", file);
-        rdbm::migrate(cfg, true, &log)
-    } else if cmd == "info" {
-        info!(log, "Load info schema... {}", file);
-        match rdbm::load(cfg, &log) {
-            Ok(loaded) => {
-                info!(log, "{}", loaded);
-                Ok(())
-            }
-            Err(e) => {
-                error!(log, "{}", e);
-                Err(e)
+    let log = logger(cfg.get_bool("verbose", false));
+
+    match cmd.as_str() {
+        "migrate" => {
+            if license::is_valid(&cfg, &log)? {
+                rdbm::migrate(cfg, false, &log)
+            } else {
+                Err(format!("Invalid license"))
             }
         }
-    } else {
-        Ok(())
+        "prepare" => rdbm::migrate(cfg, true, &log),
+        "snapshot" => rdbm::load(true, cfg, &log),
+        "info" => rdbm::load(false, cfg, &log),
+        "license" => license::license(cfg, &log),
+        c @ _ => Err(format!("Unknown command: {}", c)),
     }
 }
 
 #[inline]
-fn load(filename: &str) -> HashMap<String, String> {
+fn load(filename: &str, app: &ArgMatches) -> HashMap<String, String> {
     let mut cfg = HashMap::new();
     match fs::read_to_string(filename) {
         Ok(data) => {
@@ -86,6 +74,16 @@ fn load(filename: &str) -> HashMap<String, String> {
         }
         Err(e) => {
             panic!("loading {} {}", filename, e);
+        }
+    }
+    for p in rdbm::CONFIG_YAML["args"].as_vec().unwrap() {
+        let ymh = p.as_hash().unwrap();
+        for (k, _) in ymh {
+            if let Some(ks) = k.as_str() {
+                if app.occurrences_of(ks) == 1 {
+                    cfg.insert(ks.to_string(), app.value_of(ks).unwrap().into());
+                }
+            }
         }
     }
     cfg

@@ -7,7 +7,7 @@ private = true
 
 [tasks.build]
 command = "cargo"
-args = ["build"]
+args = ["build", "--bins"]
 description = "Runs the rust compiler to build"
 
 [tasks.test]
@@ -29,14 +29,19 @@ description = "Stop postgres"
 dependencies = ["postgres-drop"]
 script = "rm -rf tests/db/5434"
 
+[tasks.cfg-prepare]
+cwd = "tests"
+#condition = { files_not_exist = "local_test_cfg.yaml"}
+script = "echo cp test_cfg.yaml local_test_cfg.yaml"
+
 [tasks.run]
-dependencies = ["test", "build", "postgres-up"]
+dependencies = ["test", "build", "postgres-up", "cfg-prepare"]
 cwd = "tests"
 script = [
 '''
 grep -q db_user ./test_cfg.yaml || echo "db_user: \"$USER\" " >> ./test_cfg.yaml
-../target/debug/rdbm -c ./test_cfg.yaml migrate
-psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" rtx
+../target/debug/rdbm -c ./local_test_cfg.yaml migrate
+psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" rt
 '''
 ]
 
