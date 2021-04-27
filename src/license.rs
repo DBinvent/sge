@@ -1,7 +1,7 @@
 #[allow(unused)]
 
 use std::collections::BTreeSet;
-use std::fs;
+use std::{fs, env};
 use std::io::Write;
 use std::path::Path;
 
@@ -283,17 +283,19 @@ impl License {
 
     #[inline]
     fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String) -> bool {
+        let user = &env::var("USER").unwrap_or("".into());
         let now: DateTime<FixedOffset> = Utc::now().into();
         for c in &self.connects {
             if c.valid_until > now {
-                if (c.hosts.contains("*") || ( c.hosts.contains(host_a) && ( host_b.len() == 0 || c.hosts.contains(host_b) )))
-                 && (c.db_names.contains("*") || ( c.db_names.contains(db_a) && ( db_b.len() == 0 || c.db_names.contains(db_b) ))) {
+                if ( c.hosts.contains("*") || ( (is_ip(host_a)  || c.hosts.contains(host_a)) && (is_ip(host_b) || c.hosts.contains(host_b) )))
+                 && (((db_a == "" || db_a == user) && (db_b == "" || db_b == user)) ||
+                 c.db_names.contains("*") || ( c.db_names.contains(db_a) && ( db_b.len() == 0 || c.db_names.contains(db_b) ))
+                 ) {
                     return true
                  }
             }
         }
-        true
-
+        false
     }
 
     /// generate authorization header
@@ -354,6 +356,15 @@ impl License {
         }
     }
 
+}
+
+#[inline]
+/// check for empty string, localhost or IP
+fn is_ip(host: &String) -> bool {
+    host.len() == 0 || host.as_str() == "localhost" ||
+    match ipaddress::IPAddress::parse(host) {
+        Ok(_) => true, Err(_) => false,
+    }
 }
 
 mod crc {
@@ -507,6 +518,14 @@ mod tests {
         "a".split(",").for_each(|c| {ss.insert(c.into());});
         assert_eq!(ss.len(), 1);
         assert_eq!(ss.iter().next().unwrap_or(&"".to_string()), &"a".to_string());
+    }
+
+    #[test]
+    fn test_ip() {
+        assert!(is_ip(&"".into()));
+        assert!(is_ip(&"127.0.0.1".into()));
+        assert!(is_ip(&"localhost".into()));
+        assert!(!is_ip(&"google.com".into()));
     }
 
     #[test]
