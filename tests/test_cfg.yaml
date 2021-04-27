@@ -1,7 +1,8 @@
-db_name: "rt"
+db_name: "ucb"
 source_dir: "../user-cabinet-backend/scripts"
 db_port: "5434"
 db_user: "vk"
+#db_password: "1"
 db_host: "localhost"
 license_file:
-email:
+email: from_file

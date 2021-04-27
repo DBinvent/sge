@@ -31,7 +31,7 @@ use std::time::SystemTime;
 pub const CONFIG_DEF_YML: &str = "
 name: rdbm
 version: \"1.0\"
-author: DBInvent
+author: DBInvent LLC
 about: 'The SQL script tracker and DB deployment by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
 usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
 
@@ -109,10 +109,6 @@ args:
         long: logdb_sslkey
         takes_value: true
         help: /path/to/client.key
-    - schema_regxp:
-        long: schema_regxp
-        default_value: \"*\"
-        help: Scan schemas
     - pre_deploy:
         long: pre_deploy
         default_value: \"*\"
@@ -123,10 +119,10 @@ args:
         help: Scan for files to perform deploy (S)chema scripts, i.e. target schema files to deploy, up to the target version (* - means all). \
             Yaml schema files will be parsed, compared with DB information schema and tables will append with missed columns. \
             Existing columns wont change neither delete.
-    - version_checksum:
-        long: version_checksum
-        default_value: \"false\"
-        help: Fail on deployed (P)re and (V)ersion scripts checksum mismatch
+    - checksum:
+        long: checksum
+        default_value: \"true\"
+        help: Fail on deploy if scripts checksum mismatch for (P)re and (V)ersion between files already deployed and logged and the the script found in source folder. This helps to keep file to be consistent between environments.
         possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - rr_deploy:
         long: rr_deploy
@@ -140,16 +136,16 @@ args:
         long: schema_transaction
         takes_value: true
         help: \"The value to override (S)chema file database.schema.table.transaction option \\n \
-        - single: (default) execute the (S)chema file in a single transaction. This is guarantee to have all or neither changes applied by the file marked as OK. \\n \
+        - file: (default) execute the (S)chema file in a single transaction. This is guarantee to have all or neither changes applied by the file marked as OK. \\n \
         - table: perform all changes for each table per transaction.  \\n \
         The value pass in parameter will override a value set in (S)chema file on a migration execution.
         \"
     - version_transaction:
         long: version_transaction
         takes_value: true
-        help: \"The value to override (V)ersion file execution option by psql \\n \
+        help: \"The value to override (V)ersion file execution option in psql \\n \
         - single: (default) execute the (V)ersion file with a --single-transaction psql option. \\n \
-        - statement: execute psql without --single-transaction option. This is also available by set first lien in file as --single-transaction=false\
+        - statement: execute psql without --single-transaction option. This is also available by set first line in file to 'false' like: --single-transaction=false\
         \"
     - table:
         long: table
@@ -175,11 +171,11 @@ args:
     - db_target:
         long: db_target
         takes_value: true
-        help: The target is a database name, it's an empty string (if the log history table on same database); OR environment(dev|prod)+host(node)+database for orchestration configuration
+        help: The target is a database name, it's an empty string (if the log history table on same database); OR environment(dev|prod)+host(node)+database for orchestration configuration.
     - db_catalog:
         long: db_catalog
         takes_value: true
-        help: The name of set of DB schemas / module / microservice
+        help: The name of set of DB schemas / module / microservice.
     - version_deploy:
         long: version_deploy
         default_value: \"*\"
@@ -187,16 +183,21 @@ args:
     - dry_run:
         long: dry_run
         default_value: \"false\"
-        help: Generate all SQL, but do not run on DB, also log all attempts to script run
+        help: \"Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE'), also log all attempts to script file run. To avoid 'CREATE DATABASE' SQL execution please remove '--createdb' parameter or set it to false.\"
         possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - dry_run_to:
         long: dry_run_to
         takes_value: true
         help: The name of file to dump the generated SQL script
+    - snapshot_format:
+        long: snapshot_format
+        default_value: yaml
+        possible_values: [yaml, json]
+        help: \"The format of generated information of DB schema by the 'snapshot' command, also see '--snapshot_to' parameter.\"
     - snapshot_to:
         long: snapshot_to
         takes_value: true
-        help: 'The name of file to dump the database structure. Used by snapshot command. default_value is: D<next>.0__<database_name>.yaml in the source_dir'
+        help: 'The name of file to dump the database structure. Used by snapshot command. default_value is: D<next>.0__<database_name>.yaml in the source_dir.'
     - config_file:
         long: config
         short: c
@@ -254,13 +255,13 @@ args:
 
 subcommands:
     - migrate:
-        about: Perform migration to version_deploy of all possible scripts
-        help: \" Perform a migration to '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' \
-        (without a subfolder scan if --source_recur disabled)
-    into DB set in '--db_name' with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set. \\n \
-    The DB will be created if absent and '--createdb' send and '--createdb_xxx' properly configured. \\n \
+        about: Perform a migration to specified version of all possible scripts
+        help: \" Perform a DB migration to a version set in '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' \
+        (without a sub-folder scan if '--source_recur' is disabled) \
+    into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set. \\n \
+    The DB will be created if absent, and if '--createdb' set and '--createdb_xxx' users properly configured. \\n \
     The migration executor will be logged by '--executed_by' value \\n \
-    Also 'script_tag', 'db_target' and 'db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information).\\n \
+    Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information).\\n \
     \\n The execution order is: (P)->(S)->(V)->(R)->(after) \\n \\n \
     i.e. (P)reDeploy SQL, (S)chema YAML, (V)ersion SQL, (R)e-runable SQL, (a)fter (each) migration SQL.\\n \
     The (P)reDeploy SQL use to be executed before (S)chema YAML.\\n \
@@ -268,11 +269,11 @@ subcommands:
     The (V)ersion SQL intended to be a major set of files for DB upgrade and will be executed only one time and store into a history log table.\\n \
     The (R)e-runnable SQL very useful for handling Store Procedure upgrade and with a '--script_tag' very easily trackable.\\n \
     The (P) and (V) will check for version and execute if version absent in target DB up to a target version. \\n \
-    Also (P) and (V) scripts will check for consistency and fail if the file changed and '--version_checksum' set. \\n \
+    Also (P) and (V) scripts will check for consistency and fail if the script changed and '--checksum' set. \\n \
     The (S) script will check for version target and try to apply changes if they are absent in target DB. \\n \
     The (R) script will check a file hashsum and run it if the file was changed to was not run yet on DB. \
     The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history. \\n \
-    The '--config_file' or '-c' use to put all params by name (without --) into a text file. The args pass in command line will override those from config file. \\n \
+    The '--config_file' or '-c' use to put all params by name (without -- prefix) into a text file. The args pass in command line will override those from config file. \\n \
     See more options in './rdbm help' command.\\n \
     Use --dry_run to avoid DB change. \\n Require a valid license to run (use './rdbm help license' for more information). \\n \
     Check https://rdbm.dbinvent.com for more information and best practice.\"
@@ -280,21 +281,21 @@ subcommands:
         about: Create a history log table use to track scripts executions
         help: \"Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or '--db_name' if not set. Use '--dry_run' to avoid DB change.\"
     - snapshot:
-        about: Perform a schema dump into snapshot_to file in yaml format.
-        help: \"Perform a DB schema dump into a '--snapshot_to' file in yaml format. Only column name and type information for now will be stored.\"
+        about: Perform a schema dump into snapshot_to file in yaml or json format.
+        help: \"Perform a DB schema dump into a '--snapshot_to' file in yaml or json format. Only column name and type information for now will be stored.\"
     - info:
         about: Return deployment status and a tag version in JSON format
         help: Return deployment status and a tag version in JSON format
     - license:
-        about: Create apply, upgrade, subscribe or check a license
-        help: \"Use '--email' and '--license' to request a license file if the file not found in '--license_file'.\\n \
-        If the file exist, than will try to check and upgrade a licenses valid_to date.\\n \
+        about: Create apply, upgrade, subscribe or check a license to use this software.
+        help: \"Create apply, upgrade, subscribe or check a license.\n\
+        Use '--email' and '--license' to request a license file if the file not found in '--license_file' OR Evaluation is expired.\\n \
+        If the file exist, than will try to check and upgrade a licenses 'valid_until' date.\\n \
         Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections). \\n \
-        This is the only command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid api_key to perform upgrade or subscribe. \\n \
-        Check https://rdbm.dbinvent.com/license for more information about license.\"
+        This is the only the command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid 'api_key' to perform upgrade or subscribe. \\n \
+        Check https://rdbm.dbinvent.com/license for more information about licensing.\"
 ";
 
-// TODO psql make --single-transaction configurable: --single-transaction=false -1
 
 // --schema_transaction:
 //     - (column-TBD): perform all changes on a table per transaction. \\n \
@@ -323,7 +324,7 @@ columns:
     - column:
         name: source_type
         type: char
-        description: 'S: Schema, V: Version, R: Re-runnable'
+        description: \"S: Schema, V: Version, R: Re-runnable\"
         constraint:
             nullable: false
     - column:
@@ -385,12 +386,12 @@ pub(crate) const SRC_T_M_LEN: usize = 250;
 pub(crate) const SLT_C_LEN: usize = 80;
 
 lazy_static! {
-    pub(crate) static ref STATEMENT_LOG_TBL: crate::dbm_yml::YTable =
+    pub static ref STATEMENT_LOG_TBL: crate::dbm_yml::YTable =
         match YamlLoader::load_from_str(STATEMENT_LOG_TABLE_YML) {
             Ok(y) => {
                 if y.len() > 0 {
-                    YTable::new(&y[0], y[0]["tableName"].as_str().unwrap(), crate::BASELINE)
-                        .unwrap()
+                    let y = &y[0];
+                    YTable::new(&y, y["tableName"].as_str().unwrap(), None, None).unwrap()
                 } else {
                     panic!("zero config");
                 }
@@ -480,13 +481,14 @@ fn migrate_db(
     // prepare schema
     let schema = cfg.schema();
     let mut dbc = crate::dbm_dbc::load_info_schema(log_client)?;
-    let yschemas = crate::dbm_yml::load_all(cfg)?;
+    let yschemas = crate::dbm_yml::load_all(cfg, log)?;
     let mut t = log_client.transaction().unwrap(); // begin self install if not exists
     let err = {
+        debug!(log, "starting with self deploy for: {}", BASELINE);
         match STATEMENT_LOG_TBL.deploy(&mut dbc, &mut t, &schema, cfg, BASELINE, log) {
             Ok(exec) => {
                 if exec {
-                    debug!(log, "self deployed: {}", BASELINE);
+                    debug!(log, "self deploy of: {} complete", BASELINE);
                     if let Err(e) = StatementLog::new(cfg)
                         .instance('S', &BASELINE.into(), &BASELINE.into())
                         .persist(None, &mut t)
@@ -503,7 +505,7 @@ fn migrate_db(
         }
     };
     if let Some(e) = err {
-        warn!(log, "rollback on fail self deploy");
+        warn!(log, "rollback on fail self deploy: {}", e);
         if let Err(e) = t.rollback() {
             warn!(log, "rollback on fail self deploy failed: {}", e);
         }
@@ -621,25 +623,86 @@ fn deploy_all_schemas(
     let mut client = connect("db_", &cfg, None, log)?;
     {
         let stl = StatementLog::new(cfg);
-        let mut t = client.transaction().unwrap();
+        let table_tr = cfg.get("schema_transaction", "file") == "table";
         let mut do_persist = false;
         for (ver, (file, ysv)) in &yschemas.schemas {
-            for (s, ys) in ysv {
-                for  yt in &ys.tables.list {
-                    match yt.deploy(dbc, &mut t, &s, &cfg, &ys.file, log) {
-                        Ok(ok) => {
-                            if ok {
-                                do_persist = true;
+            match client.transaction() {
+                Ok(mut t) => {
+                    // let mut t = client.transaction().unwrap();
+                    for (s, ys) in ysv {
+                        for  yt in &ys.tables.list {
+                            match yt.deploy(dbc, &mut t, &s, &cfg, &ys.file, log) {
+                                Ok(ok) => {
+                                    if ok {
+                                        do_persist = true;
+                                        if table_tr {
+                                            if let Err(ec) = t.batch_execute("COMMIT; BEGIN") {
+                                                do_persist = true;
+                                                err = Some(format!("committing change on {}.{} with {}", s, yt.table_name, ec));
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    do_persist = true;
+                                    err = Some(e);
+                                    break;
+                                }
                             }
                         }
-                        Err(e) => {
-                            err = Some(e);
-                            break;
+                    }
+
+                    if let None = &err {
+                        // deploy FK
+                        // for (ver, (file, ysv)) in &yschemas.schemas {
+                        for (s, ys) in ysv {
+                            for yt in &ys.tables.list {
+                                match yt.deploy_fk(&yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
+                                    Ok(ok) => {
+                                        if ok {
+                                            do_persist = true;
+                                            if table_tr {
+                                                if let Err(ec) = t.batch_execute("COMMIT; BEGIN") {
+                                                    do_persist = true;
+                                                    err = Some(format!("committing change on {}.{} with {}", s, yt.table_name, ec));
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        err = Some(e);
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(_) = &err {
+                                break;
+                            }
+                        }
+                    }
+
+                    if table_tr || ! do_persist {
+                        let _ = t.rollback(); // done with transaction anyway
+                    } else {
+                        match &err {
+                            // err means was persist
+                            Some(_) => {
+                                let _ = t.rollback();
+                            }
+                            None => {
+                                if do_persist {
+                                    if let Err(e) = t.commit() {
+                                        err = Some(format!("committing change for {} {}", file, e))
+                                    }
+                                }
+                            }
                         }
                     }
                 }
-                if let Some(_) = &err {
-                    break;
+                Err(e) => {
+                    err = Some(format!("creating transaction for {} {}", file, e))
                 }
             }
             if do_persist {
@@ -651,43 +714,7 @@ fn deploy_all_schemas(
                 break;
             }
         }
-        let mut do_persist = false;
-        if let None = &err {
-            // deploy FK
-            for (ver, (file, ysv)) in &yschemas.schemas {
-                for (s, ys) in ysv {
-                    for yt in &ys.tables.list {
-                        match yt.deploy_fk(&yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
-                            Ok(ok) => {
-                                if ok {
-                                    do_persist = true;
-                                }
-                            }
-                            Err(e) => {
-                                err = Some(e);
-                                break;
-                            }
-                        }
-                    }
-                    if let Some(_) = &err {
-                        break;
-                    }
-                }
-                if do_persist {
-                    if let Err(e) = stl.instance('S', &ver.s, file).persist(err.clone(), lt) {
-                        err = Some(e);
-                    }
-                }
-                if let Some(_) = &err {
-                    break;
-                }
-            }
-        }
-        if let Some(_) = &err {
-            let _ = t.rollback();
-        } else {
-            let _ = t.commit();
-        }
+
     }
     let _ = client.close();
     match err {
@@ -711,7 +738,7 @@ fn connect(
     };
     let prefix = if override_prefix { "db_" } else { prefix };
     let mut url = String::new();
-    // TODO test with cert
+    // todo test with cert, make condition packaging
     let names = vec![
         "host",
         "port", // "user", "password",
@@ -841,7 +868,7 @@ pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
                         println!("{}", loaded);
                     }
                     Some(file) => {
-                        fs::write(file, loaded);
+                        let _ = fs::write(file, loaded);
                     }
                 };
             } else {
@@ -857,7 +884,7 @@ pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
                         println!("{}", yaml);
                     }
                     Some(file) => {
-                        fs::write(file, yaml);
+                        let _ = fs::write(file, yaml);
                     }
                 }
             } else {
@@ -877,7 +904,7 @@ mod tests {
     fn statementlog_deser_test() {
         assert!(STATEMENT_LOG_TBL.table_name.len() > 1);
         assert!(STATEMENT_LOG_TBL.description.len() > 10);
-        // assert!(STATEMENT_LOG_TBL.columns.len() > 10);
+        // assert!(STATEMENT_LOG_TBL.columns._len() > 10);
     }
 
     #[test]

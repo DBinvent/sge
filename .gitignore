@@ -17,3 +17,6 @@ Cargo.lock
 /tests/local_test_cfg.yaml
 /tests/test_rdbm_license.yaml
 
+/.idea
+/tests/*.rsa
+/tests/*.license

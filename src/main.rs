@@ -43,7 +43,7 @@ fn main() -> Result<(), String> {
 
     match cmd.as_str() {
         "migrate" => {
-            if license::is_valid(&cfg, &log)? {
+            if license::is_ok(&cfg, &log)? {
                 rdbm::migrate(cfg, false, &log)
             } else {
                 Err(format!("Invalid license"))
@@ -92,6 +92,13 @@ fn load(filename: &str, app: &ArgMatches) -> HashMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lazy_test() {
+        assert!(rdbm::CONFIG_YAML["args"].as_vec().unwrap().len() > 15);
+        assert_eq!(rdbm::STATEMENT_LOG_TBL.table_name, "rdbm_history");
+        assert!(rdbm::STATEMENT_LOG_TBL.columns.len() > 15);
+    }
 
     #[test]
     fn config_test() {

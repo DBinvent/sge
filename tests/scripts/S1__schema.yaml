@@ -9,7 +9,6 @@ database:
         description: The new table
         constraint: -- some SQL as table constraint
         sql: -- some SQL suffix on table create
-        transaction: -- single (default) OR table OR column OR retry (wrap to psql)
         columns:
           - column:
             name: id

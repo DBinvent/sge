@@ -10,20 +10,16 @@ use yaml_rust::YamlLoader;
 use crate::dbm_dbc::{FKTable, InfoSchemaType, STable};
 
 use self::yaml_rust::Yaml;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::fmt::{Formatter, Write};
 use std::result::Result;
 
 use crate::dbm_log::StatementLog;
 use clap::ArgMatches;
-use lazy_static::lazy_static;
 use slog::Logger;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
-use serde::ser::SerializeSeq;
-use serde::__private::ser::constrain;
-use postgres::types::ToSql;
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -90,13 +86,13 @@ impl Display for FileVersion {
     }
 }
 
-pub(crate) fn load_all(cfg: &ConfigMap) -> Result<FilesMap, String> {
+pub(crate) fn load_all(cfg: &ConfigMap, log: &Logger) -> Result<FilesMap, String> {
     let mut schema = FilesMap::new();
     load_dir(
         cfg.get("source_dir", "./").as_str(),
         &mut schema,
         &FileFilters::new(cfg)?,
-        cfg.get_bool("source_recur", true),
+        cfg.get_bool("source_recur", true), log
     )?;
     Ok(schema)
 }
@@ -157,6 +153,7 @@ fn load_dir(
     schema: &mut FilesMap,
     ff: &FileFilters,
     recursive: bool,
+    log: &Logger
 ) -> Result<(), String> {
     match fs::read_dir(dir) {
         Ok(paths) => {
@@ -166,7 +163,7 @@ fn load_dir(
                         let fm = p.metadata().unwrap();
                         let file_name = p.path().to_string_lossy().to_string();
                         if fm.is_dir() && recursive {
-                            load_dir(file_name.as_str(), schema, ff, recursive)?;
+                            load_dir(file_name.as_str(), schema, ff, recursive, log)?;
                         } else if fm.is_file() && file_name.len() > 5 {
                             let starting_pos = match file_name.rfind("/") {
                                 None => 0,
@@ -194,7 +191,7 @@ fn load_dir(
                                                         if let Some(ss) =
                                                             schema_schemas.get_mut(&ysn)
                                                         {
-                                                            let _ = ss.append(s)?;
+                                                            let _ = ss.append(s, log)?;
                                                         }
                                                     }
                                                     schema.schemas.insert(
@@ -357,7 +354,7 @@ pub(crate) struct YSchema {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct YTable {
+pub struct YTable {
     #[serde(rename = "tableName")]
     pub table_name: String,
     /// comments
@@ -394,7 +391,7 @@ impl Named for YTrig {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct YColumn {
+pub struct YColumn {
     pub name: String, // id
     #[serde(rename = "type")]
     pub column_type: String, // serial
@@ -406,7 +403,7 @@ pub(crate) struct YColumn {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct YConstr {
+pub struct YConstr {
     #[serde(rename = "primaryKey")]// pub primaryKey: bool, //true
     pub primary_key: bool, //true
     pub nullable: bool, //false
@@ -415,13 +412,13 @@ pub(crate) struct YConstr {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct YForeignKey {
+pub struct YForeignKey {
     pub references: String, //fk_table
     pub sql: String, //-- some SQL suffix on new FK create- on delete no action on update no action
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub(crate) struct YTrig {
+pub struct YTrig {
     pub name: String, //uniq_name_of_trigger
     pub event: String, // before update
     pub when: String, //  for each row
@@ -431,25 +428,23 @@ pub(crate) struct YTrig {
 impl YColumn {
     fn new(input: &Yaml) -> Self {
         let constraint = &input["constraint"];
+        let foreign_key = &constraint["foreignKey"];
+        let references = as_str_esc(foreign_key, "references");
+        let (foreign_key, fk_set) = if references.len() == 0 { (None, false) } else {
+            (Some( YForeignKey{ references, sql: as_str_esc(foreign_key, "sql")}), true)
+        };
+        let primary_key = as_bool(constraint, "primaryKey", false);
+        let nullable = as_bool(constraint, "nullable", true);
+        let constraint = if primary_key || !nullable || fk_set {
+            Some( YConstr{ primary_key, nullable, foreign_key})
+        } else { None };
         YColumn {
             name: safe_sql( as_str_esc(input, "name")),
             column_type:  as_str_esc(input, "type"),
             default_value:  as_str_esc(input, "defaultValue"),
             description:  as_str_esc(input, "description"),
             sql:  as_str_esc(input, "sql"),
-            constraint:  if constraint.is_null() { None } else {
-                let foreignKey = &constraint["foreignKey"];
-                Some(YConstr{
-                    primary_key: as_bool(constraint, "primaryKey", false),
-                    nullable: as_bool(constraint, "nullable", false),
-                    foreign_key: if foreignKey.is_null() { None } else {
-                        Some(YForeignKey{
-                            references: as_str_esc(foreignKey, "references"),
-                            sql: as_str_esc(foreignKey, "sql"),
-                        })
-                    }
-                })
-            },
+            constraint,
         }
     }
 
@@ -530,7 +525,7 @@ fn as_str_esc(input: &Yaml, field: &str) -> String {
     match val.find(" --") {
         None => {
             if val.len() > 0 {
-                format!(" {}", val)
+                format!("{}", val)
             } else {
                 "".into()
             }
@@ -541,17 +536,25 @@ fn as_str_esc(input: &Yaml, field: &str) -> String {
 
 #[inline]
 fn as_str(input: &Yaml, field: &str, def: &str) -> String {
-    match input[field].as_str() {
-        None => def.into(),
-        Some(s) => s.into(),
+    if input.is_null() {
+        def.into()
+    } else {
+        match input[field].as_str() {
+            None => def.into(),
+            Some(s) => s.into(),
+        }
     }
 }
 
 #[inline]
 fn as_bool(input: &Yaml, field: &str, default: bool) -> bool {
-    match input[field].as_str() {
-        None => default,
-        Some(s) => str2bool(s, default),
+    if input.is_null() {
+        default
+    } else {
+        match input[field].as_str() {
+            None => default,
+            Some(s) => str2bool(s, default),
+        }
     }
 }
 
@@ -625,38 +628,67 @@ impl<T: Named> OrderedHashMap<T> {
         }
     }
     #[inline]
-    pub(crate) fn _len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.list.len()
     }
 }
 
 impl YTable {
-    pub(crate) fn new(input: &Yaml, table_name: &str, file: &str) -> Result<Self, String> {
+    pub(crate) fn new(input: &Yaml, table_name: &str, file: Option<&String>, log: Option<&Logger>) -> Result<Self, String> {
         let mut columns = OrderedHashMap::new();
         if let Some(cls) = input["columns"].as_vec() {
             let mut i = 1;
-            for c in cls {
-                if let Some(_name) = c["name"].as_str() {
-                    if let Err(e) = columns.append(YColumn::new(c)) {
-                        return Err(format!(
-                            "{} (column name) {}/{} on table: {}, found in file: {}",
-                                e, i, cls.len(), table_name, file
-                        ));
-                    };
+            for cl in cls {
+                let c = &cl["column"];
+                if !c.is_null() {
+                    if let Some(_name) = c["name"].as_str() {
+                        let yc = YColumn::new(c);
+                        match file {
+                            None => {
+                                // println!("{}:\n{:?}\n{:?}", _name, yc, c);
+                            }
+                            Some(_f) => {
+                                if let Some(log) = log {
+                                    debug!(log, "+\n{:?}\n{:?}", yc, c);
+                                }
+                            }
+                        }
+                        if let Err(e) = columns.append(yc) {
+                            return Err(format!(
+                                "{} (column name) {}/{} on table: {}{}{}",
+                                e, i, cls.len(), table_name,
+                                match file { None => "", Some(_) => ", found in file: " },
+                                match file { None => "", Some(f) => f.as_str(), },
+                            ));
+                        };
+                    }
+                    i += 1;
                 }
-                i += 1;
             }
         }
         let mut triggers = OrderedHashMap::new();
-        if let Some(cls) = input["triggers"].as_vec() {
-            for c in cls {
-                if let Some(name) = c["name"].as_str() {
-                    if let Err(_) = triggers.append(YTrig::new(c)) {
-                        return Err(format!(
-                            "Duplicate trigger name: {} on table: {}, found in file: {}",
-                            name, table_name, file
-                        ));
-                    };
+        if let Some(trs) = input["triggers"].as_vec() {
+            for tr in trs {
+                let t = &tr["trigger"];
+                if !t.is_null() {
+                    if let Some(name) = t["name"].as_str() {
+                        if name.len() > 0 {
+                            if let Err(_) = triggers.append(YTrig::new(t)) {
+                                return Err(format!(
+                                    "Duplicate trigger name: {} on table: {}{}{}",
+                                    name, table_name,
+                                    match file {
+                                        None => "",
+                                        Some(_) => ", found in file: "
+                                    },
+                                    match file {
+                                        None => "",
+                                        Some(f) => f.as_str(),
+                                    },
+                                ));
+                            };
+                        }
+                    }
                 }
             }
         }
@@ -672,7 +704,6 @@ impl YTable {
     }
 
     /// build a create or alter sql
-    // TODO FIXME apply by self.transactions. and schema_transaction
     #[allow(unused_mut)]
     pub(crate) fn deploy(
         &self,
@@ -734,7 +765,7 @@ impl YTable {
                 self.comments(&mut comments, schema, &dc.name, &dc.description);
             }
             if columns.len() > 0 {
-                if create_schema {
+                if create_schema && schema.as_str() != "public" {
                     let _ = write!(sql, "CREATE SCHEMA IF NOT EXISTS {} ", schema);
                     if owner.len() > 0 {
                         let _ = write!(sql, "AUTHORIZATION {}", owner);
@@ -773,9 +804,6 @@ impl YTable {
             exec = true;
         }
         if exec {
-            if comments.len() > 0 {
-                let _ = writeln!(sql, "{}\n", comments);
-            }
             if self.description.len() > 0 {
                 let _ = writeln!(
                     comments,
@@ -810,7 +838,7 @@ impl YTable {
     //YTable
 
     #[inline]
-    fn is_pk(&self, input: &Yaml) -> bool {
+    fn _is_pk(&self, input: &Yaml) -> bool {
         let mut yes = false;
         let constraint = &input["constraint"];
         if !constraint.is_null() {
@@ -899,7 +927,7 @@ impl YTable {
             );
         }
 
-        if cfg.get_bool("dry_run", false) {
+        if cfg.get_bool("dry_run", false) && exec{
             match StatementLog::dry_store(cfg.get_opt("dry_run_to"), sql, log) {
                 Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to", ""), e)),
                 Ok(_) => Ok(false),
@@ -925,6 +953,7 @@ impl YSchema {
         }
     }
 
+    // todo read Schema in JSON format
     #[inline]
     fn new(input: &Yaml, file: &String) -> Self {
         YSchema {
@@ -936,7 +965,7 @@ impl YSchema {
     }
 
     #[inline]
-    fn append(&mut self, input: &Yaml) -> Result<(), String> {
+    fn append(&mut self, input: &Yaml, log: &Logger) -> Result<(), String> {
         if let Some(tbls) = input["tables"].as_vec() {
             for t in tbls {
                 match t["tableName"].as_str() {
@@ -952,7 +981,7 @@ impl YSchema {
                         } else {
                             let _ = self
                                 .tables
-                                .append( YTable::new(t, tn, self.file.as_str())?);
+                                .append( YTable::new(t, tn, Some(&self.file), Some(log) )?);
                         }
                     }
                 }

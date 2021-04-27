@@ -1,10 +1,8 @@
 extern crate postgres;
-use crate::dbm_yml::ConfigMap;
 use postgres::Client;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::result::Result;
-use self::postgres::{Error, Row};
 
 /// information schema types: schema, table, column
 pub(crate) type InfoSchemaType = HashMap<String, HashMap<String, STable>>;

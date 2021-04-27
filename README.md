@@ -12,19 +12,21 @@ Combines two ways:
     with script execution tracking by various of filter includes versions and tags
 
 
-Also suitable as orchestrator for multiple db instances, hosts and environments.
-The app intend to be a microservise ready with multidatabase (microservice configuration) & (multi)environment support
+Also, suitable as orchestrator for multiple db instances, hosts and environments.
+The app intend to be a microservice ready with multi-database (microservice configuration) & (multi)environment support
 
 
 #### Key features
 
  - create database if absent
- - connect by certs
- - use both: schema definition and script execution tracking
+ - ability to connect by certs
+ - use both: schema/table definition and script execution tracking
  - support separate db connection for history table
- - use psql client for script execution
- - no jvm nor python required to run
- - lightweight (just 8MB) and fast
+ - use psql client for script execution, include native psql script support
+ - no JVM nor Python required to run
+ - lightweight (just 8MB) and therefore fast
+ - transactional changes with rollback and configurable non-transactional mode
+ - dry run and diff in evaluation license
 
 
 #### Limitations
@@ -33,10 +35,11 @@ The app intend to be a microservise ready with multidatabase (microservice confi
  - see 'Schema deploy restriction'
 
 
-### Schema deploy restriction notice
+### Schema/Table deploy restriction notice
 
- - The column definitions 'sql' field and constraints (except FK) will apply only for a new columns or new table.
- - Adding constraint on existing column wont produce an ALTER TABLE SQL (except FK)
+ - Schemas and tables definition allowed only in YAML format 
+ - The column definitions 'sql' field and constraints (except FK) will apply only for a new columns or new table
+ - Adding constraint on existing column won't produce an ALTER TABLE SQL (except FK)
  - The multi primary key columns will fail. 
  - The multi column FK definition column will fail. 
  - All script files executed by psql with a flag --single-transaction, to be able to correctly handle a status and safely repeat
@@ -45,15 +48,16 @@ The app intend to be a microservise ready with multidatabase (microservice confi
 ### Schema snapshot restriction notice
 
  - only column name and type
- - no indexes, foreign keys, constraint, special sql on table or column defenition
+ - no indexes, foreign keys, constraint, special sql on table or column definition
 
 
 ### TODO
 
-- Lift column restrictions for Schema snapshot and deploy for multiprimary keys, etc
+- Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
+- Add JSON format for schema definition
 - Add git as a source for scripts and license
-- Add keyvault's cloud integration for DB conenction and license store
-- Add UI / api to work as a service (phpadmin inspired)
+- Add key-vault's cloud integration for DB connection and license store
+- Add UI / api to work as a service (php-admin inspired)
 - Add scheduled deploy
 - Add data migration: dump - upgrade 
 

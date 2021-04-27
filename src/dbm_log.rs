@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::{Read, Write, BufReader, BufRead};
 use std::process::Command;
 use std::result::Result;
 
@@ -9,16 +9,11 @@ use postgres::{Client, Error, Transaction};
 use serde::Serialize;
 use slog::Logger;
 
-use crate::dbm_dbc::{InfoSchemaType, STable, InfoSchemaOwnerType};
-use crate::dbm_yml::{ConfigMap, FilesMap, YSchema, OrderedHashMap, YTable, Named, YColumn, semver_parse};
+use crate::dbm_dbc::{InfoSchemaType,  InfoSchemaOwnerType};
+use crate::dbm_yml::{ConfigMap, FilesMap, YSchema, OrderedHashMap, YTable,  YColumn, semver_parse};
 use crate::*;
-use std::fs::OpenOptions;
+use std::fs::{OpenOptions, File};
 use std::time::Instant;
-use yaml_rust::Yaml;
-use linked_hash_map::LinkedHashMap;
-use postgres::types::ToSql;
-use std::collections::hash_map::RandomState;
-use std::ops::Add;
 use semver::Version;
 use chrono::{Utc, DateTime};
 
@@ -72,41 +67,18 @@ mod my_date_format {
 
     const FORMAT: &'static str = "%Y-%m-%d %H:%M:%S";
 
-    // The signature of a serialize_with function must follow the pattern:
-    //
-    //    fn serialize<S>(&T, S) -> Result<S::Ok, S::Error>
-    //    where
-    //        S: Serializer
-    //
-    // although it may also be generic over the input types T.
-    pub fn serialize<S>(
-        date: &DateTime<Utc>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+    pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
         let s = format!("{}", date.format(FORMAT));
         serializer.serialize_str(&s)
     }
 
-    // The signature of a deserialize_with function must follow the pattern:
-    //
-    //    fn deserialize<'de, D>(D) -> Result<T, D::Error>
-    //    where
-    //        D: Deserializer<'de>
-    //
-    // although it may also be generic over the output types T.
-    pub fn deserialize<'de, D>(
-        deserializer: D,
-    ) -> Result<DateTime<Utc>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
+    #[allow(dead_code)]
+    pub fn deserialize<'de, D>( deserializer: D, ) -> Result<DateTime<Utc>, D::Error> where D: Deserializer<'de> {
         let s = String::deserialize(deserializer)?;
         Utc.datetime_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
     }
 }
+
 type SortedStatementLog = HashMap<String, HashMap<String, LogVer>>;
 
 impl StatementLog {
@@ -159,6 +131,7 @@ impl StatementLog {
     /// select table for update -- row level lock
     // map: db_name(target) -> catalog (schemas) -> max(version)/
     #[inline]
+    #[allow(unused_mut)]
     fn load_ok(
         t: &mut Transaction,
         cfg: &ConfigMap,
@@ -289,7 +262,7 @@ impl StatementLog {
             if self.checksum == *checks {
                 return Ok(());
             } else if self.source_type == 'V' || self.source_type == 'P' {
-                return if cfg.get_bool("version_checksum", false) {
+                return if cfg.get_bool("checksum", false) {
                     // checksum different
                     Err(format!(
                         "Version [{}] script file [{}] checksum deployment mismatch",
@@ -313,13 +286,20 @@ impl StatementLog {
             if let Some(pgpass) = cfg.get_opt("db_password") {
                 cmd.env("PGPASSWORD", pgpass);
             }
-
+            let single_transaction = if self.source_type == 'V' {
+                match cfg.get_opt("version_transaction") {
+                    Some(t) => t.as_str() == "single",
+                    None => find_single_transaction(self.source.as_str()),
+                }
+            } else { true };
+            if single_transaction {
+                cmd.arg("-1"); // --single-transaction
+            }
             debug!(log, "executing {} ...", self.source);
             match cmd
                 .arg(format!("--dbname={}", cfg.get("db_name", "")))
                 .arg(format!("--host={}", cfg.get("db_host", "")))
                 .arg("-X") //  do not read startup file (~/.psqlrc)
-                .arg("-1") // --single-transaction TODO check  - version_transaction: single statement: execute psql without --single-transaction option. This is also available by set first lien in file as --single-transaction=false\
                 .arg("-v")
                 .arg("ON_ERROR_STOP=1")
                 .arg("-f")
@@ -327,18 +307,20 @@ impl StatementLog {
                 .output()
             {
                 Ok(output) => {
-                    let msg = format!(
-                        "{} {}",
-                        String::from_utf8_lossy(output.stderr.as_ref())
-                            .trim_matches(|c| c == ' ' || c == '\n' || c == '^'),
-                        String::from_utf8_lossy(output.stdout.as_ref())
-                            .trim_matches(|c| c == ' ' || c == '\n' || c == '^')
-                    );
                     if output.status.success() {
-                        info!(log, "{}: OK\n{}", &self.source, msg);
+                        info!(log, "{}: OK", &self.source);
+                        let msg = trim_output(&output.stdout);
+                        if msg.len() > 0 {
+                            info!(log, "[{}]", msg);
+                        }
+                        let emsg = trim_output(&output.stderr);
+                        if emsg.len() > 0 {
+                            error!(log, "{}", emsg);
+                        }
                         self.persist(None, t)
                     } else {
-                        error!(log, "{} : {}", &self.source, msg);
+                        let msg = format!("{} : {} {}", &self.source, trim_output(&output.stdout), trim_output(&output.stderr));
+                        error!(log, "{}", msg);
                         self.persist(Some(msg), t)
                     }
                 }
@@ -425,7 +407,9 @@ impl StatementLog {
     pub(crate) fn dry_store(file: Option<String>, sql: String, log: &Logger) -> Result<(), String> {
         match &file {
             None => {
-                info!(log, "\n{}", sql);
+                if sql.len() > 0 {
+                    info!(log, "\n{}", sql);
+                }
                 Ok(())
             }
             Some(f) => {
@@ -447,6 +431,66 @@ impl StatementLog {
                 }
             }
         }
+    }
+}
+
+#[inline]
+fn trim_output(input: &Vec<u8>) -> String {
+    String::from_utf8_lossy(input).trim_matches(|c| c == ' ' || c == '\n' || c == '^').into()
+}
+
+const SINGLE_TRANSACTION: &str = "--single-transaction=";
+
+fn find_single_transaction(file: &str) -> bool {
+    let mut single_transaction: Option<bool> = None;
+    if let Ok(file) = File::open(file) {
+        let reader = BufReader::new(file);
+        for line in reader.lines() {
+            match line {
+                Ok(l) => {
+                    let mut prev = ' ';
+                    let mut i = 0usize;
+                    for c in l.chars() {
+                        if c != ' ' {
+                            if i + SINGLE_TRANSACTION.len()+4 > l.len() {
+                                break
+                            }
+                            if c == '-' && prev == '-' {
+                                // found comment line - search for comment
+                                if let Some(x) = l.find(SINGLE_TRANSACTION) {
+                                    let x = x + SINGLE_TRANSACTION.len()+5;
+                                    // set only if found, otherwise search until sql code starts
+                                    if x <= l.len() {
+                                        let cm = if x == l.len() { &l[x - 5..] } else { &l[x - 5..x] };
+                                        single_transaction = Some(cm != "false");
+                                    } else {
+                                        single_transaction = Some(true);
+                                    }
+                                }
+                                break;
+                            }
+                            if prev == ' ' && c.is_alphabetic() {
+                                // found non comment line - breaking search
+                                single_transaction = None;
+                                break;
+                            }
+                        }
+                        prev = c;
+                        i += 1;
+                    }
+                    if let Some(_) = single_transaction {
+                        break;
+                    }
+                }
+                Err(_) => {
+                    break;
+                }
+            }
+        }
+    }
+    match single_transaction {
+        None => true,
+        Some(s) => s
     }
 }
 
@@ -501,10 +545,16 @@ pub(crate) fn load_impl(
         // let yschemas = crate::dbm_yml::load_all(cfg)?;
         let logs = StatementLog::load_ok(&mut t, cfg)?;
         let _ = t.rollback();
-        match serde_yaml::to_string(&logs) {
-        // match serde_json::to_string(&logs) {
-            Ok(data) => Ok(data),
-            Err(e) => Err(format!("{}", e)),
+        if cfg.get("snapshot_format", "yaml").as_str() == "json" {
+            match serde_json::to_string(&logs) {
+                Ok(data) => Ok(data),
+                Err(e) => Err(format!("converting result to JSON format with error: {}", e)),
+            }
+        } else {
+            match serde_yaml::to_string(&logs) {
+                Ok(data) => Ok(data),
+                Err(e) => Err(format!("converting result to YAML format with error: {}", e)),
+            }
         }
     }
 }
@@ -538,11 +588,11 @@ impl LoadResult {
                         description: "".to_string(),
                         sql: "".to_string()
                     };
-                    yt.columns.append(yc);
+                    let _ = yt.columns.append(yc);
                 }
-                ytables.append( yt);
+                let _ = ytables.append( yt);
             }
-            let mut ys = YSchema {
+            let ys = YSchema {
                 schema_name: schema.clone(),
                 owner: match owners.get(&schema) {
                     None => "".to_string(),
@@ -560,3 +610,18 @@ impl LoadResult {
 }
 
 
+// V1_1__sample_ddl.sql
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn v_test() {
+        assert!(!find_single_transaction("./tests/scripts/P1_1__data.sql"));
+        assert!(!find_single_transaction("./tests/scripts/V1_1__sample_ddl.sql"));
+        assert!(find_single_transaction("./tests/scripts/R1_1__data.sql"));
+    }
+
+}
