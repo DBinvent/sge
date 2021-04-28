@@ -1,7 +1,7 @@
 extern crate yaml_rust;
 
 use std::collections::{BTreeMap, HashMap};
-use std::fs;
+use std::{fs, env};
 
 use postgres::Transaction;
 use semver::{SemVerError, Version};
@@ -89,7 +89,7 @@ impl Display for FileVersion {
 pub(crate) fn load_all(cfg: &ConfigMap, log: &Logger) -> Result<FilesMap, String> {
     let mut schema = FilesMap::new();
     load_dir(
-        cfg.get("source_dir", "./").as_str(),
+        cfg.get("source_dir").as_str(),
         &mut schema,
         &FileFilters::new(cfg)?,
         cfg.get_bool("source_recur", true), log
@@ -266,7 +266,7 @@ struct FileFilter {
 impl FileFilter {
     #[inline]
     fn new(field: &str, cfg: &ConfigMap, file_type: &str) -> Result<Self, String> {
-        let f = cfg.get(field, "*");
+        let f = cfg.get_def(field, "*".into());
         let filter = if f.as_bytes()[0] == b'*' {
             None
         } else {
@@ -818,7 +818,7 @@ impl YTable {
                     let _ = StatementLog::dry_store(cfg.get_opt("dry_run_to"), comments, log);
                     Ok(false)
                 }
-                Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to", ""), e)),
+                Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to"), e)),
             }
         } else {
             if exec {
@@ -929,7 +929,7 @@ impl YTable {
 
         if cfg.get_bool("dry_run", false) && exec{
             match StatementLog::dry_store(cfg.get_opt("dry_run_to"), sql, log) {
-                Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to", ""), e)),
+                Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to"), e)),
                 Ok(_) => Ok(false),
             }
         } else {
@@ -994,7 +994,7 @@ impl YSchema {
 #[derive(Debug)]
 pub enum ConfigMap<'a> {
     Cli(ArgMatches<'a>),
-    Map((HashMap<String, String>, Yaml)),
+    Map(HashMap<String, String>),
 }
 
 #[derive(Debug, Deserialize)]
@@ -1011,25 +1011,22 @@ pub struct CfgMod {
 }
 
 impl<'a> ConfigMap<'a> {
+
     #[inline]
-    pub fn new(params: HashMap<String, String>) -> Self {
-        ConfigMap::Map((params, crate::CONFIG_YAML["args"].clone()))
+    pub fn get_def(&self, param: &str, def: String) -> String {
+        let v = self.get(param);
+        if v.len() == 0 {
+            def
+        } else {
+            v
+        }
     }
 
     #[inline]
-    pub fn get(&self, param: &str, default: &str) -> String {
-        match &self {
-            ConfigMap::Cli(cli) => match cli.value_of(param) {
-                None => default.into(),
-                Some(v) => v.into(),
-            },
-            ConfigMap::Map((map, cm)) => match map.get(param) {
-                None => match cm[param].as_str() {
-                    None => default.into(),
-                    Some(x) => x.into(),
-                },
-                Some(x) => x.clone(),
-            },
+    pub fn get(&self, param: &str) -> String {
+        match &self.get_opt(param) {
+            None => crate::CONFIG_APP.get(param).unwrap_or(&"".to_string()).into(),
+            Some(v) => v.into()
         }
     }
 
@@ -1038,18 +1035,23 @@ impl<'a> ConfigMap<'a> {
         match &self {
             ConfigMap::Cli(cli) => {
                 if cli.occurrences_of(param) > 0 {
-                    if let Some(v) = cli.value_of(param) {
-                        return Some(v.into());
+                    cli.value_of(param).map(|v| v.into())
+                } else {
+                    match env::var(param.to_uppercase()) {
+                        Ok(v) => Some(v),
+                        Err(_) => None,
                     }
                 }
             }
-            ConfigMap::Map((map, _cm)) => {
-                if let Some(x) = map.get(param) {
-                    return Some(x.clone());
+            ConfigMap::Map(map) => {
+                match map.get(param) {
+                    Some(x) => Some(x.clone()),
+                    None => match env::var(param.to_uppercase()) {
+                        Ok(v) => Some(v), Err(_) => None,
+                    }
                 }
             }
         }
-        None
     }
 
     #[inline]
@@ -1080,7 +1082,7 @@ impl<'a> ConfigMap<'a> {
     #[inline]
     pub fn get_bool(&self, param: &str, default: bool) -> bool {
         str2bool(
-            self.get(param, format!("{}", default).as_str()).as_str(),
+            self.get_def(param, format!("{}", default)).as_str(),
             default,
         )
     }
@@ -1088,17 +1090,17 @@ impl<'a> ConfigMap<'a> {
     /// find the target database name for log storage, use a database from connection if not set use '' as current db
     #[inline]
     pub(crate) fn target(&self) -> String {
-        self.get("db_target", "")
+        self.get("db_target")
     }
 
     #[inline]
     pub(crate) fn schema(&self) -> String {
-        safe_sql(self.get("schema", "public"))
+        safe_sql(self.get("schema"))
     }
 
     #[inline]
     pub(crate) fn history_table_name(&self) -> String {
-        safe_sql(self.get("table", crate::STATEMENT_LOG_TBL.table_name.as_str()))
+        safe_sql(self.get_def("table", crate::STATEMENT_LOG_TBL.table_name.clone()))
     }
 
     #[inline]

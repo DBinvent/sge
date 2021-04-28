@@ -200,9 +200,9 @@ impl StatementLog {
             source_type: ' ',
             version: "0".to_string(),
             checksum: "".into(),
-            catalog: tlim(&cfg.get("db_catalog", ""), SLT_C_LEN),
-            script_tag: tlim(&cfg.get("script_tag", ""), SLT_C_LEN),
-            executed_by: tlim(&cfg.get("executed_by", ""), SLT_C_LEN),
+            catalog: tlim(&cfg.get("db_catalog"), SLT_C_LEN),
+            script_tag: tlim(&cfg.get("script_tag"), SLT_C_LEN),
+            executed_by: tlim(&cfg.get("executed_by"), SLT_C_LEN),
             ok: false,
             msg: "".to_string(),
             took_sec: 0,
@@ -239,7 +239,7 @@ impl StatementLog {
         t: &mut Transaction,
         log: &Logger,
     ) -> Result<(), String> {
-        if let Some((va, afile)) = yschemas.after.get_key_value(&cfg.get(key, "")) {
+        if let Some((va, afile)) = yschemas.after.get_key_value(&cfg.get(key)) {
             self.instance('A', va, afile)
                 .deploy(&logs, pgsrv, cfg, t, log)
         } else {
@@ -297,8 +297,8 @@ impl StatementLog {
             }
             debug!(log, "executing {} ...", self.source);
             match cmd
-                .arg(format!("--dbname={}", cfg.get("db_name", "")))
-                .arg(format!("--host={}", cfg.get("db_host", "")))
+                .arg(format!("--dbname={}", cfg.get("db_name")))
+                .arg(format!("--host={}", cfg.get("db_host")))
                 .arg("-X") //  do not read startup file (~/.psqlrc)
                 .arg("-v")
                 .arg("ON_ERROR_STOP=1")
@@ -545,7 +545,7 @@ pub(crate) fn load_impl(
         // let yschemas = crate::dbm_yml::load_all(cfg)?;
         let logs = StatementLog::load_ok(&mut t, cfg)?;
         let _ = t.rollback();
-        if cfg.get("snapshot_format", "yaml").as_str() == "json" {
+        if cfg.get("snapshot_format").as_str() == "json" {
             match serde_json::to_string(&logs) {
                 Ok(data) => Ok(data),
                 Err(e) => Err(format!("converting result to JSON format with error: {}", e)),

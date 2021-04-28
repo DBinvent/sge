@@ -35,7 +35,7 @@ fn main() -> Result<(), String> {
     };
     let cfg = if app.occurrences_of("config_file") > 0 {
         let file = app.value_of("config_file").unwrap();
-        ConfigMap::new(load(file, &app))
+        ConfigMap::Map(load(file, &app))
     } else {
         ConfigMap::Cli(app)
     };
@@ -76,14 +76,9 @@ fn load(filename: &str, app: &ArgMatches) -> HashMap<String, String> {
             panic!("loading {} {}", filename, e);
         }
     }
-    for p in rdbm::CONFIG_YAML["args"].as_vec().unwrap() {
-        let ymh = p.as_hash().unwrap();
-        for (k, _) in ymh {
-            if let Some(ks) = k.as_str() {
-                if app.occurrences_of(ks) == 1 {
-                    cfg.insert(ks.to_string(), app.value_of(ks).unwrap().into());
-                }
-            }
+    for ks in rdbm::CONFIG_APP.keys() {
+        if app.occurrences_of(ks.as_str()) == 1 {
+            cfg.insert(ks.clone(), app.value_of(ks).unwrap().into());
         }
     }
     cfg
@@ -95,7 +90,7 @@ mod tests {
 
     #[test]
     fn lazy_test() {
-        assert!(rdbm::CONFIG_YAML["args"].as_vec().unwrap().len() > 15);
+        assert!(rdbm::CONFIG_APP.len() > 15);
         assert_eq!(rdbm::STATEMENT_LOG_TBL.table_name, "rdbm_history");
         assert!(rdbm::STATEMENT_LOG_TBL.columns.len() > 15);
     }

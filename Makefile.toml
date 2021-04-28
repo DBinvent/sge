@@ -42,9 +42,9 @@ script = [
 #cargo build --bin sl && ./target/debug/sl ./tests/corp.rsa ./tests/test_rdbm.license  > tests/signed_test_rdbm.licens
 #cargo build --bin rdbm && ./target/debug/rdbm -c ./tests/local_test_cfg.yaml --license_file=./tests/signed_test_rdbm.license license && echo OK
 
-grep -q db_user ./test_cfg.yaml || echo "db_user: \"$USER\" " >> ./test_cfg.yaml
+#grep -q db_user ./test_cfg.yaml || echo "db_user: \"$USER\" " >> ./test_cfg.yaml
 ../target/debug/rdbm -c ./local_test_cfg.yaml migrate
-psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" rt
+psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" ucb
 '''
 ]
 

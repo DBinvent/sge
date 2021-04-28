@@ -22,15 +22,15 @@ const INV_LL: &str = "Please check https://rdbm.dbinvent.com/license See ./rdbm 
 
 /// on license action
 pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
-    let email = cfg.get("email", "");
-    let license_file = cfg.get("license_file", "rdbm.license");
+    let email = cfg.get("email");
+    let license_file = cfg.get("license_file");
 
     let mut subsr: BTreeSet<String> = BTreeSet::new();
-    cfg.get("subscribe", "").split(",").for_each(|s| { subsr.insert(s.into()); });
-    let db_host = cfg.get("db_host", "");
-    let logdb_host = cfg.get("logdb_host", "");
-    let db_name = cfg.get("db_name", "");
-    let logdb_name = cfg.get("logdb_name", "");
+    cfg.get("subscribe").split(",").for_each(|s| { subsr.insert(s.into()); });
+    let db_host = cfg.get("db_host");
+    let logdb_host = cfg.get("logdb_host");
+    let db_name = cfg.get("db_name");
+    let logdb_name = cfg.get("logdb_name");
 
     let do_subscribe = subsr.contains("*")
         || subsr.contains(&db_host)
@@ -88,10 +88,10 @@ pub fn is_ok(cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
         Some(lf) => {
             let l = License::load(lf.as_str())?;
             l.verify()?;
-            Ok(l.find(&cfg.get("db_host", ""),
-                            &cfg.get("logdb_host", ""),
-                            &cfg.get("db_name", ""),
-                            &cfg.get("logdb_name", "") ))
+            Ok(l.find(&cfg.get("db_host"),
+                            &cfg.get("logdb_host"),
+                            &cfg.get("db_name"),
+                            &cfg.get("logdb_name") ))
         }
     }
 }

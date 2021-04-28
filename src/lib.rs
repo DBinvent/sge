@@ -21,12 +21,12 @@ extern crate yaml_rust;
 
 use yaml_rust::YamlLoader;
 
-use self::yaml_rust::Yaml;
 use chrono::{TimeZone, Utc};
 use openssl::error::ErrorStack;
 use postgres::error::SqlState;
 use std::fmt::Write;
 use std::time::SystemTime;
+use std::collections::HashMap;
 
 pub const CONFIG_DEF_YML: &str = "
 name: rdbm
@@ -134,7 +134,7 @@ args:
         help: The deployment history 'table' schema location
     - schema_transaction:
         long: schema_transaction
-        takes_value: true
+        default_value: file
         help: \"The value to override (S)chema file database.schema.table.transaction option \\n \
         - file: (default) execute the (S)chema file in a single transaction. This is guarantee to have all or neither changes applied by the file marked as OK. \\n \
         - table: perform all changes for each table per transaction.  \\n \
@@ -202,7 +202,7 @@ args:
         long: config
         short: c
         takes_value: true
-        help: Load all params from config file, any command line params will override parameters loaded from file.
+        help: Load all params from config file, any command line params will override parameters loaded from file. If neither set than environment variables (with CAPITALIZED names) will be search to use.
     - after:
         long: after
         default_value: \"after.sql\"
@@ -401,13 +401,19 @@ lazy_static! {
             }
         };
 
-    pub static ref CONFIG_YAML: Yaml = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
-        Ok(y) =>
-            if y.len() > 0 {
-                y[0].clone()
-            } else {
-                panic!("zero def config");
-            },
+    pub static ref CONFIG_APP: HashMap<String, String> = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
+        Ok(yaml) => {
+                let mut defs = HashMap::new();
+                for args in yaml[0]["args"].as_vec().unwrap() {
+                    for (k, v) in args.as_hash().unwrap() {
+                        if let Some(v) = v["default_value"].as_str() {
+                            if let Some(k) = k.as_str() {
+                                defs.insert(k.into(), v.into());
+                            }
+                        }
+                    }
+                }
+                defs }
         Err(e) => {
             panic!("wrong config: {}", e);
         }
@@ -516,7 +522,7 @@ fn migrate_db(
     } else {
         // select table for update -- row level lock, revert changes
         let logs = { StatementLog::load_all(&mut t, cfg.get_bool("dry_run", true), cfg)? };
-        let pgsrv = format!("/tmp/.rdbm_{}.conf", cfg.get("db_name", ""));
+        let pgsrv = format!("/tmp/.rdbm_{}.conf", cfg.get("db_name"));
         let res = match deploy_pre_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log) {
             Ok(_) => match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
                 Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
@@ -566,7 +572,7 @@ fn deploy_pre_files(
         for name in names.iter() {
             cfg.get_pow(&mut content, "db_", name, "\n");
         }
-        if let Err(e) = fs::write(pgsrv, format!("[{}]\n{}", cfg.get("db_name", ""), content)) {
+        if let Err(e) = fs::write(pgsrv, format!("[{}]\n{}", cfg.get("db_name"), content)) {
             return Err(format!("creating PGSERVICEFILE: {}: {}", pgsrv, e));
         }
     }
@@ -623,7 +629,7 @@ fn deploy_all_schemas(
     let mut client = connect("db_", &cfg, None, log)?;
     {
         let stl = StatementLog::new(cfg);
-        let table_tr = cfg.get("schema_transaction", "file") == "table";
+        let table_tr = cfg.get("schema_transaction") == "table";
         let mut do_persist = false;
         for (ver, (file, ysv)) in &yschemas.schemas {
             match client.transaction() {
@@ -761,7 +767,7 @@ fn connect(
             url,
             "{}user={}",
             if url.len() > 0 { "&" } else { "" },
-            cfg.get(format!("create{}user", prefix).as_str(), "postgres")
+            cfg.get(format!("create{}user", prefix).as_str())
         );
 
         let mut log_url = url.clone();
@@ -792,7 +798,7 @@ fn connect(
     let db = format!("postgresql:///{}?{}", dbname, url);
     debug!(log, "connecting: {}", log_url);
     match if cfg.is_ssl() {
-        let connector = match make_tls_connector(&cfg.get(prefix, "sslcert")) {
+        let connector = match make_tls_connector(&cfg.get(prefix)) {
             Ok(c) => c,
             Err(e) => {
                 return Err(format!("create TLS(SSL) connection: {}", e));
@@ -903,13 +909,13 @@ mod tests {
     #[test]
     fn statementlog_deser_test() {
         assert!(STATEMENT_LOG_TBL.table_name.len() > 1);
-        assert!(STATEMENT_LOG_TBL.description.len() > 10);
-        // assert!(STATEMENT_LOG_TBL.columns._len() > 10);
+        assert!(STATEMENT_LOG_TBL.description.len() > 15);
+        assert!(STATEMENT_LOG_TBL.columns.len() > 15);
     }
 
     #[test]
     fn config_log_deser_test() {
-        assert!(crate::CONFIG_YAML["args"].as_vec().unwrap().len() > 10);
+        assert!(crate::CONFIG_APP.len() > 15);
     }
 
 }
