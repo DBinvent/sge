@@ -1,16 +1,13 @@
 #[macro_use]
 extern crate slog;
 
-use clap::{App, ArgMatches};
+use clap::App;
 use slog::Logger;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::{Format, Severity};
 use sloggers::Build;
 
 use rdbm::dbm_yml::ConfigMap;
-use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
 mod license;
 
@@ -34,9 +31,14 @@ fn main() -> Result<(), String> {
             return Ok(());
         }
     };
-    let cfg = ConfigMap { map: load(
+    let mut cfg = ConfigMap::load(
     if app.occurrences_of("config_file") > 0 {
-            app.value_of("config_file").unwrap_or("")} else {""}, &app)};
+            app.value_of("config_file").unwrap_or("")} else {""})?;
+    for ks in rdbm::CONFIG_APP.keys() {
+        if app.occurrences_of(ks.as_str()) > 0 {
+            cfg.insert(ks, app.value_of(ks).unwrap_or(""));
+        }
+    }
     let log = logger(cfg.get_bool("verbose", false));
 
     match cmd.as_str() {
@@ -53,35 +55,6 @@ fn main() -> Result<(), String> {
         "license" => license::license(cfg, &log),
         c @ _ => Err(format!("Unknown command: {}", c)),
     }
-}
-
-#[inline]
-fn load(filename: &str, app: &ArgMatches) -> HashMap<String, String> {
-    let mut cfg = HashMap::new();
-    if filename.len() > 0 && Path::new(filename).is_file() {
-        match fs::read_to_string(filename) {
-            Ok(data) => {
-                let ref ym = clap::YamlLoader::load_from_str(data.as_str()).expect("wrong format")[0];
-                let ymh = ym.as_hash().unwrap();
-                for (k, v) in ymh {
-                    if let Some(ks) = k.as_str() {
-                        if let Some(vs) = v.as_str() {
-                            cfg.insert(ks.into(), vs.into());
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                panic!("loading {} {}", filename, e);
-            }
-        }
-    }
-    for ks in rdbm::CONFIG_APP.keys() {
-        if app.occurrences_of(ks.as_str()) == 1 {
-            cfg.insert(ks.clone(), app.value_of(ks).unwrap().into());
-        }
-    }
-    cfg
 }
 
 #[cfg(test)]

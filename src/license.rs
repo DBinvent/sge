@@ -400,9 +400,9 @@ impl License {
 }
 
 #[inline]
-/// check for empty string, localhost or IP
+/// check for empty string, localhost, unix socket, or IP
 fn is_ip(host: &String) -> bool {
-    host.len() == 0 || host.as_str() == "localhost" ||
+    host.len() == 0 || host.as_str() == "localhost" || host.as_bytes()[0] == b'/' ||
     match ipaddress::IPAddress::parse(host) {
         Ok(_) => true, Err(_) => false,
     }

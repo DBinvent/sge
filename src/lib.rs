@@ -207,7 +207,7 @@ args:
         long: config
         short: c
         takes_value: true
-        help: Load all params from config file, any command line params will override parameters loaded from file. If neither set than environment variables (with CAPITALIZED names) will be search to use.
+        help: \"Load all params from config file (: or = separated), any command line params will override parameters loaded from file. If neither set than environment variables (with CAPITALIZED names) will be search to use.\"
     - after:
         long: after
         default_value: \"after.sql\"
@@ -406,15 +406,13 @@ lazy_static! {
             }
         };
 
-    pub static ref CONFIG_APP: HashMap<String, String> = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
+    pub static ref CONFIG_APP: HashMap<String, Option<String>> = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
         Ok(yaml) => {
                 let mut defs = HashMap::new();
                 for args in yaml[0]["args"].as_vec().unwrap() {
                     for (k, v) in args.as_hash().unwrap() {
-                        if let Some(v) = v["default_value"].as_str() {
-                            if let Some(k) = k.as_str() {
-                                defs.insert(k.into(), v.into());
-                            }
+                        if let Some(k) = k.as_str() {
+                            defs.insert(k.into(), v["default_value"].as_str().map(|v| v.into()));
                         }
                     }
                 }

@@ -10,7 +10,7 @@ use yaml_rust::YamlLoader;
 use crate::dbm_dbc::{FKTable, InfoSchemaType, STable};
 
 use self::yaml_rust::Yaml;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::fmt::{Formatter, Write};
 use std::result::Result;
 
@@ -19,6 +19,8 @@ use slog::Logger;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
+use std::fs::File;
+use std::io::{BufReader, BufRead};
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -992,25 +994,59 @@ impl YSchema {
     }
 }
 
-// #[derive(Debug)]
+#[derive(Debug)]
 pub struct ConfigMap {
-    pub map: HashMap <String, String>
-}
-
-#[derive(Debug, Deserialize)]
-pub struct ConfigDefMap {
-    params: HashMap<String, CfgMod>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CfgMod {
-    /// param value
-    pub val: String,
-    /// param description
-    pub dsr: String,
+    map: HashMap <String, String>,
+    file: String,
+    file_total_lines: usize,
+    file_loaded_lines: usize,
 }
 
 impl ConfigMap {
+
+    /// universal properties loader
+    #[inline]
+    pub fn load(filename: &str) -> Result<Self, String> {
+        let mut file_total_lines = 0;
+        let mut file_loaded_lines = 0;
+        let mut cfg = HashMap::new();
+        if filename.len() > 0 {
+            let reader = BufReader::new(File::open(filename)
+                .map_err(|e| format!("Can not load file: {} - {}", filename, e))?);
+            for line in reader.lines() {
+                file_total_lines += 1;
+                if let Ok(l) = line {
+                    if let Some(i) = l.chars().position(|c| c == '=' || c == ':' || c == '#') {
+                        if l.as_bytes()[i] != b'#' {
+                            let key = l[..i].trim().to_lowercase();
+                            if crate::CONFIG_APP.contains_key(&key) {
+                                cfg.insert(key, ConfigMap::unquote(l[i + 1..].trim()));
+                                file_loaded_lines += 1;
+                            } else {
+                                println!("ignored {} on {}", key, filename);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(ConfigMap {map: cfg, file: filename.to_string(), file_total_lines, file_loaded_lines })
+    }
+
+    #[inline]
+    fn unquote(v: &str) -> String {
+        if v.len() > 2
+            && v.as_bytes()[0] == v.as_bytes()[v.len()-1]
+            && (v.as_bytes()[0] == b'"' || v.as_bytes()[0] == b'\'')
+        {
+            v[1..v.len()-1].into()
+        } else { v.to_string() }
+    }
+
+    #[inline]
+    pub fn insert(&mut self, key: &String, value: &str) {
+        let _ = self.map.insert(key.into(), ConfigMap::unquote(value));
+    }
 
     #[inline]
     pub fn get_def(&self, param: &str, def: String) -> String {
@@ -1023,7 +1059,15 @@ impl ConfigMap {
     #[inline]
     pub fn get(&self, param: &str) -> String {
         match &self.get_opt(param) {
-            None => crate::CONFIG_APP.get(param).unwrap_or(&"".to_string()).into(),
+            None => match crate::CONFIG_APP.get(param){
+                None => "".to_string(),
+                Some(v) => {
+                    match v {
+                        None => "".to_string(),
+                        Some(r) => r.into()
+                    }
+                }
+            }
             Some(v) => v.into()
         }
     }
@@ -1033,7 +1077,7 @@ impl ConfigMap {
             match self.map.get(param) {
                 Some(x) => Some(x.clone()),
                 None => match env::var(param.to_uppercase()) {
-                    Ok(v) => Some(v), Err(_) => None,
+                    Ok(v) => Some(ConfigMap::unquote(v.as_str())), Err(_) => None,
             }
         }
     }
@@ -1048,12 +1092,6 @@ impl ConfigMap {
     #[inline]
     pub(crate) fn get_pow(&self, content: &mut String, prefix: &str, param: &str, amp: &str) {
         if let Some(v) = self.get_opt(format!("{}{}", prefix, param).as_str()) {
-            let v = if param == "port" && v.len()>2
-                && v.as_bytes()[0] == v.as_bytes()[v.len()-1]
-                && (v.as_bytes()[0] == b'"' || v.as_bytes()[0] == b'\'')
-            {
-                v[1..v.len()-1].into()
-            } else { v };
             let _ = write!(content, "{}{}={}",
                 if content.len() > 0 { amp } else { "" },
                 param,
@@ -1113,9 +1151,11 @@ impl ConfigMap {
     }
 }
 
-impl Display for CfgMod {
+impl Display for ConfigMap {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.val)
+        let _ = write!(f, "Config [{}]", self.map.len());
+        let _ = write!(f, " loaded from: {}, {}/{}",  self.file, self.file_loaded_lines, self.file_total_lines);
+        Ok(())
     }
 }
 
@@ -1177,31 +1217,20 @@ mod tests {
 
     }
 
-    fn conf(p: &str) -> ConfigMap{
+    fn _conf(p: &str) -> ConfigMap{
         let mut map = HashMap::new();
         map.insert("port".to_string(), p.to_string());
-        ConfigMap { map }
+        ConfigMap { map, file: "".to_string(), file_total_lines: 0, file_loaded_lines: 0 }
     }
 
     #[test]
-    fn conf_test1() {
-        let mut s = String::new();
-        conf("'1'").get_pow(&mut s, "", "port", "");
-        assert_eq!(s, "port=1".to_string());
-    }
-
-    #[test]
-    fn conf_test2() {
-        let mut s = String::new();
-        conf("\"2\"").get_pow(&mut s, "", "port", "");
-        assert_eq!(s, "port=2".to_string());
-    }
-
-    #[test]
-    fn conf_test3() {
-        let mut s = String::new();
-        conf("3").get_pow(&mut s, "", "port", "");
-        assert_eq!(s, "port=3".to_string());
+    fn cfg_test() -> Result<(), String>{
+        let a = ConfigMap::load("tests/test.cfg")?;
+        let b = ConfigMap::load("tests/test_cfg.yaml")?;
+        assert_eq!(a.get_def("db_host", "a".into()), b.get_def("db_host", "b".into()));
+        assert_eq!(a.get_def("db_port", "a".into()), b.get_def("db_port", "b".into()));
+        println!("{}", a);
+        Ok(())
     }
 
 }
