@@ -10,6 +10,7 @@ use sloggers::Build;
 use rdbm::dbm_yml::ConfigMap;
 use std::collections::HashMap;
 use std::fs;
+use std::path::Path;
 
 mod license;
 
@@ -33,12 +34,9 @@ fn main() -> Result<(), String> {
             return Ok(());
         }
     };
-    let cfg = if app.occurrences_of("config_file") > 0 {
-        let file = app.value_of("config_file").unwrap();
-        ConfigMap::Map(load(file, &app))
-    } else {
-        ConfigMap::Cli(app)
-    };
+    let cfg = ConfigMap { map: load(
+    if app.occurrences_of("config_file") > 0 {
+            app.value_of("config_file").unwrap_or("")} else {""}, &app)};
     let log = logger(cfg.get_bool("verbose", false));
 
     match cmd.as_str() {
@@ -60,20 +58,22 @@ fn main() -> Result<(), String> {
 #[inline]
 fn load(filename: &str, app: &ArgMatches) -> HashMap<String, String> {
     let mut cfg = HashMap::new();
-    match fs::read_to_string(filename) {
-        Ok(data) => {
-            let ref ym = clap::YamlLoader::load_from_str(data.as_str()).expect("wrong format")[0];
-            let ymh = ym.as_hash().unwrap();
-            for (k, v) in ymh {
-                if let Some(ks) = k.as_str() {
-                    if let Some(vs) = v.as_str() {
-                        cfg.insert(ks.into(), vs.into());
+    if filename.len() > 0 && Path::new(filename).is_file() {
+        match fs::read_to_string(filename) {
+            Ok(data) => {
+                let ref ym = clap::YamlLoader::load_from_str(data.as_str()).expect("wrong format")[0];
+                let ymh = ym.as_hash().unwrap();
+                for (k, v) in ymh {
+                    if let Some(ks) = k.as_str() {
+                        if let Some(vs) = v.as_str() {
+                            cfg.insert(ks.into(), vs.into());
+                        }
                     }
                 }
             }
-        }
-        Err(e) => {
-            panic!("loading {} {}", filename, e);
+            Err(e) => {
+                panic!("loading {} {}", filename, e);
+            }
         }
     }
     for ks in rdbm::CONFIG_APP.keys() {

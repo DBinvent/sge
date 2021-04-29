@@ -183,7 +183,7 @@ args:
     - dry_run:
         long: dry_run
         default_value: \"false\"
-        help: \"Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE'), also log all attempts to script file run. To avoid 'CREATE DATABASE' SQL execution please remove '--createdb' parameter or set it to false.\"
+        help: \"Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE' / 'CREATE ROLE'), also log all attempts to script file run. To avoid 'CREATE DATABASE'/'CREATE ROLE' SQL execution please remove '--createdb' parameter or set it to false.\"
         possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - dry_run_to:
         long: dry_run_to
@@ -231,19 +231,19 @@ args:
     - createdb_user:
         long: createdb_user
         default_value: postgres
-        help: Create DB user to use during 'Create DB' step.
+        help: The DB user to use during 'Create DB' step.
     - createdb_pwd:
         long: createdb_pwd
         takes_value: true
-        help: Postgres user password to use during 'Create DB' step. If not set, then will be use db_sslxxx.
+        help: The DB user's password to use during 'Create DB' step. If not set, then will be use db_sslxxx.
     - createdblog_user:
         long: createdblog_user
         default_value: postgres
-        help: Create DB user to use during 'Create LOGDB' step. LOGDB use if logdb_name set.
+        help: The DB user to use during 'Create LOGDB' step. LOGDB use if logdb_name set.
     - createlogdb_pwd:
         long: createlogdb_pwd
         takes_value: true
-        help: Postgres user password to use during 'Create LOGDB' step. If not set, then will be use logdb_sslxxx.
+        help: DB user's password to use during 'Create LOGDB' step. If not set, then will be use logdb_sslxxx.
     - email:
         long: email
         takes_value: true
@@ -264,7 +264,7 @@ subcommands:
         help: \" Perform a DB migration to a version set in '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' \
         (without a sub-folder scan if '--source_recur' is disabled) \
     into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set. \\n \
-    The DB will be created if absent, and if '--createdb' set and '--createdb_xxx' users properly configured. \\n \
+    The DB and DB user will be created if absent, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'. \\n \
     The migration executor will be logged by '--executed_by' value \\n \
     Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information).\\n \
     \\n The execution order is: (P)->(S)->(V)->(R)->(after) \\n \\n \
@@ -818,12 +818,17 @@ fn connect(
         Err(err) => {
             if let None = create {
                 if let Some(code) = err.code() {
-                    if code == &SqlState::UNDEFINED_DATABASE {
+                    if code == &SqlState::UNDEFINED_DATABASE
+                        || code == &SqlState::INVALID_PASSWORD
+                        || &code.code()[..5] == "0800"
+                    {
                         if cfg.get_bool("createdb", false) {
-                            return create_connect(dbname.as_str(), prefix, cfg, log);
+                            return create_connect(code == &SqlState::UNDEFINED_DATABASE, dbname.as_str(), prefix, cfg, log);
                         } else {
                             error!(log, "NO DB: {}, create or use --createdb=y", dbname);
                         }
+                    } else {
+                        debug!(log, "connection error code: {:?}", code);
                     }
                 }
             }
@@ -847,27 +852,57 @@ fn screen(_pwd: &String) -> &str {
     "***"
 }
 
+
 #[inline(never)]
-// TODO create user
 fn create_connect(
+    create_db: bool,
     dbname: &str,
     prefix: &str,
     cfg: &ConfigMap,
     log: &Logger,
 ) -> Result<Client, String> {
-    info!(log, "NO DB name [{}] found, trying to create...", dbname);
+    info!(log, "NO DB name [{}] or user found, trying to connect as super user ...", dbname);
     let mut client = connect(prefix, cfg, Some(true), log)?;
-    let owner = match cfg.get_opt(format!("{}_user", prefix).as_str()) {
+    let owner = match cfg.get_opt(format!("{}user", prefix).as_str()) {
         None => "".to_string(),
-        Some(user) => format!(" OWNER {}", user),
+        Some(user) => {
+            debug!(log, "testing for user: {}", user);
+            create_role(&mut client, &user,  prefix, cfg, log)?;
+            format!(" OWNER {}", user)
+        },
     };
-    match client.batch_execute(format!("CREATE DATABASE {} {}", dbname, owner).as_str()) {
-        Ok(()) => {
-            let _ = client.close();
-            connect(prefix, cfg, Some(false), log)
-        }
-        Err(e) => Err(format!("Creating DB [{}] by postgres: {} ", dbname, e)),
+    if create_db {
+        info!(log, "NO DB name [{}] found, trying to create...", dbname);
+        let _ = client.batch_execute(format!("CREATE DATABASE {} {}", dbname, owner).as_str())
+            .map_err(|e| format!("Creating DB [{}] by postgres: {} ", dbname, e))?;
     }
+    let _ = client.close();
+    info!(log, "DB/user [{}] created, reconnecting", dbname);
+    connect(prefix, cfg, Some(false), log)
+}
+
+fn create_role(
+    db: &mut Client,
+    user: &String,
+    prefix: &str,
+    cfg: &ConfigMap,
+    log: &Logger,
+) -> Result<(), String> {
+    let row = db
+        .query_one("SELECT count(rolname) FROM pg_roles WHERE rolname = $1", &[user])
+        .map_err(|e| format!("loading role [{}] {}", user, e))?;
+    let users: i64 = row.get(0);
+    if users == 0 {
+        info!(log, "NO user {} found, trying to create ...", user);
+        let pwd = match cfg.get_opt(format!("{}password", prefix).as_str()) {
+            None => "".to_string(),
+            Some(pwd) => format!(" PASSWORD '{}'", pwd)
+        };
+        let _ = db.batch_execute(format!("CREATE ROLE {} WITH LOGIN {}", user, pwd).as_str())
+            .map_err(|e| format!("Creating user role: {} error: {}", user, e))?;
+        info!(log, "Created user role: {}", user);
+    }
+    Ok(())
 }
 
 #[inline]

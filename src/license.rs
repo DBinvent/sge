@@ -74,12 +74,14 @@ fn request(file: &str, email: &str, lic: Option<License>, log: &Logger) -> Resul
         None => {
             let created = ureq::post(LL)
                 .set("X-Header", "Secret")
-                .send_string(email).map_err(|e| format!("creating license: {}", e));
+                .send_string(email).map_err(|e| format!("creating license: {}", e))?;
+                // created.status()
+                // created.into_string()
         }
         Some(l) => {
             let updated = ureq::put(LL)
                 .set("X-Header", l.header()?.as_str())
-                .send_string(l.clean()).map_err(|e| format!("updating license: {}", e));
+                .send_string(l.clean()?.as_str()).map_err(|e| format!("updating license: {}", e))?;
 
         }
     }
@@ -293,6 +295,31 @@ impl License {
             },
             Err(e) => Err(format!("writing to [{}] {}", file, e)),
         }
+    }
+
+    #[inline]
+    fn clean(&self) -> Result<String, String> {
+        let mut lic = self.clone();
+        lic.cpk = None;
+        lic.api_key = "".into();
+        lic.key = "".into();
+        let public_key = self.pubk()?;
+        for c in &mut lic.connects {
+            let ecs = c.encrypt_all(&public_key)?;
+            let host_count = c.hosts.len();
+            c.hosts.clear();
+            c.db_names.clear();
+            let mut i = 0;
+            for e in ecs {
+                if i < host_count {
+                    c.hosts.insert(base64::encode(e));
+                } else {
+                    c.db_names.insert(base64::encode(e));
+                }
+                i += 1;
+            }
+        }
+        serde_yaml::to_string(&lic).map_err(|e| format!("creating payload of a license: {}", e))
     }
 
     #[inline]

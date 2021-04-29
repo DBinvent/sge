@@ -15,7 +15,6 @@ use std::fmt::{Formatter, Write};
 use std::result::Result;
 
 use crate::dbm_log::StatementLog;
-use clap::ArgMatches;
 use slog::Logger;
 use std::cmp::Ordering;
 use std::fmt;
@@ -538,9 +537,12 @@ fn as_str(input: &Yaml, field: &str, def: &str) -> String {
     if input.is_null() {
         def.into()
     } else {
-        match input[field].as_str() {
-            None => def.into(),
-            Some(s) => s.into(),
+        match &input[field] {
+            Yaml::Real(v) => v.to_string(),
+            Yaml::Integer(v) => v.to_string(),
+            Yaml::String(v) => v.to_string(),
+            Yaml::Boolean(v) => v.to_string(),
+            _ => def.into()
         }
     }
 }
@@ -648,7 +650,7 @@ impl YTable {
                             }
                             Some(_f) => {
                                 if let Some(log) = log {
-                                    debug!(log, "+\n{:?}\n{:?}", yc, c);
+                                    trace!(log, "+\n{:?}\n{:?}", yc, c);
                                 }
                             }
                         }
@@ -990,10 +992,9 @@ impl YSchema {
     }
 }
 
-#[derive(Debug)]
-pub enum ConfigMap<'a> {
-    Cli(ArgMatches<'a>),
-    Map(HashMap<String, String>),
+// #[derive(Debug)]
+pub struct ConfigMap {
+    pub map: HashMap <String, String>
 }
 
 #[derive(Debug, Deserialize)]
@@ -1009,7 +1010,7 @@ pub struct CfgMod {
     pub dsr: String,
 }
 
-impl<'a> ConfigMap<'a> {
+impl ConfigMap {
 
     #[inline]
     pub fn get_def(&self, param: &str, def: String) -> String {
@@ -1029,24 +1030,10 @@ impl<'a> ConfigMap<'a> {
 
     #[inline]
     pub fn get_opt(&self, param: &str) -> Option<String> {
-        match &self {
-            ConfigMap::Cli(cli) => {
-                if cli.occurrences_of(param) > 0 {
-                    cli.value_of(param).map(|v| v.into())
-                } else {
-                    match env::var(param.to_uppercase()) {
-                        Ok(v) => Some(v),
-                        Err(_) => None,
-                    }
-                }
-            }
-            ConfigMap::Map(map) => {
-                match map.get(param) {
-                    Some(x) => Some(x.clone()),
-                    None => match env::var(param.to_uppercase()) {
-                        Ok(v) => Some(v), Err(_) => None,
-                    }
-                }
+            match self.map.get(param) {
+                Some(x) => Some(x.clone()),
+                None => match env::var(param.to_uppercase()) {
+                    Ok(v) => Some(v), Err(_) => None,
             }
         }
     }
@@ -1061,6 +1048,12 @@ impl<'a> ConfigMap<'a> {
     #[inline]
     pub(crate) fn get_pow(&self, content: &mut String, prefix: &str, param: &str, amp: &str) {
         if let Some(v) = self.get_opt(format!("{}{}", prefix, param).as_str()) {
+            let v = if param == "port" && v.len()>2
+                && v.as_bytes()[0] == v.as_bytes()[v.len()-1]
+                && (v.as_bytes()[0] == b'"' || v.as_bytes()[0] == b'\'')
+            {
+                v[1..v.len()-1].into()
+            } else { v };
             let _ = write!(content, "{}{}={}",
                 if content.len() > 0 { amp } else { "" },
                 param,
@@ -1184,22 +1177,33 @@ mod tests {
 
     }
 
-    /*
+    fn conf(p: &str) -> ConfigMap{
+        let mut map = HashMap::new();
+        map.insert("port".to_string(), p.to_string());
+        ConfigMap { map }
+    }
 
     #[test]
-    fn viter_test() {
-        let mut map = OrderedHashMap::new();
-        let _ = map.append("1".to_string());
-        let _ = map.append("2".to_string());
-        let _ = map.append("3".to_string());
-        let mut i = 1;
-        for (_, key) in &map.list {
-            println!("{}", key);
-            assert_eq!(key, &format!("{}", i));
-            i += 1;
-        }
+    fn conf_test1() {
+        let mut s = String::new();
+        conf("'1'").get_pow(&mut s, "", "port", "");
+        assert_eq!(s, "port=1".to_string());
     }
-    */
+
+    #[test]
+    fn conf_test2() {
+        let mut s = String::new();
+        conf("\"2\"").get_pow(&mut s, "", "port", "");
+        assert_eq!(s, "port=2".to_string());
+    }
+
+    #[test]
+    fn conf_test3() {
+        let mut s = String::new();
+        conf("3").get_pow(&mut s, "", "port", "");
+        assert_eq!(s, "port=3".to_string());
+    }
+
 }
 
 
