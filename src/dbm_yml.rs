@@ -464,7 +464,7 @@ impl YColumn {
                 schema, table_name, self.name, file
             ))
         } else {
-            let mut cs = String::new();
+            let mut cs = format!("{} {}", self.name, self.column_type);
             if let Some(constraint) = &self.constraint {
                 if constraint.primary_key {
                     let _ = write!(cs, " primary key ");
@@ -473,15 +473,14 @@ impl YColumn {
                     let _ = write!(cs, " not null ");
                 }
             }
-            Ok(format!(
-                "{} {}{}{}{}{}",
-                self.name,
-                self.column_type,
-                cs,
-                if self.default_value.len() > 0 { " default " } else { "" },
-                self.default_value,
-                self.sql
-            ))
+            if self.default_value.len() > 0 {
+                let _ = write!(cs, " default {}", self.default_value);
+            }
+            if self.sql.len() > 0 {
+                let _ = write!(cs, " {} ", self.sql);
+            }
+
+            Ok(cs)
         }
     }
 
@@ -1014,11 +1013,9 @@ impl<'a> ConfigMap<'a> {
 
     #[inline]
     pub fn get_def(&self, param: &str, def: String) -> String {
-        let v = self.get(param);
-        if v.len() == 0 {
-            def
-        } else {
-            v
+        match &self.get_opt(param) {
+            None => def,
+            Some(v) => v.into()
         }
     }
 

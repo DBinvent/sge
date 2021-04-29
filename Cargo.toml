@@ -16,12 +16,19 @@ path = "src/lib.rs"
 [[bin]]
 name = "rdbm"
 path = "src/main.rs"
+[profile.release]
+opt-level = 'z'  # Optimize for size.
+lto = true
+codegen-units = 1
+panic = 'abort'
 
 [[bin]]
 name = "sl"
 path = "src/sl.rs"
 
 [dependencies]
+#std = {default-features=false, features=["panic_immediate_abort"]}
+
 slog = "^2.7.0"
 slog-async = "^2.6.0"
 slog-envlogger = "^2.2.0"
@@ -51,4 +58,6 @@ rsa = "^0.4.0"
 sha-1 = "^0.9.4"
 uuid = {version="^0.8.1", features = ["v4"]}
 ipaddress = "^0.1.2"
+ureq = "^2.1.1"
+#curl = "0.4.36"
 

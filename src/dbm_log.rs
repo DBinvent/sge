@@ -536,25 +536,20 @@ pub(crate) fn load_impl(
         let dbc = crate::dbm_dbc::load_info_schema(db_client)?;
         let dbco = crate::dbm_dbc::load_info_schema_owner(db_client)?;
         let logs = LoadResult::new(dbc, dbco);
-        match serde_yaml::to_string(&logs) {
-            Ok(data) => Ok(data),
-            Err(e) => Err(format!("{}", e)),
+        if cfg.get("snapshot_format").as_str() == "json" {
+            serde_json::to_string(&logs).map_err(|e| format!("converting result to JSON format with error: {}", e))
+        } else {
+            serde_yaml::to_string(&logs).map_err(|e| format!("converting result to YAML format with error: {}", e))
         }
     } else {
         let mut t = log_client.transaction().unwrap(); // begin
         // let yschemas = crate::dbm_yml::load_all(cfg)?;
         let logs = StatementLog::load_ok(&mut t, cfg)?;
         let _ = t.rollback();
-        if cfg.get("snapshot_format").as_str() == "json" {
-            match serde_json::to_string(&logs) {
-                Ok(data) => Ok(data),
-                Err(e) => Err(format!("converting result to JSON format with error: {}", e)),
-            }
+        if cfg.get("info_format").as_str() == "json" {
+            serde_json::to_string(&logs).map_err(|e| format!("converting result to JSON format with error: {}", e))
         } else {
-            match serde_yaml::to_string(&logs) {
-                Ok(data) => Ok(data),
-                Err(e) => Err(format!("converting result to YAML format with error: {}", e)),
-            }
+            serde_yaml::to_string(&logs).map_err(|e| format!("converting result to YAML format with error: {}", e))
         }
     }
 }

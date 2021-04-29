@@ -24,7 +24,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
  - support separate db connection for history table
  - use psql client for script execution, include native psql script support
  - no JVM nor Python required to run
- - lightweight (just 8MB) and therefore fast
+ - lightweight (just about 10MB) and therefore fast
  - transactional changes with rollback and configurable non-transactional mode
  - dry run and diff in evaluation license
 
@@ -55,7 +55,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
 - Add JSON format for schema definition
-- Add git as a source for scripts and license
+- Add git as a source for scripts and license (pull/push)
 - Add key-vault's cloud integration for DB connection and license store
 - Add UI / api to work as a service (php-admin inspired)
 - Add scheduled deploy

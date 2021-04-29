@@ -194,6 +194,11 @@ args:
         default_value: yaml
         possible_values: [yaml, json]
         help: \"The format of generated information of DB schema by the 'snapshot' command, also see '--snapshot_to' parameter.\"
+    - info_format:
+        long: info_format
+        default_value: json
+        possible_values: [yaml, json]
+        help: \"The format of generated information of DB schema by the 'info' command\"
     - snapshot_to:
         long: snapshot_to
         takes_value: true
@@ -284,8 +289,8 @@ subcommands:
         about: Perform a schema dump into snapshot_to file in yaml or json format.
         help: \"Perform a DB schema dump into a '--snapshot_to' file in yaml or json format. Only column name and type information for now will be stored.\"
     - info:
-        about: Return deployment status and a tag version in JSON format
-        help: Return deployment status and a tag version in JSON format
+        about: Return deployment status and a tag version in JSON format. See '--info_format'.
+        help: Return deployment status and a tag version in JSON format. See '--info_format'.
     - license:
         about: Create apply, upgrade, subscribe or check a license to use this software.
         help: \"Create apply, upgrade, subscribe or check a license.\n\
@@ -767,7 +772,8 @@ fn connect(
             url,
             "{}user={}",
             if url.len() > 0 { "&" } else { "" },
-            cfg.get(format!("create{}user", prefix).as_str())
+            cfg.get_def(format!("create{}user", prefix).as_str(),
+                cfg.get(format!("{}user", prefix).as_str()))
         );
 
         let mut log_url = url.clone();
@@ -778,7 +784,7 @@ fn connect(
             }
             Some(pwd) => {
                 let _ = write!(url, "&password={}", pwd);
-                let _ = write!(log_url, "&password=***");
+                let _ = write!(log_url, "&password={}", screen(&pwd));
             }
         }
         debug!(log, "create db connect: {}", log_url);
@@ -829,7 +835,20 @@ fn connect(
     }
 }
 
+#[cfg(debug_assertions)]
+#[inline]
+fn screen(pwd: &String) -> &str {
+    pwd.as_str()
+}
+
+#[cfg(not(debug_assertions))]
+#[inline]
+fn screen(_pwd: &String) -> &str {
+    "***"
+}
+
 #[inline(never)]
+// TODO create user
 fn create_connect(
     dbname: &str,
     prefix: &str,
