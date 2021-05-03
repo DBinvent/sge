@@ -7,7 +7,7 @@ use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::{Format, Severity};
 use sloggers::Build;
 
-use rdbm::dbm_yml::ConfigMap;
+use rdbm::dbm_cfg::ConfigMap;
 
 mod license;
 

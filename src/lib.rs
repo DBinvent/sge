@@ -8,6 +8,7 @@ mod dbm_dbc;
 mod dbm_log;
 pub mod dbm_yml;
 pub mod license;
+pub mod dbm_cfg;
 
 use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
@@ -28,6 +29,7 @@ use postgres::error::SqlState;
 use std::fmt::Write;
 use std::time::SystemTime;
 use std::collections::HashMap;
+use crate::dbm_cfg::ConfigMap;
 
 pub const CONFIG_DEF_YML: &str = "
 name: rdbm
@@ -37,6 +39,11 @@ about: 'The SQL script tracker and DB deployment by YAML schema definition for P
 usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
 
 args:
+    - db_url:
+        long: db_url
+        takes_value: true
+        help: \"The url will be parsed to name, host etc. If they set, then those portion will be used instead. \n\
+        Format is: 'postgres://' (see https://www.postgresql.org/docs/current/libpq-connect.html) OR space separated key=value \"
     - db_name:
         long: db_name
         default_value: postgres
@@ -73,6 +80,10 @@ args:
         long: db_sslkey
         takes_value: true
         help: /path/to/client.key
+    - logdb_url:
+        long: logdb_url
+        takes_value: true
+        help: The url will be parsed to name, host etc. If they set, then those portion will be used instead
     - logdb_name:
         long: logdb_name
         takes_value: true
@@ -184,7 +195,9 @@ args:
     - dry_run:
         long: dry_run
         default_value: \"false\"
-        help: \"Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE' / 'CREATE ROLE'), also log all attempts to script file run. To avoid 'CREATE DATABASE'/'CREATE ROLE' SQL execution please remove '--createdb' parameter or set it to false.\"
+        help: \"Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE' / 'CREATE ROLE'), also log all attempts to script file run. \
+        To avoid 'CREATE DATABASE'/'CREATE ROLE' SQL execution please remove '--createdb' parameter or set it to false.\
+        For the 'license' command the dry_run will not call remote host, but check the license.\"
         possible_values: [yes, no, ok, y, \"1\", \"true\", \"false\"]
     - dry_run_to:
         long: dry_run_to
@@ -299,6 +312,7 @@ subcommands:
         If the file exist, than will try to check and upgrade a licenses 'valid_until' date.\\n \
         Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections). \\n \
         This is the only the command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid 'api_key' to perform upgrade or subscribe. \\n \
+        Use '--dry_run' to avoid calling remote host, but check the license.\\n\
         Check https://rdbm.dbinvent.com/license for more information about licensing.\"
 ";
 

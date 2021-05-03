@@ -10,7 +10,8 @@ use serde::Serialize;
 use slog::Logger;
 
 use crate::dbm_dbc::{InfoSchemaType,  InfoSchemaOwnerType};
-use crate::dbm_yml::{ConfigMap, FilesMap, YSchema, OrderedHashMap, YTable,  YColumn, semver_parse};
+use crate::dbm_yml::{FilesMap, YSchema, OrderedHashMap, YTable,  YColumn, semver_parse};
+use crate::dbm_cfg::ConfigMap;
 use crate::*;
 use std::fs::{OpenOptions, File};
 use std::time::Instant;
@@ -136,7 +137,7 @@ impl StatementLog {
         t: &mut Transaction,
         cfg: &ConfigMap,
     ) -> Result<SortedStatementLog, String> {
-        // let mut res = Vec::new();
+        // TODO LOAD RECENT not OK
         let mut sql = format!(
             "select target, catalog, version, script_tag, executed_by, executed_on from {}.{} \
              where ok and version <> 'baseline' ",
