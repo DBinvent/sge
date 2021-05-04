@@ -4,11 +4,11 @@ use lazy_static::lazy_static;
 
 extern crate semver;
 
+pub mod dbm_cfg;
 mod dbm_dbc;
 mod dbm_log;
 pub mod dbm_yml;
 pub mod license;
-pub mod dbm_cfg;
 
 use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
@@ -23,13 +23,13 @@ extern crate yaml_rust;
 
 use yaml_rust::YamlLoader;
 
+use crate::dbm_cfg::ConfigMap;
 use chrono::{TimeZone, Utc};
 use openssl::error::ErrorStack;
 use postgres::error::SqlState;
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::time::SystemTime;
-use std::collections::HashMap;
-use crate::dbm_cfg::ConfigMap;
 
 pub const CONFIG_DEF_YML: &str = "
 name: rdbm
@@ -316,7 +316,6 @@ subcommands:
         Check https://rdbm.dbinvent.com/license for more information about licensing.\"
 ";
 
-
 // --schema_transaction:
 //     - (column-TBD): perform all changes on a table per transaction. \\n \
 //     - (repeat-TBD): try to obtain a lock perform changes repetally - suitable on high load systems \\n \
@@ -420,9 +419,9 @@ lazy_static! {
                 panic!("wrong config: {}", e);
             }
         };
-
-    pub static ref CONFIG_APP: HashMap<String, Option<String>> = match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
-        Ok(yaml) => {
+    pub static ref CONFIG_APP: HashMap<String, Option<String>> =
+        match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
+            Ok(yaml) => {
                 let mut defs = HashMap::new();
                 for args in yaml[0]["args"].as_vec().unwrap() {
                     for (k, v) in args.as_hash().unwrap() {
@@ -431,11 +430,12 @@ lazy_static! {
                         }
                     }
                 }
-                defs }
-        Err(e) => {
-            panic!("wrong config: {}", e);
-        }
-    };
+                defs
+            }
+            Err(e) => {
+                panic!("wrong config: {}", e);
+            }
+        };
     static ref EPOC_2020: i64 = Utc.ymd(2020, 2, 2).and_hms(0, 0, 0).timestamp();
     static ref EPOC_2020H: u64 = EPOC_2020.clone() as u64 >> 12;
 }
@@ -654,7 +654,7 @@ fn deploy_all_schemas(
                 Ok(mut t) => {
                     // let mut t = client.transaction().unwrap();
                     for (s, ys) in ysv {
-                        for  yt in &ys.tables.list {
+                        for yt in &ys.tables.list {
                             match yt.deploy(dbc, &mut t, &s, &cfg, &ys.file, log) {
                                 Ok(ok) => {
                                     if ok {
@@ -662,7 +662,10 @@ fn deploy_all_schemas(
                                         if table_tr {
                                             if let Err(ec) = t.batch_execute("COMMIT; BEGIN") {
                                                 do_persist = true;
-                                                err = Some(format!("committing change on {}.{} with {}", s, yt.table_name, ec));
+                                                err = Some(format!(
+                                                    "committing change on {}.{} with {}",
+                                                    s, yt.table_name, ec
+                                                ));
                                                 break;
                                             }
                                         }
@@ -682,14 +685,18 @@ fn deploy_all_schemas(
                         // for (ver, (file, ysv)) in &yschemas.schemas {
                         for (s, ys) in ysv {
                             for yt in &ys.tables.list {
-                                match yt.deploy_fk(&yschemas, dbc, &mut t, &s, &cfg, &ys.file, log) {
+                                match yt.deploy_fk(&yschemas, dbc, &mut t, &s, &cfg, &ys.file, log)
+                                {
                                     Ok(ok) => {
                                         if ok {
                                             do_persist = true;
                                             if table_tr {
                                                 if let Err(ec) = t.batch_execute("COMMIT; BEGIN") {
                                                     do_persist = true;
-                                                    err = Some(format!("committing change on {}.{} with {}", s, yt.table_name, ec));
+                                                    err = Some(format!(
+                                                        "committing change on {}.{} with {}",
+                                                        s, yt.table_name, ec
+                                                    ));
                                                     break;
                                                 }
                                             }
@@ -707,7 +714,7 @@ fn deploy_all_schemas(
                         }
                     }
 
-                    if table_tr || ! do_persist {
+                    if table_tr || !do_persist {
                         let _ = t.rollback(); // done with transaction anyway
                     } else {
                         match &err {
@@ -725,9 +732,7 @@ fn deploy_all_schemas(
                         }
                     }
                 }
-                Err(e) => {
-                    err = Some(format!("creating transaction for {} {}", file, e))
-                }
+                Err(e) => err = Some(format!("creating transaction for {} {}", file, e)),
             }
             if do_persist {
                 if let Err(e) = stl.instance('S', &ver.s, file).persist(err.clone(), lt) {
@@ -738,7 +743,6 @@ fn deploy_all_schemas(
                 break;
             }
         }
-
     }
     let _ = client.close();
     match err {
@@ -785,8 +789,10 @@ fn connect(
             url,
             "{}user={}",
             if url.len() > 0 { "&" } else { "" },
-            cfg.get_def(format!("create{}user", prefix).as_str(),
-                cfg.get(format!("{}user", prefix).as_str()))
+            cfg.get_def(
+                format!("create{}user", prefix).as_str(),
+                cfg.get(format!("{}user", prefix).as_str())
+            )
         );
 
         let mut log_url = url.clone();
@@ -836,7 +842,13 @@ fn connect(
                         || &code.code()[..5] == "0800"
                     {
                         if cfg.get_bool("createdb", false) {
-                            return create_connect(code == &SqlState::UNDEFINED_DATABASE, dbname.as_str(), prefix, cfg, log);
+                            return create_connect(
+                                code == &SqlState::UNDEFINED_DATABASE,
+                                dbname.as_str(),
+                                prefix,
+                                cfg,
+                                log,
+                            );
                         } else {
                             error!(log, "NO DB: {}, create or use --createdb=y", dbname);
                         }
@@ -865,7 +877,6 @@ fn screen(_pwd: &String) -> &str {
     "***"
 }
 
-
 #[inline(never)]
 fn create_connect(
     create_db: bool,
@@ -874,19 +885,23 @@ fn create_connect(
     cfg: &ConfigMap,
     log: &Logger,
 ) -> Result<Client, String> {
-    info!(log, "NO DB name [{}] or user found, trying to connect as super user ...", dbname);
+    info!(
+        log,
+        "NO DB name [{}] or user found, trying to connect as super user ...", dbname
+    );
     let mut client = connect(prefix, cfg, Some(true), log)?;
     let owner = match cfg.get_opt(format!("{}user", prefix).as_str()) {
         None => "".to_string(),
         Some(user) => {
             debug!(log, "testing for user: {}", user);
-            create_role(&mut client, &user,  prefix, cfg, log)?;
+            create_role(&mut client, &user, prefix, cfg, log)?;
             format!(" OWNER {}", user)
-        },
+        }
     };
     if create_db {
         info!(log, "NO DB name [{}] found, trying to create...", dbname);
-        let _ = client.batch_execute(format!("CREATE DATABASE {} {}", dbname, owner).as_str())
+        let _ = client
+            .batch_execute(format!("CREATE DATABASE {} {}", dbname, owner).as_str())
             .map_err(|e| format!("Creating DB [{}] by postgres: {} ", dbname, e))?;
     }
     let _ = client.close();
@@ -902,16 +917,20 @@ fn create_role(
     log: &Logger,
 ) -> Result<(), String> {
     let row = db
-        .query_one("SELECT count(rolname) FROM pg_roles WHERE rolname = $1", &[user])
+        .query_one(
+            "SELECT count(rolname) FROM pg_roles WHERE rolname = $1",
+            &[user],
+        )
         .map_err(|e| format!("loading role [{}] {}", user, e))?;
     let users: i64 = row.get(0);
     if users == 0 {
         info!(log, "NO user {} found, trying to create ...", user);
         let pwd = match cfg.get_opt(format!("{}password", prefix).as_str()) {
             None => "".to_string(),
-            Some(pwd) => format!(" PASSWORD '{}'", pwd)
+            Some(pwd) => format!(" PASSWORD '{}'", pwd),
         };
-        let _ = db.batch_execute(format!("CREATE ROLE {} WITH LOGIN {}", user, pwd).as_str())
+        let _ = db
+            .batch_execute(format!("CREATE ROLE {} WITH LOGIN {}", user, pwd).as_str())
             .map_err(|e| format!("Creating user role: {} error: {}", user, e))?;
         info!(log, "Created user role: {}", user);
     }
@@ -968,8 +987,6 @@ pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -984,5 +1001,4 @@ mod tests {
     fn config_log_deser_test() {
         assert!(crate::CONFIG_APP.len() > 15);
     }
-
 }

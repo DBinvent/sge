@@ -43,7 +43,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
  - The multi primary key columns will fail. 
  - The multi column FK definition column will fail. 
  - All script files executed by psql with a flag --single-transaction, to be able to correctly handle a status and safely repeat
-
+ - Adding columns for Schema/Table for using with programming languages and ORM framework, sensitive to column order must append columns list. Postgres does not support inserting column only append. 
 
 ### Schema snapshot restriction notice
 

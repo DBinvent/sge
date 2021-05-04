@@ -1,26 +1,25 @@
 #[allow(unused)]
-
 use std::collections::BTreeSet;
-use std::{fs, env};
 use std::io::Write;
 use std::path::Path;
+use std::{env, fs};
 
-use chrono::{DateTime, FixedOffset, Utc, NaiveDateTime, Duration};
+use crate::ConfigMap;
+use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, Utc};
 use crypto_hash::Algorithm;
 use rand::thread_rng;
 use rsa::{BigUint, PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use slog::Logger;
-use yaml_rust::{Yaml, YamlLoader};
 use std::collections::HashMap;
 use std::process::Command;
-use crate::ConfigMap;
-
+use yaml_rust::{Yaml, YamlLoader};
 
 const PK: &str = "tYV/+g8q0/K0DhWxcrTesII0/ludUrOxDsHTopTcV5FmyXzCrK75z3ARiK67pHa5r5sQCkstK0JKs2/izmp2sjfsm/lLSmLvViBgbzd96bQYZe6Z3zBhyLHa4xVNe5o+VeWX7tOI5EenG0JPkvfMGijS4AHbQs33SZ1z8UKRg8ES4Ab/YK3d/ddfJ8Fs+fvDyuoO+NK10te/wdsvZgsK87v36hLoZi7ZwKSkdzH0dxC6JqM/YYyA72fMFtoRw6s3gT8rdjuLHPuyIh7OC5W7ufH9Fe0r10tS0KeUsNo77ZM82HdknWbSsznl3RyWkj5C0dY9ez+TK3xSot4Gfj/a5tFUyLIJMP+QlPTQZlXO+04ClOJDvJBfd8A+x0i5DqQgbwV3rBSzAi30086pOTxmlZvfT7Zze1Q6KJZhCukNcLDLxqnDm8gV/i7/i3f5EmsIbOvKKBHdNi1QDDqmgG787BXxW9a34Po9APxT4nALBWPqLTMs1cx6MpOxJBJelKr9AQAB";
 
-const INV_LL: &str = "Please check https://rdbm.dbinvent.com/license See './rdbm help license' for more details.";
+const INV_LL: &str =
+    "Please check https://rdbm.dbinvent.com/license See './rdbm help license' for more details.";
 
 #[allow(dead_code)]
 const HOST: &str = "https://rdbm.dbinvent.com/";
@@ -31,7 +30,9 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     let dry_run = cfg.get_bool("dry_run", false);
     let license_file = cfg.get("license_file");
     let mut subsr: BTreeSet<String> = BTreeSet::new();
-    cfg.get("subscribe").split(",").for_each(|s| { subsr.insert(s.into()); });
+    cfg.get("subscribe").split(",").for_each(|s| {
+        subsr.insert(s.into());
+    });
     let db_host = cfg.get("db_host");
     let logdb_host = cfg.get("logdb_host");
     let db_name = cfg.get("db_name");
@@ -45,31 +46,45 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
 
     if Path::new(license_file.as_str()).is_file() {
         match License::load(license_file.as_str()) {
-            Ok(l) => {
-                match l.verify() {
-                    Ok(_) => {
-                        info!(log, "License [{}] issued to: {} {}{}", license_file, l.issued_to, l.email,
-                            if do_subscribe {", will try to subscribe if necessary"} else {""});
-
-                       if l.find(&db_host,&logdb_host, &db_name, &logdb_name)  {
-                            info!(log, "Good to use for your connection(s)! Thank you! ");
-                            if l.is_about_expire() {
-                                ApiRequest::Some(l).call(&license_file, do_subscribe, dry_run, log)
-                            } else {
-                                Ok(())
-                            }
-                        } else if email.len() > 0 && do_subscribe{
-                           ApiRequest::Some(l).call(&license_file, do_subscribe, dry_run, log)
+            Ok(l) => match l.verify() {
+                Ok(_) => {
+                    info!(
+                        log,
+                        "License [{}] issued to: {} {}{}",
+                        license_file,
+                        l.issued_to,
+                        l.email,
+                        if do_subscribe {
+                            ", will try to subscribe if necessary"
                         } else {
-                            Err(format!("The license loaded from file [{}] is not valid: {}. Set '--email' and use '--subscribe' to request", license_file, INV_LL))
+                            ""
                         }
+                    );
+
+                    if l.find(&db_host, &logdb_host, &db_name, &logdb_name) {
+                        info!(log, "Good to use for your connection(s)! Thank you! ");
+                        if l.is_about_expire() {
+                            ApiRequest::Some(l).call(&license_file, do_subscribe, dry_run, log)
+                        } else {
+                            Ok(())
+                        }
+                    } else if email.len() > 0 && do_subscribe {
+                        ApiRequest::Some(l).call(&license_file, do_subscribe, dry_run, log)
+                    } else {
+                        Err(format!("The license loaded from file [{}] is not valid: {}. Set '--email' and use '--subscribe' to request", license_file, INV_LL))
                     }
-                    Err(e) => Err(format!("The license loaded from file [{}] is not valid: {}. {}", license_file, e, INV_LL))
                 }
-            }
-            Err(e) => Err(format!("The license loaded from file [{}] is not valid: {}. {}", license_file, e, INV_LL))
+                Err(e) => Err(format!(
+                    "The license loaded from file [{}] is not valid: {}. {}",
+                    license_file, e, INV_LL
+                )),
+            },
+            Err(e) => Err(format!(
+                "The license loaded from file [{}] is not valid: {}. {}",
+                license_file, e, INV_LL
+            )),
         }
-    } else if email.len() > 0 && do_subscribe{
+    } else if email.len() > 0 && do_subscribe {
         let lc = LicenseCreateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
         ApiRequest::Create(lc).call(&license_file, do_subscribe, dry_run, log)
     } else {
@@ -77,22 +92,36 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     }
 }
 
-
 enum ApiRequest {
     Create(LicenseCreateRequest),
-    Some(License)
+    Some(License),
 }
 
 impl ApiRequest {
     #[inline]
-    fn call(&self, file: &String, subscribe: bool, dry_run: bool, log: &Logger) -> Result<(), String> {
+    fn call(
+        &self,
+        file: &String,
+        subscribe: bool,
+        dry_run: bool,
+        log: &Logger,
+    ) -> Result<(), String> {
         let url = format!("{}/api/license", api_host());
         let method = match &self {
             ApiRequest::Create(_) => "creating",
-            ApiRequest::Some(_) => if subscribe { "updating" } else { "checking" }
+            ApiRequest::Some(_) => {
+                if subscribe {
+                    "updating"
+                } else {
+                    "checking"
+                }
+            }
         };
         if dry_run {
-            info!(log, "About to call {} to {} license, but --dry_run set.", url, method);
+            info!(
+                log,
+                "About to call {} to {} license, but --dry_run set.", url, method
+            );
             return Ok(());
         }
         let auth_header = "X-Header";
@@ -101,9 +130,10 @@ impl ApiRequest {
             ApiRequest::Create(l) => {
                 let request = serde_json::to_string(l)
                     .map_err(|e| format!("creating payload of a license request: {}", e))?;
-                ureq::post(url.as_str())//.set(auth_header, "newbie")
-                    .send_string(request.as_str()).map_err(|e| format!("{} license: {}", method, e))?
-            },
+                ureq::post(url.as_str()) //.set(auth_header, "newbie")
+                    .send_string(request.as_str())
+                    .map_err(|e| format!("{} license: {}", method, e))?
+            }
             ApiRequest::Some(l) => {
                 let request = l.clean(&mut encm)?;
                 if subscribe {
@@ -119,11 +149,18 @@ impl ApiRequest {
                 }
             }
         };
-        debug!(log, "response [{}] from {} at {}", response.status(), method, url);
+        debug!(
+            log,
+            "response [{}] from {} at {}",
+            response.status(),
+            method,
+            url
+        );
 
         match self {
             ApiRequest::Create(_l) => {
-                let resp_str = response.into_string()
+                let resp_str = response
+                    .into_string()
                     .map_err(|e| format!("getting response: {}", e))?;
                 let response: ApiResponse = serde_json::from_str(resp_str.as_str())
                     .map_err(|e| format!("converting response: {}", e))?;
@@ -134,11 +171,15 @@ impl ApiRequest {
                     // TODO get error message from response
                     Err(resp_str)
                 }
-            },
+            }
             ApiRequest::Some(l) => {
-                let lr: LicenseResponse = serde_json::from_str(response.into_string()
-                    .map_err(|e| format!("getting response: {}", e))?.as_str())
-                    .map_err(|e| format!("converting response: {}", e))?;
+                let lr: LicenseResponse = serde_json::from_str(
+                    response
+                        .into_string()
+                        .map_err(|e| format!("getting response: {}", e))?
+                        .as_str(),
+                )
+                .map_err(|e| format!("converting response: {}", e))?;
                 let mut lr = lr.result;
                 debug!(log, "loaded: {:?} ", lr);
 
@@ -147,9 +188,12 @@ impl ApiRequest {
                     // TODO remove after ucb complete
                     let file = format!("x.{}", file);
                     debug!(log, "saving to {}", file);
-                    fs::write(file.clone(), serde_yaml::to_string(&lr)
-                        .map_err(|e| format!("creating license: {}", e))?)
-                        .map_err(|e| format!("writing to [{}] {}", file, e))?;
+                    fs::write(
+                        file.clone(),
+                        serde_yaml::to_string(&lr)
+                            .map_err(|e| format!("creating license: {}", e))?,
+                    )
+                    .map_err(|e| format!("writing to [{}] {}", file, e))?;
                 }
                 Ok(())
             }
@@ -178,24 +222,39 @@ pub struct LicenseCreateRequest {
     pub time_zone_hm: String,
 }
 
-impl LicenseCreateRequest{
-    fn new(email: &String,
+impl LicenseCreateRequest {
+    fn new(
+        email: &String,
         db_host: &String,
         logdb_host: &String,
         db_name: &String,
         logdb_name: &String,
     ) -> Result<Self, String> {
-        let time_zone_hm = match Command::new("date").arg("+\"%z\"").output(){
+        let time_zone_hm = match Command::new("date").arg("+\"%z\"").output() {
             Ok(cmd) => String::from_utf8_lossy(&cmd.stdout).to_string(),
-            Err(_) => "".to_string()
+            Err(_) => "".to_string(),
         };
         let mut hosts = Vec::new();
-        if db_host.len() > 0 { hosts.push( db_host.clone())}
-        if logdb_host.len() > 0 { hosts.push( logdb_host.clone())}
+        if db_host.len() > 0 {
+            hosts.push(db_host.clone())
+        }
+        if logdb_host.len() > 0 {
+            hosts.push(logdb_host.clone())
+        }
         let mut db_names = Vec::new();
-        if db_name.len() > 0 { db_names.push( db_name.clone())}
-        if logdb_name.len() > 0 { db_names.push( logdb_name.clone())}
-        Ok(LicenseCreateRequest { personal: true, email: email.clone(), hosts, db_names, time_zone_hm})
+        if db_name.len() > 0 {
+            db_names.push(db_name.clone())
+        }
+        if logdb_name.len() > 0 {
+            db_names.push(logdb_name.clone())
+        }
+        Ok(LicenseCreateRequest {
+            personal: true,
+            email: email.clone(),
+            hosts,
+            db_names,
+            time_zone_hm,
+        })
     }
 
     pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
@@ -203,21 +262,25 @@ impl LicenseCreateRequest{
     }
 
     pub fn validate(&self) -> Option<String> {
-        match self.email.find("@") {
-            None => Some("invalid email".into()),
-            Some(i) => {
-                if i > 0 {
-                    Some("invalid email".into())
-                } else {
-                    if self.time_zone_hm.len() > 5 {
-                        Some("invalid timezone".into())
+        if self.email.len() < 2 {
+            Some("invalid email".into())
+        } else {
+            match self.email.find("@") {
+                None => Some("invalid email".into()),
+                Some(i) => {
+                    if i == 0 || i == self.email.len() - 1 {
+                        Some("invalid email".into())
                     } else {
-                        if let Some(m) = valid_name(&self.hosts) {
-                            Some(format!("invalid hosts: {}", m))
-                        } else if let Some(m) = valid_name(&self.db_names) {
-                            Some(format!("invalid db names: {}", m))
+                        if self.time_zone_hm.len() > 5 {
+                            Some("invalid timezone".into())
                         } else {
-                            None
+                            if let Some(m) = valid_name(&self.hosts) {
+                                Some(format!("invalid hosts: {}", m))
+                            } else if let Some(m) = valid_name(&self.db_names) {
+                                Some(format!("invalid db names: {}", m))
+                            } else {
+                                None
+                            }
                         }
                     }
                 }
@@ -229,17 +292,25 @@ impl LicenseCreateRequest{
 #[inline]
 fn convert_datetime(timezone: &String, input: NaiveDateTime) -> DateTime<FixedOffset> {
     let offset = if timezone.len() >= 4 {
-        let min = timezone[timezone.len() - 2..timezone.len()].parse::<i32>().unwrap_or(0);
+        let min = timezone[timezone.len() - 2..timezone.len()]
+            .parse::<i32>()
+            .unwrap_or(0);
         let h = timezone[..timezone.len() - 2].parse::<i32>().unwrap_or(0);
         h * 3600 + min * 60
-    } else { 0 };
+    } else {
+        0
+    };
     DateTime::from_utc(input, FixedOffset::east(offset))
 }
 
 #[inline]
 fn valid_name(names: &Vec<String>) -> Option<String> {
-    for n in names{
-        if let Some(_) = n.trim().chars().position(|c| c == ' ' || c == ';' || c == '*') {
+    for n in names {
+        if let Some(_) = n
+            .trim()
+            .chars()
+            .position(|c| c == ' ' || c == ';' || c == '*')
+        {
             return Some(n.into());
         }
     }
@@ -274,10 +345,12 @@ pub fn is_ok(cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
         Some(lf) => {
             let l = License::load(lf.as_str())?;
             l.verify()?;
-            Ok(l.find(&cfg.get("db_host"),
-                            &cfg.get("logdb_host"),
-                            &cfg.get("db_name"),
-                            &cfg.get("logdb_name") ))
+            Ok(l.find(
+                &cfg.get("db_host"),
+                &cfg.get("logdb_host"),
+                &cfg.get("db_name"),
+                &cfg.get("logdb_name"),
+            ))
         }
     }
 }
@@ -292,13 +365,13 @@ pub struct License {
     pub connects: Vec<Connection>,
     #[serde(with = "local_date_format")]
     pub api_key_valid_until: LicenseDate, //"2021-12-12"
-    pub api_key: String,   // "<jwt token 300-500char>"
+    pub api_key: String, // "<jwt token 300-500char>"
     /// package name
     pub license_type: String,
-    license: String,              //"<signature_see_bellow -- это будет строчка 300-500 символов>"
-    crc: String, // debug
+    pub license: String, //"<signature_see_bellow -- это будет строчка 300-500 символов>"
+    pub crc: String,     // debug
     /// will be generated by openssl if connections are not encrypted AND 'cpk' not set
-    pub key: String,       //"<this client  RSA private key 40 строк х64char>"
+    pub key: String, //"<this client  RSA private key 40 строк х64char>"
     #[serde(skip)]
     /// clients RSA Pub key: use to encode connections, if they are not
     pub cpk: Option<String>,
@@ -315,7 +388,6 @@ pub struct Connection {
 }
 
 impl Connection {
-
     #[allow(unused, dead_code)]
     #[inline]
     /// digest stings (prepare for encryption) and encrypt by public key separately
@@ -323,7 +395,7 @@ impl Connection {
         Connection {
             valid_until: convert_datetime(timezone, input),
             hosts: Default::default(),
-            db_names: Default::default()
+            db_names: Default::default(),
         }
     }
 
@@ -342,14 +414,13 @@ impl Connection {
 
     #[inline]
     pub fn encrypt(input: &String, public_key: &RSAPublicKey) -> Result<Vec<u8>, String> {
-		let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA256);
+        let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA256);
         let _ = hasher.write(input.as_bytes());
         let _ = hasher.write(&public_key.e().to_bytes_be());
         let _ = hasher.write(&public_key.n().to_bytes_be());
         let d = hasher.finish();
         Ok(Sha1::digest(&d).to_vec())
     }
-
 }
 
 impl License {
@@ -367,7 +438,7 @@ impl License {
             crc: "".to_string(),
             key: "".to_string(),
             cpk: None,
-            timezone: "".to_string()
+            timezone: "".to_string(),
         }
     }
 
@@ -375,7 +446,7 @@ impl License {
     pub fn pubk(&self) -> Result<RSAPublicKey, String> {
         Ok(match &self.cpk {
             None => str2rsa(&self.key)?.to_public_key(),
-            Some(s) => str2pub(s)?
+            Some(s) => str2pub(s)?,
         })
     }
 
@@ -387,9 +458,9 @@ impl License {
         crc::a(&mut cc, &public_key.e().to_bytes_be());
         crc::a(&mut cc, &public_key.n().to_bytes_be());
 
-		let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA512);
-		let _ = hasher.write(self.issued_to.as_bytes());
-		let _ = hasher.write(self.email.as_bytes());
+        let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA512);
+        let _ = hasher.write(self.issued_to.as_bytes());
+        let _ = hasher.write(self.email.as_bytes());
         for c in &self.connects {
             let _ = hasher.write(c.valid_until.to_rfc3339().as_bytes());
             for e in &c.encrypt_all(&public_key)? {
@@ -397,23 +468,11 @@ impl License {
                 let _ = hasher.write(e.as_ref());
             }
         }
-		let d = hasher.finish();
+        let d = hasher.finish();
         crc::a(&mut cc, &d);
-		let d = Sha1::digest(&d).to_vec();
+        let d = Sha1::digest(&d).to_vec();
         crc::a(&mut cc, &d);
-		Ok((d, cc))
-    }
-
-
-
-    #[inline]
-    #[allow(dead_code)]
-    pub fn sign(&mut self, s: Vec<u8>, rsa: Option<String>, crc: String) {
-        if let Some(rk) = rsa {
-            self.key = rk;
-        }
-        self.crc = crc;
-        self.license = base64::encode(s);
+        Ok((d, cc))
     }
 
     #[inline]
@@ -457,7 +516,7 @@ impl License {
                 } else {
                     Err(format!("no config in {} ", file))
                 }
-            },
+            }
             Err(e) => Err(format!("wrong license {}: {}", file, e)),
         }
     }
@@ -475,17 +534,22 @@ impl License {
     #[inline]
     /// validate license integrity
     fn verify(&self) -> Result<(), String> {
-        match base64::decode(&self.license){
+        match base64::decode(&self.license) {
             Ok(sign) => {
                 let (d, crc) = self.digest()?;
-                match hardcoded()?.verify(PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
-                    &d, &sign,
+                match hardcoded()?.verify(
+                    PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
+                    &d,
+                    &sign,
                 ) {
                     Ok(_) => Ok(()),
-                    Err(e) => Err(format!("license: {}, signed: {}, calculated: {}", e, self.crc, crc))
+                    Err(e) => Err(format!(
+                        "license: {}, signed: {}, calculated: {}",
+                        e, self.crc, crc
+                    )),
                 }
             }
-            Err(e) => Err(format!("reading license: {}", e))
+            Err(e) => Err(format!("reading license: {}", e)),
         }
     }
 
@@ -496,11 +560,9 @@ impl License {
         l.key = self.key.clone();
 
         match serde_yaml::to_string(&self) {
-            Ok(l) => {
-                match fs::write(file, l) {
-                    Ok(_) => Ok(()),
-                    Err(e) => Err(format!("writing to [{}] {}", file, e)),
-                }
+            Ok(l) => match fs::write(file, l) {
+                Ok(_) => Ok(()),
+                Err(e) => Err(format!("writing to [{}] {}", file, e)),
             },
             Err(e) => Err(format!("writing to [{}] {}", file, e)),
         }
@@ -519,7 +581,7 @@ impl License {
             c.hosts = BTreeSet::new();
             for host in &hosts {
                 let e = base64::encode(Connection::encrypt(host, &public_key)?);
-                enc.insert(e.clone(), host.clone() );
+                enc.insert(e.clone(), host.clone());
                 c.hosts.insert(e);
             }
             let db_names = c.db_names.to_owned();
@@ -530,8 +592,7 @@ impl License {
                 c.db_names.insert(e);
             }
         }
-        serde_yaml::to_string(&lic)
-            .map_err(|e| format!("creating payload of a license: {}", e))
+        serde_yaml::to_string(&lic).map_err(|e| format!("creating payload of a license: {}", e))
     }
 
     /// opposite to clean
@@ -542,10 +603,14 @@ impl License {
         let mut self_now = Utc::now().into();
         let mut lic_now = Utc::now().into();
         for c in &lic.connects {
-            if c.valid_until > lic_now { lic_now = c.valid_until.clone(); }
+            if c.valid_until > lic_now {
+                lic_now = c.valid_until.clone();
+            }
         }
         for c in &mut self.connects {
-            if c.valid_until > self_now { self_now = c.valid_until.clone(); }
+            if c.valid_until > self_now {
+                self_now = c.valid_until.clone();
+            }
             let hosts = c.hosts.to_owned();
             c.hosts.clear();
             for host in &hosts {
@@ -554,7 +619,8 @@ impl License {
             let db_names = c.db_names.to_owned();
             c.db_names.clear();
             for db_name in &db_names {
-                c.db_names.insert(enc.get(db_name).unwrap_or(db_name).into());
+                c.db_names
+                    .insert(enc.get(db_name).unwrap_or(db_name).into());
             }
         }
         lic_now > self_now
@@ -566,12 +632,16 @@ impl License {
         let now: DateTime<FixedOffset> = Utc::now().into();
         for c in &self.connects {
             if c.valid_until > now {
-                if ( c.hosts.contains("*") || ( (is_ip(host_a)  || c.hosts.contains(host_a)) && (is_ip(host_b) || c.hosts.contains(host_b) )))
-                 && (((db_a == "" || db_a == user) && (db_b == "" || db_b == user)) ||
-                 c.db_names.contains("*") || ( c.db_names.contains(db_a) && ( db_b.len() == 0 || c.db_names.contains(db_b) ))
-                 ) {
-                    return true
-                 }
+                if (c.hosts.contains("*")
+                    || ((is_ip(host_a) || c.hosts.contains(host_a))
+                        && (is_ip(host_b) || c.hosts.contains(host_b))))
+                    && (((db_a == "" || db_a == user) && (db_b == "" || db_b == user))
+                        || c.db_names.contains("*")
+                        || (c.db_names.contains(db_a)
+                            && (db_b.len() == 0 || c.db_names.contains(db_b))))
+                {
+                    return true;
+                }
             }
         }
         false
@@ -590,19 +660,25 @@ impl License {
             Err("key is not set".into())
         } else {
             let rsa = match base64::decode(&self.key) {
-					Ok(der_bytes) => {
-                        match RSAPrivateKey::from_pkcs1(&der_bytes) {
-                            Ok(key) => key,
-                            Err(e) => { return Err(format!("key is not good: {:?}", e)); }
-                        }
-					}
-                    Err(e) => { return Err(format!("key is not good: {}", e)); }
-				};
+                Ok(der_bytes) => match RSAPrivateKey::from_pkcs1(&der_bytes) {
+                    Ok(key) => key,
+                    Err(e) => {
+                        return Err(format!("key is not good: {:?}", e));
+                    }
+                },
+                Err(e) => {
+                    return Err(format!("key is not good: {}", e));
+                }
+            };
 
             let d = self.header_digest();
-            match rsa.sign_blinded(&mut thread_rng(), PaddingScheme::new_pss::<Sha1, _>(thread_rng()), &d) {
+            match rsa.sign_blinded(
+                &mut thread_rng(),
+                PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
+                &d,
+            ) {
                 Ok(s) => Ok(format!("{}:{}", self.api_key, base64::encode(s))),
-                Err(e) => Err(format!("key is not good for sign: {}", e))
+                Err(e) => Err(format!("key is not good for sign: {}", e)),
             }
         }
     }
@@ -624,14 +700,16 @@ impl License {
         match base64::decode(auth) {
             Ok(sign) => {
                 let d = self.header_digest();
-                match self.pubk()?.verify(PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
-                    &d, &sign,
+                match self.pubk()?.verify(
+                    PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
+                    &d,
+                    &sign,
                 ) {
                     Ok(_) => Ok(()),
-                    Err(e) => Err(format!("invalid auth header: {}", e))
+                    Err(e) => Err(format!("invalid auth header: {}", e)),
                 }
             }
-            Err(e) => Err(format!("reading header: {}", e))
+            Err(e) => Err(format!("reading header: {}", e)),
         }
     }
 
@@ -650,7 +728,6 @@ impl License {
     pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
         convert_datetime(&self.timezone, input)
     }
-
 }
 
 #[inline]
@@ -661,10 +738,13 @@ fn yaml_as_str(y: &Yaml, field: &str) -> String {
 #[inline]
 /// check for empty string, localhost, unix socket, or IP
 fn is_ip(host: &String) -> bool {
-    host.len() == 0 || host.as_str() == "localhost" || host.as_bytes()[0] == b'/' ||
-    match ipaddress::IPAddress::parse(host) {
-        Ok(_) => true, Err(_) => false,
-    }
+    host.len() == 0
+        || host.as_str() == "localhost"
+        || host.as_bytes()[0] == b'/'
+        || match ipaddress::IPAddress::parse(host) {
+            Ok(_) => true,
+            Err(_) => false,
+        }
 }
 
 mod crc {
@@ -672,13 +752,14 @@ mod crc {
 
     #[cfg(not(debug_assertions))]
     #[inline]
-    pub(crate) fn a(_s: &mut String, _d: &[u8]) { }
-
+    pub(crate) fn a(_s: &mut String, _d: &[u8]) {}
 
     #[cfg(debug_assertions)]
     #[inline]
     pub(crate) fn a(s: &mut String, d: &[u8]) {
-        let _ = write!(s, ".{}",
+        let _ = write!(
+            s,
+            ".{}",
             if d.len() == 0 {
                 0
             } else if d.len() == 1 {
@@ -697,7 +778,7 @@ mod crc {
 #[inline]
 fn to_list(yaml: &Yaml, input: &str) -> BTreeSet<String> {
     let mut r = BTreeSet::new();
-    if let Some(list) =  yaml[input].as_vec() {
+    if let Some(list) = yaml[input].as_vec() {
         for l in list {
             if let Some(c) = l.as_str() {
                 r.insert(c.into());
@@ -711,12 +792,10 @@ fn to_list(yaml: &Yaml, input: &str) -> BTreeSet<String> {
 fn to_date(yaml: &Yaml, field: &str) -> Result<LicenseDate, String> {
     match yaml[field].as_str() {
         None => Err(format!("not date set in: {}", field)),
-        Some(s) => {
-            match DateTime::parse_from_rfc3339(s) {
-                Ok(d) => Ok(d),
-                Err(e) => Err(format!("date parsing [{}] error: {}", s, e))
-            }
-        }
+        Some(s) => match DateTime::parse_from_rfc3339(s) {
+            Ok(d) => Ok(d),
+            Err(e) => Err(format!("date parsing [{}] error: {}", s, e)),
+        },
     }
 }
 
@@ -724,12 +803,19 @@ mod local_date_format {
     use chrono::{DateTime, FixedOffset};
     use serde::{self, Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S>(date: &DateTime<FixedOffset>, serializer: S, ) -> Result<S::Ok, S::Error> where S: Serializer {
+    pub fn serialize<S>(date: &DateTime<FixedOffset>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         serializer.serialize_str(&date.to_rfc3339())
     }
     #[allow(dead_code)]
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<FixedOffset>, D::Error> where D: Deserializer<'de> {
-        DateTime::parse_from_rfc3339( String::deserialize(deserializer)?.as_str()).map_err(serde::de::Error::custom)
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<FixedOffset>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        DateTime::parse_from_rfc3339(String::deserialize(deserializer)?.as_str())
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -737,41 +823,43 @@ mod local_date_format {
 #[inline]
 #[allow(dead_code)]
 pub fn pub2str(input: &RSAPublicKey) -> String {
-	format!("{}{}",
-		base64::encode(input.n().to_bytes_be()),
-		base64::encode(input.e().to_bytes_be()),
-	)
+    format!(
+        "{}{}",
+        base64::encode(input.n().to_bytes_be()),
+        base64::encode(input.e().to_bytes_be()),
+    )
 }
 
 #[inline]
 pub fn str2pub(input: &String) -> Result<RSAPublicKey, String> {
     let i = input.len();
-    if i < 100 { Err(format!("malformed for RSA key [{}]", input.len())) }
-    else {
+    if i < 100 {
+        Err(format!("malformed for RSA key [{}]", input.len()))
+    } else {
         let i = i - 4;
         match strs2pub(&input[..i], &input[i..]) {
             Ok(key) => Ok(key),
-            Err(e) => Err(format!("{:?}", e))
+            Err(e) => Err(format!("{:?}", e)),
         }
     }
 }
 
 #[inline]
 fn strs2pub(input_n: &str, input_e: &str) -> Result<RSAPublicKey, rsa::errors::Error> {
-	match base64::decode(input_n) {
-		Ok(bn) => match base64::decode(input_e) {
-			Ok(be) => RSAPublicKey::new(
-				BigUint::from_bytes_be(bn.as_ref()),
-				BigUint::from_bytes_be(be.as_ref()),
-			),
-			Err(e) => Err(rsa::errors::Error::ParseError {
-				reason: format!("E: {}", e),
-			}),
-		},
-		Err(e) => Err(rsa::errors::Error::ParseError {
-			reason: format!("N: {}", e),
-		}),
-	}
+    match base64::decode(input_n) {
+        Ok(bn) => match base64::decode(input_e) {
+            Ok(be) => RSAPublicKey::new(
+                BigUint::from_bytes_be(bn.as_ref()),
+                BigUint::from_bytes_be(be.as_ref()),
+            ),
+            Err(e) => Err(rsa::errors::Error::ParseError {
+                reason: format!("E: {}", e),
+            }),
+        },
+        Err(e) => Err(rsa::errors::Error::ParseError {
+            reason: format!("N: {}", e),
+        }),
+    }
 }
 
 #[inline]
@@ -781,7 +869,7 @@ pub fn str2rsa(input: &str) -> Result<RSAPrivateKey, String> {
             if der_bytes.len() > 1000 {
                 match RSAPrivateKey::from_pkcs1(&der_bytes) {
                     Ok(key) => Ok(key),
-                    Err(e) => Err(format!("{:?}", e))
+                    Err(e) => Err(format!("{:?}", e)),
                 }
             } else {
                 Err(format!("file is too small for PKCS: {}", der_bytes.len()))
@@ -797,8 +885,6 @@ pub(crate) fn hardcoded() -> Result<RSAPublicKey, String> {
     str2pub(&PK.into())
 }
 
-
-
 #[cfg(test)]
 #[allow(unused)]
 mod tests {
@@ -811,17 +897,15 @@ mod tests {
     fn test_date1() {
         let z = "-0510".to_string();
 
-        match z[z.len()-2..z.len()].parse::<i8>() {
+        match z[z.len() - 2..z.len()].parse::<i8>() {
             Ok(v) => assert_eq!(v, 10),
             Err(_) => assert!(false),
         };
 
-        match z[..z.len()-2].parse::<i8>() {
+        match z[..z.len() - 2].parse::<i8>() {
             Ok(v) => assert_eq!(v, -5),
             Err(_) => assert!(false),
         };
-
-
     }
 
     #[test]
@@ -832,13 +916,13 @@ mod tests {
             Err(_) => assert!(false),
         };
         let z = "0500".to_string();
-        match z[0..if z.len()> 4 {4} else {3}].parse::<i8>() {
+        match z[0..if z.len() > 4 { 4 } else { 3 }].parse::<i8>() {
             Ok(v) => assert_eq!(v, 50i8),
             Err(_) => assert!(false),
         };
 
         let z = "+0500".to_string();
-        match z[0..if z.len()> 4 {4} else {3}].parse::<i8>() {
+        match z[0..if z.len() > 4 { 4 } else { 3 }].parse::<i8>() {
             Ok(v) => assert_eq!(v, 50i8),
             Err(_) => assert!(false),
         };
@@ -849,9 +933,14 @@ mod tests {
         let t: DateTime<FixedOffset> = two.into();
         assert!(one < two);
         let mut ss: BTreeSet<String> = BTreeSet::new();
-        "a".split(",").for_each(|c| {ss.insert(c.into());});
+        "a".split(",").for_each(|c| {
+            ss.insert(c.into());
+        });
         assert_eq!(ss.len(), 1);
-        assert_eq!(ss.iter().next().unwrap_or(&"".to_string()), &"a".to_string());
+        assert_eq!(
+            ss.iter().next().unwrap_or(&"".to_string()),
+            &"a".to_string()
+        );
     }
 
     #[test]
@@ -872,8 +961,7 @@ mod tests {
             assert!(h.len() > 0);
             let i = h.find(":").unwrap();
             assert_eq!(l.api_key, h[..i]);
-            l.is_header(&h[i+1..])?;
-
+            l.is_header(&h[i + 1..])?;
         }
         Ok(())
     }
@@ -888,7 +976,9 @@ mod tests {
         let mut db_names = BTreeSet::new();
         db_names.insert("db".to_string());
         l.connects.push(Connection {
-            valid_until: Utc::now().into(), hosts, db_names
+            valid_until: Utc::now().into(),
+            hosts,
+            db_names,
         });
         let mut enc = HashMap::new();
         let cl = l.clean(&mut enc)?;
@@ -905,5 +995,4 @@ mod tests {
         assert!(cl.connects[0].db_names.contains("db"));
         Ok(())
     }
-
 }

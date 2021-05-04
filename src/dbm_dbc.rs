@@ -78,10 +78,7 @@ fn load_info_cc(db: &mut Client) -> Result<InfoSchemaType, String> {
 }
 
 #[inline]
-fn load_info_tg(
-    db: &mut Client,
-    data: &mut InfoSchemaType,
-) -> Result<(), String> {
+fn load_info_tg(db: &mut Client, data: &mut InfoSchemaType) -> Result<(), String> {
     match db.query("SELECT trigger_catalog, trigger_schema, trigger_name, event_object_catalog, event_object_schema, event_object_table \
         from information_schema.triggers where event_object_schema not in ('pg_catalog', 'information_schema')", &[]) {
         Err(e) => Err(format!("on loading information_schema.triggers: {}", e)),
@@ -118,10 +115,7 @@ fn load_info_tg(
 }
 
 #[inline]
-fn load_info_fk(
-    db: &mut Client,
-    data: &mut InfoSchemaType,
-) -> Result<(), String> {
+fn load_info_fk(db: &mut Client, data: &mut InfoSchemaType) -> Result<(), String> {
     match db.query("SELECT  tc.table_schema,  tc.table_name, kcu.column_name,
  ccu.table_schema AS foreign_schema_name, ccu.table_name AS foreign_table_name, ccu.column_name AS foreign_column_name, tc.constraint_name
  FROM information_schema.table_constraints AS tc

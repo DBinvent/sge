@@ -1,7 +1,7 @@
 extern crate yaml_rust;
 
 use std::collections::{BTreeMap, HashMap};
-use std::{fs, env};
+use std::{env, fs};
 
 use postgres::Transaction;
 use semver::{SemVerError, Version};
@@ -14,14 +14,14 @@ use serde::Serialize;
 use std::fmt::{Formatter, Write};
 use std::result::Result;
 
+use crate::dbm_cfg::ConfigMap;
 use crate::dbm_log::StatementLog;
 use slog::Logger;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
 use std::fs::File;
-use std::io::{BufReader, BufRead};
-use crate::dbm_cfg::ConfigMap;
+use std::io::{BufRead, BufReader};
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -94,7 +94,8 @@ pub(crate) fn load_all(cfg: &ConfigMap, log: &Logger) -> Result<FilesMap, String
         cfg.get("source_dir").as_str(),
         &mut schema,
         &FileFilters::new(cfg)?,
-        cfg.get_bool("source_recur", true), log
+        cfg.get_bool("source_recur", true),
+        log,
     )?;
     Ok(schema)
 }
@@ -119,7 +120,12 @@ impl FilesMap {
                 if let Some(tt) = fkst.tables.get(table) {
                     for cc in &tt.columns.list {
                         if cc.is_pk() {
-                            let _ = write!(pk, "{}{}", if pk.len() > 0 { ", " } else { "" }, cc.get_name());
+                            let _ = write!(
+                                pk,
+                                "{}{}",
+                                if pk.len() > 0 { ", " } else { "" },
+                                cc.get_name()
+                            );
                         }
                     }
                 }
@@ -155,7 +161,7 @@ fn load_dir(
     schema: &mut FilesMap,
     ff: &FileFilters,
     recursive: bool,
-    log: &Logger
+    log: &Logger,
 ) -> Result<(), String> {
     match fs::read_dir(dir) {
         Ok(paths) => {
@@ -397,20 +403,20 @@ pub struct YColumn {
     pub name: String, // id
     #[serde(rename = "type")]
     pub column_type: String, // serial
-    #[serde(rename = "defaultValue")]// pub defaultValue: String, //
+    #[serde(rename = "defaultValue")] // pub defaultValue: String, //
     pub default_value: String, //
-    pub constraint: Option<YConstr>,//# changes on PK & NULL wont apply
+    pub constraint: Option<YConstr>, //# changes on PK & NULL wont apply
     pub description: String, //
-    pub sql: String, // -- some SQL suffix on new column create
+    pub sql: String,  // -- some SQL suffix on new column create
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct YConstr {
-    #[serde(rename = "primaryKey")]// pub primaryKey: bool, //true
+    #[serde(rename = "primaryKey")] // pub primaryKey: bool, //true
     pub primary_key: bool, //true
     pub nullable: bool, //false
-    #[serde(rename = "foreignKey")]// pub foreignKey: Option<YForeignKey>
-    pub foreign_key: Option<YForeignKey>
+    #[serde(rename = "foreignKey")] // pub foreignKey: Option<YForeignKey>
+    pub foreign_key: Option<YForeignKey>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -421,10 +427,10 @@ pub struct YForeignKey {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct YTrig {
-    pub name: String, //uniq_name_of_trigger
+    pub name: String,  //uniq_name_of_trigger
     pub event: String, // before update
-    pub when: String, //  for each row
-    pub proc: String, //  -- p()
+    pub when: String,  //  for each row
+    pub proc: String,  //  -- p()
 }
 
 impl YColumn {
@@ -432,20 +438,34 @@ impl YColumn {
         let constraint = &input["constraint"];
         let foreign_key = &constraint["foreignKey"];
         let references = as_str_esc(foreign_key, "references");
-        let (foreign_key, fk_set) = if references.len() == 0 { (None, false) } else {
-            (Some( YForeignKey{ references, sql: as_str_esc(foreign_key, "sql")}), true)
+        let (foreign_key, fk_set) = if references.len() == 0 {
+            (None, false)
+        } else {
+            (
+                Some(YForeignKey {
+                    references,
+                    sql: as_str_esc(foreign_key, "sql"),
+                }),
+                true,
+            )
         };
         let primary_key = as_bool(constraint, "primaryKey", false);
         let nullable = as_bool(constraint, "nullable", true);
         let constraint = if primary_key || !nullable || fk_set {
-            Some( YConstr{ primary_key, nullable, foreign_key})
-        } else { None };
+            Some(YConstr {
+                primary_key,
+                nullable,
+                foreign_key,
+            })
+        } else {
+            None
+        };
         YColumn {
-            name: safe_sql( as_str_esc(input, "name")),
-            column_type:  as_str_esc(input, "type"),
-            default_value:  as_str_esc(input, "defaultValue"),
-            description:  as_str_esc(input, "description"),
-            sql:  as_str_esc(input, "sql"),
+            name: safe_sql(as_str_esc(input, "name")),
+            column_type: as_str_esc(input, "type"),
+            default_value: as_str_esc(input, "defaultValue"),
+            description: as_str_esc(input, "description"),
+            sql: as_str_esc(input, "sql"),
             constraint,
         }
     }
@@ -459,7 +479,12 @@ impl YColumn {
 
     /// column defenition to SQL string
     #[inline]
-    fn column_def(&self, schema: &String, table_name: &String, file: &str) -> Result<String, String> {
+    fn column_def(
+        &self,
+        schema: &String,
+        table_name: &String,
+        file: &str,
+    ) -> Result<String, String> {
         if self.column_type.len() == 0 {
             Err(format!(
                 "Error column definition on table: {}.{} column {} file {}",
@@ -471,7 +496,7 @@ impl YColumn {
                 if constraint.primary_key {
                     let _ = write!(cs, " primary key ");
                 }
-                if !constraint.nullable{
+                if !constraint.nullable {
                     let _ = write!(cs, " not null ");
                 }
             }
@@ -485,20 +510,19 @@ impl YColumn {
             Ok(cs)
         }
     }
-
 }
 
 impl YTrig {
     fn new(input: &Yaml) -> Self {
         YTrig {
-            name: safe_sql( as_str_esc(input, "name")),
+            name: safe_sql(as_str_esc(input, "name")),
             event: as_str_esc(input, "event"),
             when: as_str_esc(input, "when"),
-            proc: as_str_esc(input, "proc")
+            proc: as_str_esc(input, "proc"),
         }
     }
 
-        /// column defenition to SQL string
+    /// column defenition to SQL string
     #[inline]
     // pub(crate)
     fn trig_def(&self, schema: &String, table_name: &String) -> Option<String> {
@@ -506,18 +530,12 @@ impl YTrig {
         if self.proc.len() > 0 {
             Some(format!(
                 "CREATE TRIGGER {} {} ON {}.{} {} EXECUTE PROCEDURE {};",
-                self.name,
-                self.event,
-                schema,
-                table_name,
-                self.when,
-                self.proc
+                self.name, self.event, schema, table_name, self.when, self.proc
             ))
         } else {
             None
         }
     }
-
 }
 
 #[inline]
@@ -545,7 +563,7 @@ fn as_str(input: &Yaml, field: &str, def: &str) -> String {
             Yaml::Integer(v) => v.to_string(),
             Yaml::String(v) => v.to_string(),
             Yaml::Boolean(v) => v.to_string(),
-            _ => def.into()
+            _ => def.into(),
         }
     }
 }
@@ -638,7 +656,12 @@ impl<T: Named> OrderedHashMap<T> {
 }
 
 impl YTable {
-    pub(crate) fn new(input: &Yaml, table_name: &str, file: Option<&String>, log: Option<&Logger>) -> Result<Self, String> {
+    pub(crate) fn new(
+        input: &Yaml,
+        table_name: &str,
+        file: Option<&String>,
+        log: Option<&Logger>,
+    ) -> Result<Self, String> {
         let mut columns = OrderedHashMap::new();
         if let Some(cls) = input["columns"].as_vec() {
             let mut i = 1;
@@ -660,9 +683,18 @@ impl YTable {
                         if let Err(e) = columns.append(yc) {
                             return Err(format!(
                                 "{} (column name) {}/{} on table: {}{}{}",
-                                e, i, cls.len(), table_name,
-                                match file { None => "", Some(_) => ", found in file: " },
-                                match file { None => "", Some(f) => f.as_str(), },
+                                e,
+                                i,
+                                cls.len(),
+                                table_name,
+                                match file {
+                                    None => "",
+                                    Some(_) => ", found in file: ",
+                                },
+                                match file {
+                                    None => "",
+                                    Some(f) => f.as_str(),
+                                },
                             ));
                         };
                     }
@@ -680,10 +712,11 @@ impl YTable {
                             if let Err(_) = triggers.append(YTrig::new(t)) {
                                 return Err(format!(
                                     "Duplicate trigger name: {} on table: {}{}{}",
-                                    name, table_name,
+                                    name,
+                                    table_name,
                                     match file {
                                         None => "",
-                                        Some(_) => ", found in file: "
+                                        Some(_) => ", found in file: ",
                                     },
                                     match file {
                                         None => "",
@@ -726,9 +759,9 @@ impl YTable {
             Some(mut ss) => match ss.get_mut(&self.table_name) {
                 None => (false, true),
                 Some(mut ts) => {
-                    for  dc in &self.columns.list {
-                        if !ts.columns.contains_key( &dc.name) {
-                            let def = dc.column_def( schema, &self.table_name, file)?;
+                    for dc in &self.columns.list {
+                        if !ts.columns.contains_key(&dc.name) {
+                            let def = dc.column_def(schema, &self.table_name, file)?;
                             let _ = write!(
                                 sql,
                                 "ALTER TABLE {}.{} ADD COLUMN {};",
@@ -738,7 +771,7 @@ impl YTable {
                             exec = true;
                         }
                     }
-                    for  dt in &self.triggers.list {
+                    for dt in &self.triggers.list {
                         if !ts.triggers.contains_key(&dt.name) {
                             if let Some(def) = dt.trig_def(schema, &self.table_name) {
                                 let _ = writeln!(sql, "{}", def);
@@ -762,7 +795,7 @@ impl YTable {
                 fks: Default::default(),
                 triggers: HashMap::new(),
             };
-            for  dc in &self.columns.list {
+            for dc in &self.columns.list {
                 let cd = dc.column_def(schema, &self.table_name, file)?;
                 let _ = write!(columns, "{}, ", cd);
                 let _ = st.columns.insert(dc.get_name(), cd);
@@ -796,7 +829,6 @@ impl YTable {
                 }
             }
             for dt in &self.triggers.list {
-
                 if let Some(td) = dt.trig_def(schema, &self.table_name) {
                     let _ = writeln!(sql, "{}\n", td);
                     st.triggers.insert(dt.get_name(), td);
@@ -857,14 +889,13 @@ impl YTable {
     #[inline]
     fn comments(&self, sql: &mut String, schema: &String, column_name: &String, t: &String) {
         // if let Some(t) = input["description"].as_str() {
-            if t.len() > 0 {
-                let _ = writeln!(
-                    sql,
-                    "COMMENT ON COLUMN {}.{}.{} IS '{}';",
-                    schema, self.table_name, column_name, t
-                );
-            }
-
+        if t.len() > 0 {
+            let _ = writeln!(
+                sql,
+                "COMMENT ON COLUMN {}.{}.{} IS '{}';",
+                schema, self.table_name, column_name, t
+            );
+        }
     }
 
     /// build a create or alter sql
@@ -889,10 +920,9 @@ impl YTable {
                             let fk_table = &fk.references;
                             let (fk_schema, fk_table) = match fk_table.find(".") {
                                 None => (schema.clone(), fk_table.to_string()),
-                                Some(i) => (
-                                    fk_table[0..i].to_string(),
-                                    fk_table[i + 1..].to_string(),
-                                ),
+                                Some(i) => {
+                                    (fk_table[0..i].to_string(), fk_table[i + 1..].to_string())
+                                }
                             };
                             // check for FK already in DB
                             if let Some(a) = dbc.get(schema) {
@@ -931,7 +961,7 @@ impl YTable {
             );
         }
 
-        if cfg.get_bool("dry_run", false) && exec{
+        if cfg.get_bool("dry_run", false) && exec {
             match StatementLog::dry_store(cfg.get_opt("dry_run_to"), sql, log) {
                 Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to"), e)),
                 Ok(_) => Ok(false),
@@ -983,9 +1013,12 @@ impl YSchema {
                                 tn, self.file
                             ));
                         } else {
-                            let _ = self
-                                .tables
-                                .append( YTable::new(t, tn, Some(&self.file), Some(log) )?);
+                            let _ = self.tables.append(YTable::new(
+                                t,
+                                tn,
+                                Some(&self.file),
+                                Some(log),
+                            )?);
                         }
                     }
                 }
@@ -1050,12 +1083,8 @@ mod tests {
         assert_eq!("a".to_string(), safe_sql("a. ".to_string()));
         assert_eq!("a".to_string(), safe_sql("a\n ".to_string()));
         assert_eq!("a".to_string(), safe_sql("a\t ".to_string()));
-
     }
-
-
 }
-
 
 /*
 

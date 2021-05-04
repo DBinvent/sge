@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write, BufReader, BufRead};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::process::Command;
 use std::result::Result;
 
@@ -9,14 +9,14 @@ use postgres::{Client, Error, Transaction};
 use serde::Serialize;
 use slog::Logger;
 
-use crate::dbm_dbc::{InfoSchemaType,  InfoSchemaOwnerType};
-use crate::dbm_yml::{FilesMap, YSchema, OrderedHashMap, YTable,  YColumn, semver_parse};
 use crate::dbm_cfg::ConfigMap;
+use crate::dbm_dbc::{InfoSchemaOwnerType, InfoSchemaType};
+use crate::dbm_yml::{semver_parse, FilesMap, OrderedHashMap, YColumn, YSchema, YTable};
 use crate::*;
-use std::fs::{OpenOptions, File};
-use std::time::Instant;
+use chrono::{DateTime, Utc};
 use semver::Version;
-use chrono::{Utc, DateTime};
+use std::fs::{File, OpenOptions};
+use std::time::Instant;
 
 /// loaded from DB or stored to DB, see [STATEMENT_LOG_TBL] and [STATEMENT_LOG_TABLE_YML] for table defenition
 #[derive(Debug, Clone, Serialize)]
@@ -63,20 +63,27 @@ pub(crate) struct LogVer {
 }
 
 mod my_date_format {
-    use chrono::{DateTime, Utc, TimeZone};
-    use serde::{self, Deserialize, Serializer, Deserializer};
+    use chrono::{DateTime, TimeZone, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
 
     const FORMAT: &'static str = "%Y-%m-%d %H:%M:%S";
 
-    pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
+    pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
         let s = format!("{}", date.format(FORMAT));
         serializer.serialize_str(&s)
     }
 
     #[allow(dead_code)]
-    pub fn deserialize<'de, D>( deserializer: D, ) -> Result<DateTime<Utc>, D::Error> where D: Deserializer<'de> {
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
         let s = String::deserialize(deserializer)?;
-        Utc.datetime_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
+        Utc.datetime_from_str(&s, FORMAT)
+            .map_err(serde::de::Error::custom)
     }
 }
 
@@ -128,24 +135,21 @@ impl StatementLog {
         }
     }
 
-
     /// select table for update -- row level lock
     // map: db_name(target) -> catalog (schemas) -> max(version)/
     #[inline]
     #[allow(unused_mut)]
-    fn load_ok(
-        t: &mut Transaction,
-        cfg: &ConfigMap,
-    ) -> Result<SortedStatementLog, String> {
+    fn load_ok(t: &mut Transaction, cfg: &ConfigMap) -> Result<SortedStatementLog, String> {
         // TODO LOAD RECENT not OK
         let mut sql = format!(
             "select target, catalog, version, script_tag, executed_by, executed_on from {}.{} \
              where ok and version <> 'baseline' ",
-            cfg.schema(), cfg.history_table_name()
+            cfg.schema(),
+            cfg.history_table_name()
         );
         cfg.write(&mut sql, "_db", "target", "and");
         cfg.write(&mut sql, "_db", "catalog", "and");
-        sql.insert_str(sql.len()-1, " order by executed_on, id");
+        sql.insert_str(sql.len() - 1, " order by executed_on, id");
         match t.query(sql.as_str(), &[]) {
             Ok(v) => {
                 let mut targets = HashMap::new();
@@ -158,8 +162,15 @@ impl StatementLog {
                     let executed_on: DateTime<Utc> = r.get(5);
 
                     let sl = LogVer {
-                        ver: match semver_parse(version.as_str()) { Ok(v) => v, Err(_) => Version::new(0,0,0) },
-                        version, script_tag, executed_by, executed_on};
+                        ver: match semver_parse(version.as_str()) {
+                            Ok(v) => v,
+                            Err(_) => Version::new(0, 0, 0),
+                        },
+                        version,
+                        script_tag,
+                        executed_by,
+                        executed_on,
+                    };
 
                     match targets.get_mut(target.as_str()) {
                         None => {
@@ -168,18 +179,16 @@ impl StatementLog {
                             catalogs.insert(catalog.clone(), sl);
                             targets.insert(t, catalogs);
                         }
-                        Some(mut ts) => {
-                            match ts.get(catalog.as_str()) {
-                                None => {
+                        Some(mut ts) => match ts.get(catalog.as_str()) {
+                            None => {
+                                ts.insert(catalog.clone(), sl);
+                            }
+                            Some(s) => {
+                                if sl.ver > s.ver {
                                     ts.insert(catalog.clone(), sl);
                                 }
-                                Some(s) => {
-                                    if sl.ver > s.ver {
-                                        ts.insert(catalog.clone(), sl);
-                                    }
-                                }
                             }
-                        }
+                        },
                     }
                 }
 
@@ -292,7 +301,9 @@ impl StatementLog {
                     Some(t) => t.as_str() == "single",
                     None => find_single_transaction(self.source.as_str()),
                 }
-            } else { true };
+            } else {
+                true
+            };
             if single_transaction {
                 cmd.arg("-1"); // --single-transaction
             }
@@ -320,7 +331,12 @@ impl StatementLog {
                         }
                         self.persist(None, t)
                     } else {
-                        let msg = format!("{} : {} {}", &self.source, trim_output(&output.stdout), trim_output(&output.stderr));
+                        let msg = format!(
+                            "{} : {} {}",
+                            &self.source,
+                            trim_output(&output.stdout),
+                            trim_output(&output.stderr)
+                        );
                         error!(log, "{}", msg);
                         self.persist(Some(msg), t)
                     }
@@ -437,7 +453,9 @@ impl StatementLog {
 
 #[inline]
 fn trim_output(input: &Vec<u8>) -> String {
-    String::from_utf8_lossy(input).trim_matches(|c| c == ' ' || c == '\n' || c == '^').into()
+    String::from_utf8_lossy(input)
+        .trim_matches(|c| c == ' ' || c == '\n' || c == '^')
+        .into()
 }
 
 const SINGLE_TRANSACTION: &str = "--single-transaction=";
@@ -453,16 +471,20 @@ fn find_single_transaction(file: &str) -> bool {
                     let mut i = 0usize;
                     for c in l.chars() {
                         if c != ' ' {
-                            if i + SINGLE_TRANSACTION.len()+4 > l.len() {
-                                break
+                            if i + SINGLE_TRANSACTION.len() + 4 > l.len() {
+                                break;
                             }
                             if c == '-' && prev == '-' {
                                 // found comment line - search for comment
                                 if let Some(x) = l.find(SINGLE_TRANSACTION) {
-                                    let x = x + SINGLE_TRANSACTION.len()+5;
+                                    let x = x + SINGLE_TRANSACTION.len() + 5;
                                     // set only if found, otherwise search until sql code starts
                                     if x <= l.len() {
-                                        let cm = if x == l.len() { &l[x - 5..] } else { &l[x - 5..x] };
+                                        let cm = if x == l.len() {
+                                            &l[x - 5..]
+                                        } else {
+                                            &l[x - 5..x]
+                                        };
                                         single_transaction = Some(cm != "false");
                                     } else {
                                         single_transaction = Some(true);
@@ -491,7 +513,7 @@ fn find_single_transaction(file: &str) -> bool {
     }
     match single_transaction {
         None => true,
-        Some(s) => s
+        Some(s) => s,
     }
 }
 
@@ -538,19 +560,23 @@ pub(crate) fn load_impl(
         let dbco = crate::dbm_dbc::load_info_schema_owner(db_client)?;
         let logs = LoadResult::new(dbc, dbco);
         if cfg.get("snapshot_format").as_str() == "json" {
-            serde_json::to_string(&logs).map_err(|e| format!("converting result to JSON format with error: {}", e))
+            serde_json::to_string(&logs)
+                .map_err(|e| format!("converting result to JSON format with error: {}", e))
         } else {
-            serde_yaml::to_string(&logs).map_err(|e| format!("converting result to YAML format with error: {}", e))
+            serde_yaml::to_string(&logs)
+                .map_err(|e| format!("converting result to YAML format with error: {}", e))
         }
     } else {
         let mut t = log_client.transaction().unwrap(); // begin
-        // let yschemas = crate::dbm_yml::load_all(cfg)?;
+                                                       // let yschemas = crate::dbm_yml::load_all(cfg)?;
         let logs = StatementLog::load_ok(&mut t, cfg)?;
         let _ = t.rollback();
         if cfg.get("info_format").as_str() == "json" {
-            serde_json::to_string(&logs).map_err(|e| format!("converting result to JSON format with error: {}", e))
+            serde_json::to_string(&logs)
+                .map_err(|e| format!("converting result to JSON format with error: {}", e))
         } else {
-            serde_yaml::to_string(&logs).map_err(|e| format!("converting result to YAML format with error: {}", e))
+            serde_yaml::to_string(&logs)
+                .map_err(|e| format!("converting result to YAML format with error: {}", e))
         }
     }
 }
@@ -582,33 +608,28 @@ impl LoadResult {
                         default_value: "".to_string(),
                         constraint: None,
                         description: "".to_string(),
-                        sql: "".to_string()
+                        sql: "".to_string(),
                     };
                     let _ = yt.columns.append(yc);
                 }
-                let _ = ytables.append( yt);
+                let _ = ytables.append(yt);
             }
             let ys = YSchema {
                 schema_name: schema.clone(),
                 owner: match owners.get(&schema) {
                     None => "".to_string(),
-                    Some((o,_)) => o.clone(),
+                    Some((o, _)) => o.clone(),
                 },
                 tables: ytables,
-                file: "".to_string()
+                file: "".to_string(),
             };
             schemas.push(ys);
         }
-        LoadResult{
-            database: schemas
-        }
+        LoadResult { database: schemas }
     }
 }
 
-
 // V1_1__sample_ddl.sql
-
-
 
 #[cfg(test)]
 mod tests {
@@ -616,8 +637,9 @@ mod tests {
     #[test]
     fn v_test() {
         assert!(!find_single_transaction("./tests/scripts/P1_1__data.sql"));
-        assert!(!find_single_transaction("./tests/scripts/V1_1__sample_ddl.sql"));
+        assert!(!find_single_transaction(
+            "./tests/scripts/V1_1__sample_ddl.sql"
+        ));
         assert!(find_single_transaction("./tests/scripts/R1_1__data.sql"));
     }
-
 }

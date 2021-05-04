@@ -17,7 +17,11 @@ pub fn logger(debug: bool) -> Logger {
     builder.channel_size(1024);
     builder.destination(Destination::Stdout);
     builder.format(Format::Compact);
-    builder.level(if debug {Severity::Debug} else {Severity::Info});
+    builder.level(if debug {
+        Severity::Debug
+    } else {
+        Severity::Info
+    });
     builder.build().unwrap()
 }
 
@@ -31,9 +35,11 @@ fn main() -> Result<(), String> {
             return Ok(());
         }
     };
-    let mut cfg = ConfigMap::load(
-    if app.occurrences_of("config_file") > 0 {
-            app.value_of("config_file").unwrap_or("")} else {""})?;
+    let mut cfg = ConfigMap::load(if app.occurrences_of("config_file") > 0 {
+        app.value_of("config_file").unwrap_or("")
+    } else {
+        ""
+    })?;
     for ks in rdbm::CONFIG_APP.keys() {
         if app.occurrences_of(ks.as_str()) > 0 {
             cfg.insert(ks, app.value_of(ks).unwrap_or(""));
