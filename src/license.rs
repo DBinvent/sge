@@ -168,8 +168,7 @@ impl ApiRequest {
                     println!("{}", response.result);
                     Ok(())
                 } else {
-                    // TODO get error message from response
-                    Err(resp_str)
+                    Err(response.as_err())
                 }
             }
             ApiRequest::Some(l) => {
@@ -322,15 +321,32 @@ fn valid_name(names: &Vec<String>) -> Option<String> {
 struct LicenseResponse {
     result: License,
     success: bool,
+    errors: Vec<String>,
+    messages: Vec<String>,
 }
-
 #[derive(Deserialize)]
 #[allow(dead_code)]
 struct ApiResponse {
     result: String,
     success: bool,
+    errors: Vec<String>,
+    messages: Vec<String>,
 }
 
+impl ApiResponse {
+    fn as_err(&self) -> String {
+        let mut res = String::new();
+        for e in &self.errors {
+            if res.len() > 0 {res.push_str(", ");}
+            res.push_str(e.as_str());
+        }
+        for e in &self.messages {
+            if res.len() > 0 {res.push_str(", ");}
+            res.push_str(e.as_str());
+        }
+        res
+    }
+}
 #[cfg(debug_assertions)]
 pub fn is_ok(_cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
     Ok(true)
@@ -413,14 +429,29 @@ impl Connection {
     }
 
     #[inline]
-    pub fn encrypt(input: &String, public_key: &RSAPublicKey) -> Result<Vec<u8>, String> {
-        let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA256);
-        let _ = hasher.write(input.as_bytes());
-        let _ = hasher.write(&public_key.e().to_bytes_be());
-        let _ = hasher.write(&public_key.n().to_bytes_be());
-        let d = hasher.finish();
-        Ok(Sha1::digest(&d).to_vec())
+    fn encrypt(input: &String, public_key: &RSAPublicKey) -> Result<Vec<u8>, String> {
+        if input.len() > 24 && input.as_bytes()[0] == b'~' {
+            Ok(base64::decode(&input[1..]).map_err(|e| e.to_string())?)
+        } else {
+            let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA256);
+            let _ = hasher.write(input.as_bytes());
+            let _ = hasher.write(&public_key.e().to_bytes_be());
+            let _ = hasher.write(&public_key.n().to_bytes_be());
+            let d = hasher.finish();
+            Ok(Sha1::digest(&d).to_vec())
+        }
     }
+
+    pub fn encode(input: &String, public_key: &RSAPublicKey) -> Result<String, String> {
+        if input.len() > 24 && input.as_bytes()[0] == b'~' {
+            Ok(input.clone())
+        } else {
+            let mut res = base64::encode(Connection::encrypt(input, &public_key)?);
+            res.insert(0, '~');
+            Ok(res)
+        }
+    }
+
 }
 
 impl License {
@@ -580,14 +611,14 @@ impl License {
             let hosts = c.hosts.to_owned();
             c.hosts = BTreeSet::new();
             for host in &hosts {
-                let e = base64::encode(Connection::encrypt(host, &public_key)?);
+                let e = Connection::encode(host, &public_key)?;
                 enc.insert(e.clone(), host.clone());
                 c.hosts.insert(e);
             }
             let db_names = c.db_names.to_owned();
             c.db_names = BTreeSet::new();
             for db_name in &db_names {
-                let e = base64::encode(Connection::encrypt(db_name, &public_key)?);
+                let e =  Connection::encode(db_name, &public_key)?;
                 enc.insert(e.clone(), db_name.clone());
                 c.db_names.insert(e);
             }
