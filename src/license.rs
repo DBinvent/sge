@@ -15,6 +15,7 @@ use slog::Logger;
 use std::collections::HashMap;
 use std::process::Command;
 use yaml_rust::{Yaml, YamlLoader};
+use ureq::Response;
 
 const PK: &str = "tYV/+g8q0/K0DhWxcrTesII0/ludUrOxDsHTopTcV5FmyXzCrK75z3ARiK67pHa5r5sQCkstK0JKs2/izmp2sjfsm/lLSmLvViBgbzd96bQYZe6Z3zBhyLHa4xVNe5o+VeWX7tOI5EenG0JPkvfMGijS4AHbQs33SZ1z8UKRg8ES4Ab/YK3d/ddfJ8Fs+fvDyuoO+NK10te/wdsvZgsK87v36hLoZi7ZwKSkdzH0dxC6JqM/YYyA72fMFtoRw6s3gT8rdjuLHPuyIh7OC5W7ufH9Fe0r10tS0KeUsNo77ZM82HdknWbSsznl3RyWkj5C0dY9ez+TK3xSot4Gfj/a5tFUyLIJMP+QlPTQZlXO+04ClOJDvJBfd8A+x0i5DqQgbwV3rBSzAi30086pOTxmlZvfT7Zze1Q6KJZhCukNcLDLxqnDm8gV/i7/i3f5EmsIbOvKKBHdNi1QDDqmgG787BXxW9a34Po9APxT4nALBWPqLTMs1cx6MpOxJBJelKr9AQAB";
 
@@ -64,12 +65,13 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
                     if l.find(&db_host, &logdb_host, &db_name, &logdb_name) {
                         info!(log, "Good to use for your connection(s)! Thank you! ");
                         if l.is_about_expire() {
-                            ApiRequest::Some(l).call(&license_file, do_subscribe, dry_run, log)
+                            ApiRequest::Pull(l).call(&license_file,  dry_run, log)
                         } else {
                             Ok(())
                         }
                     } else if email.len() > 0 && do_subscribe {
-                        ApiRequest::Some(l).call(&license_file, do_subscribe, dry_run, log)
+                        let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
+                        ApiRequest::Update(l, lc).call(&license_file, dry_run, log)
                     } else {
                         Err(format!("The license loaded from file [{}] is not valid: {}. Set '--email' and use '--subscribe' to request", license_file, INV_LL))
                     }
@@ -85,77 +87,72 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
             )),
         }
     } else if email.len() > 0 && do_subscribe {
-        let lc = LicenseCreateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
-        ApiRequest::Create(lc).call(&license_file, do_subscribe, dry_run, log)
+        let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
+        ApiRequest::Create(lc).call(&license_file, dry_run, log)
     } else {
         Err(format!("No '--email' nor '--license_file' set. Please check ./rdbm help license for more details."))
     }
 }
 
 enum ApiRequest {
-    Create(LicenseCreateRequest),
-    Some(License),
+    Create(CreateUpdateRequest),
+    Update(License, CreateUpdateRequest),
+    Pull(License),
 }
 
 impl ApiRequest {
     #[inline]
-    fn call(
-        &self,
-        file: &String,
-        subscribe: bool,
-        dry_run: bool,
+    fn method(&self) -> &str {
+        match &self {
+                ApiRequest::Create(_) => "creating",
+                ApiRequest::Pull(_) => "checking",
+                ApiRequest::Update(_,_) => "updating",
+            }
+    }
+
+    #[inline]
+    fn call(&self, file: &String, dry_run: bool,
         log: &Logger,
     ) -> Result<(), String> {
         let url = format!("{}/api/license", api_host());
-        let method = match &self {
-            ApiRequest::Create(_) => "creating",
-            ApiRequest::Some(_) => {
-                if subscribe {
-                    "updating"
-                } else {
-                    "checking"
-                }
-            }
-        };
+        let method = &self.method();
+        // let method = match &self {
+        //     ApiRequest::Create(_) => "creating",
+        //     ApiRequest::Pull(_) => "checking",
+        //     ApiRequest::Update(_,_) => "updating",
+        // };
         if dry_run {
-            info!(
-                log,
-                "About to call {} to {} license, but --dry_run set.", url, method
-            );
+            info!(log, "About to call {} to {} license, but --dry_run set.", url, method);
             return Ok(());
         }
         let auth_header = "X-Header";
         let mut encm = HashMap::new();
         let response = match &self {
-            ApiRequest::Create(l) => {
-                let request = serde_json::to_string(l)
-                    .map_err(|e| format!("creating payload of a license request: {}", e))?;
+            ApiRequest::Create(lc) => {
+                let request = serde_json::to_string(lc)
+                    .map_err(|e| format!("creating payload of a license create request: {}", e))?;
                 ureq::post(url.as_str()) //.set(auth_header, "newbie")
                     .send_string(request.as_str())
                     .map_err(|e| format!("{} license: {}", method, e))?
             }
-            ApiRequest::Some(l) => {
-                let request = l.clean(&mut encm)?;
-                if subscribe {
-                    ureq::put(url.as_str())
-                        .set(auth_header, l.header()?.as_str())
-                        .send_string(request.as_str())
-                        .map_err(|e| format!("{} license: {}", method, e))?
-                } else {
-                    ureq::get(format!("{}/{}", url.as_str(), l.api_key).as_str())
-                        .set(auth_header, l.header()?.as_str())
-                        .call()
-                        .map_err(|e| format!("{} license: {}", method, e))?
-                }
+            ApiRequest::Update(l, lu) => {
+                let _ = l.clean(&mut encm)?;
+                let request = serde_json::to_string(lu)
+                    .map_err(|e| format!("creating payload of a license update request: {}", e))?;
+                ureq::put(url.as_str())
+                    .set(auth_header, l.header()?.as_str())
+                    .send_string(request.as_str())
+                    .map_err(|e| format!("{} license: {}", method, e))?
+            }
+            ApiRequest::Pull(l) => {
+                let _ = l.clean(&mut encm)?;
+                ureq::get(format!("{}/{}", url.as_str(), l.api_key).as_str())
+                    .set(auth_header, l.header()?.as_str())
+                    .call()
+                    .map_err(|e| format!("{} license: {}", method, e))?
             }
         };
-        debug!(
-            log,
-            "response [{}] from {} at {}",
-            response.status(),
-            method,
-            url
-        );
+        debug!(log, "response [{}] from {} at {}", response.status(), method, url);
 
         match self {
             ApiRequest::Create(_l) => {
@@ -171,32 +168,37 @@ impl ApiRequest {
                     Err(response.as_err())
                 }
             }
-            ApiRequest::Some(l) => {
-                let lr: LicenseResponse = serde_json::from_str(
-                    response
-                        .into_string()
-                        .map_err(|e| format!("getting response: {}", e))?
-                        .as_str(),
-                )
-                .map_err(|e| format!("converting response: {}", e))?;
-                let mut lr = lr.result;
-                debug!(log, "loaded: {:?} ", lr);
-
-                if lr.patch(l, &encm) {
-                    lr.verify()?;
-                    // TODO remove after ucb complete
-                    let file = format!("x.{}", file);
-                    debug!(log, "saving to {}", file);
-                    fs::write(
-                        file.clone(),
-                        serde_yaml::to_string(&lr)
-                            .map_err(|e| format!("creating license: {}", e))?,
-                    )
-                    .map_err(|e| format!("writing to [{}] {}", file, e))?;
-                }
-                Ok(())
-            }
+            ApiRequest::Update(l, _) => LicenseResponse::save(file, response, l, encm, log),
+            ApiRequest::Pull(l) => LicenseResponse::save(file, response, l, encm, log),
         }
+    }
+}
+
+impl LicenseResponse {
+    #[inline]
+    fn save(file: &String, response: Response, license: &License,
+    encoded_map: HashMap<String, String>,
+    log: &Logger,
+    ) -> Result<(), String> {
+        let lr: LicenseResponse = serde_json::from_str(
+            response
+                .into_string()
+                .map_err(|e| format!("getting response: {}", e))?
+                .as_str(),
+        ).map_err(|e| format!("converting response: {}", e))?;
+        let mut lr = lr.result;
+        debug!(log, "loaded: {:?} ", lr);
+
+        if lr.patch(license, &encoded_map) {
+            lr.verify()?;
+            // TODO remove after ucb complete
+            let file = format!("x.{}", file);
+            debug!(log, "saving to {}", file);
+            fs::write(file.clone(), serde_yaml::to_string(&lr)
+                .map_err(|e| format!("creating license: {}", e))?)
+                .map_err(|e| format!("writing to [{}] {}", file, e))?;
+        }
+        Ok(())
     }
 }
 
@@ -213,7 +215,7 @@ fn api_host() -> String {
 
 /// Request to register user and issue an license (by email)
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct LicenseCreateRequest {
+pub struct CreateUpdateRequest {
     pub personal: bool,
     pub email: String,
     pub hosts: Vec<String>,
@@ -221,7 +223,9 @@ pub struct LicenseCreateRequest {
     pub time_zone_hm: String,
 }
 
-impl LicenseCreateRequest {
+impl CreateUpdateRequest {
+    #[inline]
+    #[allow(dead_code)]
     fn new(
         email: &String,
         db_host: &String,
@@ -247,7 +251,7 @@ impl LicenseCreateRequest {
         if logdb_name.len() > 0 {
             db_names.push(logdb_name.clone())
         }
-        Ok(LicenseCreateRequest {
+        Ok(CreateUpdateRequest {
             personal: true,
             email: email.clone(),
             hosts,
@@ -256,10 +260,14 @@ impl LicenseCreateRequest {
         })
     }
 
+    #[inline]
+    #[allow(dead_code)]
     pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
         convert_datetime(&self.time_zone_hm, input)
     }
 
+    #[inline]
+    #[allow(dead_code)]
     pub fn validate(&self) -> Option<String> {
         if self.email.len() < 2 {
             Some("invalid email".into())
@@ -303,6 +311,7 @@ fn convert_datetime(timezone: &String, input: NaiveDateTime) -> DateTime<FixedOf
 }
 
 #[inline]
+#[allow(dead_code)]
 fn valid_name(names: &Vec<String>) -> Option<String> {
     for n in names {
         if let Some(_) = n
@@ -324,6 +333,7 @@ struct LicenseResponse {
     errors: Vec<String>,
     messages: Vec<String>,
 }
+
 #[derive(Deserialize)]
 #[allow(dead_code)]
 struct ApiResponse {
@@ -727,7 +737,7 @@ impl License {
     /// the auth must be clean of api-key (uuid)
     #[inline]
     #[allow(dead_code)]
-    pub(crate) fn is_header(&self, auth: &str) -> Result<(), String> {
+    pub fn is_header(&self, auth: &str) -> Result<(), String> {
         match base64::decode(auth) {
             Ok(sign) => {
                 let d = self.header_digest();
@@ -756,6 +766,8 @@ impl License {
         false
     }
 
+    #[inline]
+    #[allow(dead_code)]
     pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
         convert_datetime(&self.timezone, input)
     }

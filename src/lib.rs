@@ -42,12 +42,12 @@ args:
     - db_url:
         long: db_url
         takes_value: true
-        help: \"The url will be parsed to name, host etc. If they set, then those portion will be used instead. \n\
+        help: \"The url will be parsed to name, host etc. If any of one already set (include env), then they will be used instead. \n\
         Format is: 'postgres://' (see https://www.postgresql.org/docs/current/libpq-connect.html) OR space separated key=value \"
     - db_name:
         long: db_name
-        default_value: postgres
-        help: Postgres database
+        default_value: $USER
+        help: Postgres database name
     - db_host:
         long: db_host
         default_value: /var/run/postgresql
@@ -58,8 +58,8 @@ args:
         help: Postgres port
     - db_user:
         long: db_user
-        default_value: postgres
-        help: user
+        default_value: $USER
+        help: DB user, default value is a current user $USER
     - db_password:
         long: db_password
         takes_value: true
@@ -87,40 +87,40 @@ args:
     - logdb_name:
         long: logdb_name
         takes_value: true
-        help: Postgres database, use 'db_***' configuration if 'logdb_name' not set
+        help: History Log database name. If not set, then use 'db_***' configuration
     - logdb_host:
         long: logdb_host
         default_value: /var/run/postgresql
-        help: Postgres host
+        help: History Log database host. If not set, then use 'db_***' configuration
     - logdb_port:
         long: logdb_port
         default_value: \"5432\"
-        help: Postgres port
+        help: History Log database port. If not set, then use 'db_***' configuration
     - logdb_user:
         long: logdb_user
-        default_value: postgres
-        help: user
+        takes_value: true
+        help: History Log database user. If not set, then use 'db_***' configuration
     - logdb_password:
         long: logdb_password
         takes_value: true
-        help: Password or SSL certificates (see xx_sslxxx params)
+        help: History Log database Password or SSL certificates (see xx_sslxxx params)
     - logdb_sslmode:
         long: logdb_sslmode
         default_value: verify-full
         takes_value: true
-        help: sslmode
+        help: History Log database SSL Mode. If not set, then use 'db_***' configuration
     - logdb_sslrootcert:
         long: logdb_sslrootcert
         takes_value: true
-        help: /path/to/server-ca.crt
+        help: \"History Log database SSL root Cert, ex: /path/to/server-ca.crt . If not set, then use 'db_***' configuration\"
     - logdb_sslcert:
         long: logdb_sslcert
         takes_value: true
-        help: /path/to/client.crt
+        help: \"History Log database SSL crt file, ex: /path/to/client.crt . If not set, then use 'db_***' configuration\"
     - logdb_sslkey:
         long: logdb_sslkey
         takes_value: true
-        help: /path/to/client.key
+        help: \"History Log database SSL key file: /path/to/client.key. If not set, then use 'db_***' configuration\"
     - pre_deploy:
         long: pre_deploy
         default_value: \"*\"
@@ -221,7 +221,9 @@ args:
         long: config
         short: c
         takes_value: true
-        help: \"Load all params from config file (: or = separated), any command line params will override parameters loaded from file. If neither set than environment variables (with CAPITALIZED names) will be search to use.\"
+        help: \"Load all params from config file (: or = separated), any command line params will override parameters loaded from file. \
+            If neither set than environment variables (with CAPITALIZED names) will be search to use. If still not found, then default value will be use (if set).\
+            Notice: please see '--db_url' and '--logdb_url' for additional use hierarcy\"
     - after:
         long: after
         default_value: \"after.sql\"
@@ -232,6 +234,12 @@ args:
         default_value: \"after_each.sql\"
         takes_value: true
         help: Try to find and run the script after each 'V' or 'R' successful execution. Do not fail if not found. This script execution wont log into history table.
+    - after_end:
+        long: after_end
+        default_value: \"after_end.sql\"
+        takes_value: true
+        help: Try to find and run the script after migration executed and history log committed. Do not fail if not found. This script execution wont log into history table. \
+            Script will feed with parameter if most recent history log id stored in 'current_setting('{table}.id')'.
     - createdb:
         long: createdb
         default_value: \"false\"
@@ -426,7 +434,15 @@ lazy_static! {
                 for args in yaml[0]["args"].as_vec().unwrap() {
                     for (k, v) in args.as_hash().unwrap() {
                         if let Some(k) = k.as_str() {
-                            defs.insert(k.into(), v["default_value"].as_str().map(|v| v.into()));
+                            if k.as_bytes()[0] == b'$' {
+                                let k = k[1..].to_string();
+                                let v = match std::env::var(&k.to_uppercase()) {
+                                    Ok(v) => Some(v), Err(_) => None
+                                };
+                                defs.insert(k, v);
+                            } else {
+                                defs.insert(k.into(), v["default_value"].as_str().map(|v| v.into()));
+                            }
                         }
                     }
                 }
@@ -515,7 +531,7 @@ fn migrate_db(
                     debug!(log, "self deploy of: {} complete", BASELINE);
                     if let Err(e) = StatementLog::new(cfg)
                         .instance('S', &BASELINE.into(), &BASELINE.into())
-                        .persist(None, &mut t)
+                        .persist(None, Some(&mut t))
                     {
                         Some(e)
                     } else {
@@ -535,34 +551,43 @@ fn migrate_db(
         }
         return Err(e);
     };
+    let pgsrv = format!("/tmp/.rdbm_{}.conf", cfg.get("db_name"));
     let res = if prepare_only {
-        Ok(())
+        Ok(0)
     } else {
         // select table for update -- row level lock, revert changes
         let logs = { StatementLog::load_all(&mut t, cfg.get_bool("dry_run", true), cfg)? };
-        let pgsrv = format!("/tmp/.rdbm_{}.conf", cfg.get("db_name"));
         let res = match deploy_pre_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log) {
-            Ok(_) => match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, log) {
-                Ok(_) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, log),
+            Ok(id) => match deploy_all_schemas(&yschemas, &mut dbc, &cfg, &mut t, id, log) {
+                Ok(id) => deploy_all_files(&logs, &yschemas, pgsrv.as_str(), &cfg, &mut t, id, log),
                 Err(error) => Err(error),
             },
             Err(error) => Err(error),
         };
-        if cfg.is_pgsrv() {
-            let _ = fs::remove_file(pgsrv);
-        }
         res
     };
-    match t.commit() {
-        Ok(()) => res,
+    let ret = match t.commit() {
+        Ok(()) => {
+            match &res {
+                Ok(_) => Ok(()),
+                Err(e) => Err(e.to_string()),
+            }
+        },
         Err(e) => {
             info!(log, "commit history failed: {}", e);
-            match res {
+            match &res {
                 Ok(_) => Err(format!("commit history failed: {}", e)),
                 Err(ee) => Err(format!("{}. Also, commit history failed: {}", e, ee)),
             }
         }
+    };
+    if let Ok(id) = res {
+        StatementLog::new(cfg).after("after_end", &yschemas, &HashMap::new(), pgsrv.as_str(), cfg, None, id, log)?;
     }
+    if cfg.is_pgsrv() {
+        let _ = fs::remove_file(pgsrv.as_str());
+    }
+    ret
 }
 
 #[inline]
@@ -574,7 +599,7 @@ fn deploy_pre_files(
     cfg: &ConfigMap,
     t: &mut Transaction,
     log: &Logger,
-) -> Result<(), String> {
+) -> Result<i32, String> {
     if cfg.is_pgsrv() {
         let mut content = String::new();
         let names = vec![
@@ -596,13 +621,14 @@ fn deploy_pre_files(
     }
     let draft = StatementLog::new(cfg);
     // deploy versions
+    let mut id = 0;
     for (v, file) in &yschemas.pre {
-        draft
+        id = draft
             .instance('P', &v.s, file)
-            .deploy(&logs, pgsrv, cfg, t, log)?;
-        draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), id, log)?;
+        draft.after("after_each", yschemas, &logs, pgsrv, cfg, Some(t), id, log)?;
     }
-    Ok(())
+    Ok(id)
 }
 
 #[inline]
@@ -613,25 +639,27 @@ fn deploy_all_files(
     pgsrv: &str,
     cfg: &ConfigMap,
     t: &mut Transaction,
+    id: i32,
     log: &Logger,
-) -> Result<(), String> {
+) -> Result<i32, String> {
+    let mut id = id;
     let draft = StatementLog::new(cfg);
     // deploy versions
     for (v, file) in &yschemas.versions {
-        draft
+        id = draft
             .instance('V', &v.s, file)
-            .deploy(&logs, pgsrv, cfg, t, log)?;
-        draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), id, log)?;
+        draft.after("after_each", yschemas, &logs, pgsrv, cfg, Some(t), id, log)?;
     }
     // deploy re-runable
     for (v, file) in &yschemas.re_runnable {
-        draft
+        id = draft
             .instance('R', &v.s, file)
-            .deploy(&logs, pgsrv, cfg, t, log)?;
-        draft.after("after_each", yschemas, &logs, pgsrv, cfg, t, log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), id, log)?;
+        draft.after("after_each", yschemas, &logs, pgsrv, cfg, Some(t), id, log)?;
     }
-    draft.after("after", yschemas, &logs, pgsrv, cfg, t, log)?;
-    Ok(())
+    draft.after("after", yschemas, &logs, pgsrv, cfg, Some(t), id, log)?;
+    Ok(id)
 }
 
 #[inline]
@@ -641,8 +669,10 @@ fn deploy_all_schemas(
     dbc: &mut InfoSchemaType,
     cfg: &ConfigMap,
     lt: &mut Transaction,
+    id: i32,
     log: &Logger,
-) -> Result<(), String> {
+) -> Result<i32, String> {
+    let mut id = id;
     let mut err = None;
     let mut client = connect("db_", &cfg, None, log)?;
     {
@@ -735,8 +765,13 @@ fn deploy_all_schemas(
                 Err(e) => err = Some(format!("creating transaction for {} {}", file, e)),
             }
             if do_persist {
-                if let Err(e) = stl.instance('S', &ver.s, file).persist(err.clone(), lt) {
-                    err = Some(e);
+                match stl.instance('S', &ver.s, file).persist(err.clone(), Some(lt)) {
+                    Ok(i) => {
+                        id = i;
+                    }
+                    Err(e) => {
+                        err = Some(e);
+                    }
                 }
             }
             if let Some(_) = &err {
@@ -746,7 +781,7 @@ fn deploy_all_schemas(
     }
     let _ = client.close();
     match err {
-        None => Ok(()),
+        None => Ok(id),
         Some(e) => Err(e),
     }
 }

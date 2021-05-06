@@ -1,25 +1,14 @@
 extern crate yaml_rust;
 
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Display;
-use std::fmt::{Formatter, Write};
+use std::fmt::Write;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::result::Result;
-use std::{env, fs};
+use std::env;
 
-use postgres::Transaction;
-use semver::{SemVerError, Version};
-use serde::Serialize;
-use slog::Logger;
-use yaml_rust::YamlLoader;
-
-use crate::dbm_dbc::{FKTable, InfoSchemaType, STable};
-use crate::dbm_log::StatementLog;
-
-use self::yaml_rust::Yaml;
 use crate::dbm_yml::{safe_sql, str2bool};
 
 #[derive(Debug)]
@@ -87,10 +76,14 @@ impl ConfigMap {
     #[inline]
     fn map_insert(map: &mut HashMap<String, String>, key: &String, value: &str) {
         if key.ends_with("_url") {
-            // TODO parse URL
-            panic!("unimplemented ")
+            for (k, v) in parse_url(key, value) {
+                if !map.contains_key(&k) {
+                    let _ = map.insert(k, v);
+                }
+            }
+        } else {
+            let _ = map.insert(key.into(), ConfigMap::unquote(value));
         }
-        let _ = map.insert(key.into(), ConfigMap::unquote(value));
     }
 
     #[inline]
@@ -205,6 +198,7 @@ impl ConfigMap {
 }
 
 impl Display for ConfigMap {
+    #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let _ = write!(f, "Config [{}]", self.map.len());
         let _ = write!(
@@ -213,6 +207,149 @@ impl Display for ConfigMap {
             self.file, self.file_loaded_lines, self.file_total_lines
         );
         Ok(())
+    }
+}
+
+
+/// "postgresql://[user[:password]@][host][:port][,...][/dbname][?param1=value1&...]"
+#[inline]
+fn parse_url(key: &String, url: &str) -> HashMap<String, String> {
+    let prefix = if key.starts_with("logdb_") { "logdb_".into() } else { "db_".into() };
+    let mut map = HashMap::new();
+    if let Some(i) = url.find("://") {
+        if i > 5 && url[..i].contains("postgres") {
+            let url = &url[i + 3 ..];
+            let mut vu = Vec::new();
+            let mut open = false;
+            let mut i = 0;
+            let mut f = 0;
+            for c in url.as_bytes() {
+                let c = *c;
+                if c == b'/' || c == b'[' || c == b']' || c == b':'  || c == b',' || c == b'@' || c == b'?' {
+                    if !(open && c != b']') {
+                        if c == b'[' {
+                            open = true;
+                        } else if c == b']' {
+                            open = false;
+                        } else {
+                            if i > f {
+                                vu.push(&url[f..i])
+                            }
+                            f = i;
+                            if c == b'?' {
+                                break;
+                            }
+                        }
+                    }
+                }
+                i += 1;
+            }
+            if f < url.len() {
+                vu.push(&url[f..]);
+            }
+            if vu.len() > 0 {
+                let mut hosts = 0;
+                if let Some(v) = last(&mut vu, b'?') {
+                    let v: Vec<&str> = v.split("&").collect();
+                    for val in v {
+                        parse_kve(&prefix, val.into(), &mut map);
+                    }
+                }
+                if let Some(v) = last(&mut vu, b'/') {
+                    map.insert(format!("{}name", prefix), v);
+                }
+                if let Some(v) = last(&mut vu, b'@') {
+                    map.insert(format!("{}host", prefix), unquote(v));
+                    hosts += 1;
+                }
+
+                loop {
+                    if hosts > 0 {
+                        if let Some(v) = last(&mut vu, b':') {
+                            map.insert(format!("{}password", prefix), v);
+                        }
+                        if vu.len() == 1 {
+                            map.insert(format!("{}user", prefix), vu.remove(0).into());
+                        }
+                        break;
+                    } else {
+                        let mut max = 0;
+                        let mut ctu = false;
+                        loop {
+                            if let Some(v) = last(&mut vu, b':') {
+                                map.insert(format!("{}port", prefix), v);
+                            }
+                            if vu.len() == 1 {
+                                map.insert(format!("{}host", prefix), unquote(vu.remove(0).into()));
+                            } else {
+                                if let Some(v) = last(&mut vu, b',') {
+                                    map.insert(format!("{}host", prefix), unquote(v));
+                                    hosts += 1;
+                                }
+                                if let Some(v) = last(&mut vu, b'@') {
+                                    map.insert(format!("{}host", prefix), unquote(v));
+                                    hosts += 1;
+                                    ctu = true;
+                                    break;
+                                }
+                            }
+                            if vu.len() == 0 || max > 10 {
+                                break;
+                            }
+                            max += 1;
+                        }
+                        if ctu {
+                            continue;
+                        }
+                    }
+                    break;
+                }
+            }
+            // if vu.len() > 0 { println!("\nppr: {:?}", vu); }
+        }
+    } else {
+        let v: Vec<&str>  = url.split(" ").collect();
+        for val in v {
+            parse_kve(&prefix, val.into(), &mut map);
+        }
+    }
+    map
+}
+
+#[inline]
+fn last(vu: &mut Vec<&str>, c: u8) -> Option<String> {
+    if vu.len() > 0 && vu[vu.len() - 1].as_bytes()[0] == c {
+        let v = vu.remove(vu.len() - 1);
+        if v.len() > 1 {
+            Some(v[1..].into())
+        } else {
+            Some("".into())
+        }
+    } else { None }
+}
+
+#[inline]
+fn unquote(v: String) -> String {
+    if v.len() > 2 && v.as_bytes()[0] == b'['
+        && v.as_bytes()[v.len() - 1] == b']' {
+        v[1..v.len()-1].into()
+    } else { v }
+}
+
+#[inline]
+fn parse_kve(prefix: &String, val: String, map: &mut HashMap<String, String>) {
+    if val.len() > 1 {
+        if let Some(i) = val.find("=") {
+            if i > 0 {
+                let key = val[..i].to_string();
+                let key = if key.as_str() == "dbname" {
+                    "db_name".to_string()
+                } else {
+                    format!("{}{}", prefix, key)
+                };
+                map.insert(key, if i + 1 < val.len() { val[i + 1..].to_string() } else { "".to_string() });
+            }
+        }
     }
 }
 
@@ -246,4 +383,40 @@ mod tests {
         println!("{}", a);
         Ok(())
     }
+
+    #[test]
+    fn url_test_all()  {
+
+        for url in URLS.iter() {
+            let map = parse_url(&"db_url".to_string(), url);
+            println!("url: {}\n{:?}\n", url, map);
+        }
+    }
+
+    const URLS: [&str; 14] = [ "postgresql://",
+    "postgresql://localhost",
+        "postgresql://localhost:5433",
+        "postgresql://localhost/mydb",
+        "postgresql://user@localhost",
+        "postgresql://user:secret@localhost",
+        "postgresql://user:secret@localhost1,localhost2",
+        "postgresql://other@localhost/otherdb?connect_timeout=10&application_name=myapp",
+        "postgresql://other@[lo:ca:lh:os:t]/otherdb?connect_timeout=10&application_name=myapp",
+        "postgresql://host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp",
+        "postgresql://[h:o:s:t:1]:123,[h:o:s:t:2]:456/somedb?target_session_attrs=any&application_name=myapp",
+        "postgresql://user:secret@host1:123,host2:456/somedb?target_session_attrs=any&application_name=myapp",
+        "url:postgresql:///ytpgxt?user=denis&port=28812&host=/var/run/postgresql",
+        "host=<endpoint> user=<userid> dbname=<databasename> port=<port> sslmode=verify-ca sslrootcert=<certificate>"
+        ];
+
+    #[test]
+    fn url_test_1()  {
+
+        let map = parse_url(&"db_url".to_string(), &URLS[10]);
+        println!("\n{}\n{:?}", &URLS[10], map);
+
+    }
+
+
+
 }

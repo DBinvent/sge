@@ -44,7 +44,7 @@ script = [
 
 #grep -q db_user ./test_cfg.yaml || echo "db_user: \"$USER\" " >> ./test_cfg.yaml
 ../target/debug/rdbm -c ./local_test_cfg.yaml migrate
-psql -p 5434 -h $(pwd)/db/5434 -c "select * from rdbm_history" ucb
+psql -p 5434 -h $(pwd)/db/5434 -c "select count(*) from rdbm_history" ucb
 '''
 ]
 

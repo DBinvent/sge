@@ -1,7 +1,7 @@
 extern crate yaml_rust;
 
 use std::collections::{BTreeMap, HashMap};
-use std::{env, fs};
+use std::fs;
 
 use postgres::Transaction;
 use semver::{SemVerError, Version};
@@ -20,8 +20,6 @@ use slog::Logger;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -90,8 +88,11 @@ impl Display for FileVersion {
 
 pub(crate) fn load_all(cfg: &ConfigMap, log: &Logger) -> Result<FilesMap, String> {
     let mut schema = FilesMap::new();
+    let mut dir = cfg.get("source_dir");
+    if dir.len() == 0 { dir.push_str("./"); }
+    else if dir.as_bytes()[dir.len()-1] != b'/' { dir.push('/'); }
     load_dir(
-        cfg.get("source_dir").as_str(),
+        dir.as_str(), dir.as_str(),
         &mut schema,
         &FileFilters::new(cfg)?,
         cfg.get_bool("source_recur", true),
@@ -157,6 +158,7 @@ impl FileFilters {
 
 #[inline(never)]
 fn load_dir(
+    root: &str,
     dir: &str,
     schema: &mut FilesMap,
     ff: &FileFilters,
@@ -169,10 +171,16 @@ fn load_dir(
                 match path {
                     Ok(p) => {
                         let fm = p.metadata().unwrap();
-                        let file_name = p.path().to_string_lossy().to_string();
+                        let fi = p.path().to_string_lossy().to_string();
                         if fm.is_dir() && recursive {
-                            load_dir(file_name.as_str(), schema, ff, recursive, log)?;
-                        } else if fm.is_file() && file_name.len() > 5 {
+                            load_dir(root, fi.as_str(), schema, ff, recursive, log)?;
+                        } else if fm.is_file() && fi.len() > 5 {
+                            let file_name = if root.len() > 0 {
+                                fi[root.len()..].to_string()
+                            } else {
+                                fi.clone()
+                            };
+                            debug!(log, "parsing {} from {}", file_name, fi);
                             let starting_pos = match file_name.rfind("/") {
                                 None => 0,
                                 Some(i) => i + 1,
@@ -182,7 +190,8 @@ fn load_dir(
                                     if let Some((vv, key)) =
                                         ff.schema_deploy.parse_type(&file_name, starting_pos)?
                                     {
-                                        match load(file_name.as_str()) {
+                                        // todo read Schema in JSON format
+                                        match load(fi.as_str()) {
                                             Ok(y) => match y["database"].as_vec() {
                                                 None => {}
                                                 Some(schemas) => {
@@ -573,9 +582,11 @@ fn as_bool(input: &Yaml, field: &str, default: bool) -> bool {
     if input.is_null() {
         default
     } else {
-        match input[field].as_str() {
-            None => default,
-            Some(s) => str2bool(s, default),
+        match &input[field] {
+            Yaml::Integer(i) => i == &1i64,
+            Yaml::String(s) => str2bool(s.as_str(), default),
+            Yaml::Boolean(v) => *v,
+            _ => default
         }
     }
 }
@@ -863,7 +874,7 @@ impl YTable {
                         let _ = db.batch_execute(comments.as_str());
                     }
                     Err(e) => {
-                        return Err(format!("[{}]: {}", sql, e));
+                        return Err(format!("DB execute [{}]: {}, source: {}", sql, e, file));
                     }
                 }
             }
@@ -907,7 +918,7 @@ impl YTable {
         db: &mut Transaction,
         schema: &String,
         cfg: &ConfigMap,
-        _file: &str,
+        file: &str,
         log: &Logger,
     ) -> Result<bool, String> {
         let mut sql = String::new();
@@ -954,7 +965,7 @@ impl YTable {
                     ts.fks.insert(ff.name.clone(), ff.clone());
                 }
             }
-            let _ = write!(sql,
+            let _ = writeln!(sql,
                 "ALTER TABLE {}.{} ADD CONSTRAINT fk_{}_{}_{}_{} FOREIGN KEY ({}) REFERENCES {} ({}) {};",
                 schema, self.table_name, schema, self.table_name, ff.schema, ff.table,
                 ff.name, &ff.table, ff.column, ff.sql
@@ -969,7 +980,7 @@ impl YTable {
         } else {
             if exec {
                 if let Err(e) = db.batch_execute(sql.as_str()) {
-                    return Err(format!("DB FK execute [{}]: {}", sql, e));
+                    return Err(format!("DB FK execute [{}]: {} source: {}", sql, e, file));
                 }
             }
             Ok(exec)
@@ -987,7 +998,6 @@ impl YSchema {
         }
     }
 
-    // todo read Schema in JSON format
     #[inline]
     fn new(input: &Yaml, file: &String) -> Self {
         YSchema {

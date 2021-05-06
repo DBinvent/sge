@@ -5,7 +5,7 @@ use std::process::Command;
 use std::result::Result;
 
 use crypto_hash::Algorithm;
-use postgres::{Client, Error, Transaction};
+use postgres::{Client, Transaction};
 use serde::Serialize;
 use slog::Logger;
 
@@ -56,6 +56,7 @@ pub(crate) struct LogVer {
     #[serde(skip)]
     pub ver: Version,
     pub version: String,
+    pub successful: bool,
     pub script_tag: String,
     pub executed_by: String,
     #[serde(with = "my_date_format")]
@@ -140,10 +141,9 @@ impl StatementLog {
     #[inline]
     #[allow(unused_mut)]
     fn load_ok(t: &mut Transaction, cfg: &ConfigMap) -> Result<SortedStatementLog, String> {
-        // TODO LOAD RECENT not OK
         let mut sql = format!(
-            "select target, catalog, version, script_tag, executed_by, executed_on from {}.{} \
-             where ok and version <> 'baseline' ",
+            "select target, catalog, version, script_tag, executed_by, executed_on, ok from {}.{} \
+             where version <> 'baseline' ",
             cfg.schema(),
             cfg.history_table_name()
         );
@@ -160,6 +160,7 @@ impl StatementLog {
                     let script_tag: String = r.get(3);
                     let executed_by: String = r.get(4);
                     let executed_on: DateTime<Utc> = r.get(5);
+                    let successful: bool = r.get(6);
 
                     let sl = LogVer {
                         ver: match semver_parse(version.as_str()) {
@@ -167,6 +168,7 @@ impl StatementLog {
                             Err(_) => Version::new(0, 0, 0),
                         },
                         version,
+                        successful,
                         script_tag,
                         executed_by,
                         executed_on,
@@ -246,15 +248,17 @@ impl StatementLog {
         logs: &LogSchemaType,
         pgsrv: &str,
         cfg: &ConfigMap,
-        t: &mut Transaction,
+        t: Option<&mut Transaction>,
+        id: i32,
         log: &Logger,
     ) -> Result<(), String> {
-        if let Some((va, afile)) = yschemas.after.get_key_value(&cfg.get(key)) {
-            self.instance('A', va, afile)
-                .deploy(&logs, pgsrv, cfg, t, log)
-        } else {
-            Ok(())
+        if let Some((va, afile)) = yschemas.after.get_key_value(key) {
+            if afile.ends_with(format!("/{}", cfg.get(key)).as_str()) {
+                let _ = self.instance(' ', va, afile)
+                    .deploy(&logs, pgsrv, cfg, t, id, log)?;
+            }
         }
+        Ok(())
     }
 
     /// deploy a file by psql call and store results
@@ -264,13 +268,14 @@ impl StatementLog {
         logs: &LogSchemaType,
         pgsrv: &str,
         cfg: &ConfigMap,
-        t: &mut Transaction,
+        t: Option<&mut Transaction>,
+        _id: i32,
         log: &Logger,
-    ) -> Result<(), String> {
+    ) -> Result<i32, String> {
         let key = format!("{}{}", self.source_type, self.version);
         if let Some((_sl_file, checks)) = logs.get(&key) {
             if self.checksum == *checks {
-                return Ok(());
+                return Ok(0);
             } else if self.source_type == 'V' || self.source_type == 'P' {
                 return if cfg.get_bool("checksum", false) {
                     // checksum different
@@ -279,7 +284,7 @@ impl StatementLog {
                         self.version, self.source
                     ))
                 } else {
-                    Ok(())
+                    Ok(0)
                 };
             }
         };
@@ -287,6 +292,10 @@ impl StatementLog {
             self.dry_write(cfg, log)
         } else {
             let mut cmd = Command::new("psql");
+            let dir = cfg.get("source_dir");
+            if dir.len() > 0 {
+                cmd.current_dir(dir.as_str());
+            }
             if cfg.is_pgsrv() {
                 cmd.env("PGSERVICEFILE", pgsrv);
             }
@@ -307,7 +316,7 @@ impl StatementLog {
             if single_transaction {
                 cmd.arg("-1"); // --single-transaction
             }
-            debug!(log, "executing {} ...", self.source);
+            debug!(log, "executing {} {}...", self.source, match &t { None => "(no history log)", _ => ""} );
             match cmd
                 .arg(format!("--dbname={}", cfg.get("db_name")))
                 .arg(format!("--host={}", cfg.get("db_host")))
@@ -342,7 +351,7 @@ impl StatementLog {
                     }
                 }
                 Err(e) => {
-                    error!(log, "{} {}", &self.source, e);
+                    error!(log, "psql {}", e);
                     self.persist(Some(e.to_string()), t)
                 }
             }
@@ -350,10 +359,16 @@ impl StatementLog {
     }
 
     #[inline]
-    pub(crate) fn persist(&self, err: Option<String>, t: &mut Transaction) -> Result<(), String> {
+    pub(crate) fn persist(&self, err: Option<String>,
+        t: Option<&mut Transaction>,
+    ) -> Result<i32, String> {
+        let t = match t {
+            None => {return Ok(0);}
+            Some(t) => t,
+        };
         if self.dry_run {
             return match err {
-                None => Ok(()),
+                None => Ok(0),
                 Some(e) => Err(e), // forward error
             };
         }
@@ -367,67 +382,50 @@ impl StatementLog {
             None => (true, "".into()),
             Some(e) => (false, tlim(e, SRC_T_M_LEN)),
         };
-        match t.query(
+        let rows = t.query(
             format!(
                 "select id from {} where target = $1 and source_type = $2 and version = $3",
                 self.table
             )
             .as_str(),
             &[&self.target, &self.source_type.to_string(), &self.version],
-        ) {
-            Ok(rows) => {
-                match if rows.len() > 0 {
-                    let id: i32 = rows[0].get(0);
-                    t.execute(format!("update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
-                        checksum = $5, script_tag = $6, catalog = $7, source = $8, executed_on=current_timestamp, times = times+1 where id = $9",
-                        self.table).as_str(), &[
-                            &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source,
-                            &id])
-                } else {
-                    t.execute(format!("insert into {} (target, source_type, source, version, ok, msg, took_sec, executed_by, \
-                        checksum, script_tag, catalog, executed_on, created_on) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, current_timestamp, current_timestamp)",
-                        self.table).as_str(), &[&self.target, &self.source_type.to_string(), &self.source, &self.version,
-                            &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog,
-                        ])
-                } {
-                    Ok(_) => {
-                        match err {
-                            None => Ok(()),
-                            Some(e) => Err(e), // forward error
-                        }
-                    }
-                    Err(e) => self.to_err(err, e),
-                }
-            }
-            Err(e) => self.to_err(err, e),
+        ).map_err(|e| format!("{}", e))?;
+        if rows.len() > 0 {
+            let id: i32 = rows[0].get(0);
+            let _ = t.execute(format!("update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
+                checksum = $5, script_tag = $6, catalog = $7, source = $8, executed_on=current_timestamp, times = times+1 where id = $9",
+                self.table).as_str(), &[
+                    &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source,
+                    &id]).map_err(|e| format!("{}", e))?;
+            Ok(id)
+        } else {
+            let r = t.query_one(format!("insert into {} (target, source_type, source, version, ok, msg, took_sec, executed_by, \
+                checksum, script_tag, catalog, executed_on, created_on) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, current_timestamp, current_timestamp) returning id",
+                self.table).as_str(), &[&self.target, &self.source_type.to_string(), &self.source, &self.version,
+                    &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog,
+                ]).map_err(|e| format!("{}", e))?;
+            let id: i32 = r.get(0);
+            Ok(id)
         }
     }
 
     #[inline]
-    fn to_err(&self, err: Option<String>, e: Error) -> Result<(), String> {
-        match err {
-            None => Err(e.to_string()),
-            Some(er) => Err(format!("{} {}", er, e)),
-        }
-    }
-
-    #[inline]
-    fn dry_write(&self, cfg: &ConfigMap, log: &Logger) -> Result<(), String> {
+    fn dry_write(&self, cfg: &ConfigMap, log: &Logger) -> Result<i32, String> {
         StatementLog::dry_store(
             cfg.get_opt("dry_run_to"),
-            format!("\\i {} \n", self.source),
+            format!("\\i [{}]{} \n", cfg.get("source_dir"), self.source),
             log,
         )
     }
 
     #[inline]
-    pub(crate) fn dry_store(file: Option<String>, sql: String, log: &Logger) -> Result<(), String> {
+    pub(crate) fn dry_store(file: Option<String>, sql: String, log: &Logger) -> Result<i32, String> {
         match &file {
             None => {
                 if sql.len() > 0 {
                     info!(log, "\n{}", sql);
                 }
-                Ok(())
+                Ok(0)
             }
             Some(f) => {
                 match OpenOptions::new()
@@ -440,7 +438,7 @@ impl StatementLog {
                         Ok(i) => {
                             let _ = file.sync_all();
                             debug!(log, "generated: {} bytes to {}", i, f);
-                            Ok(())
+                            Ok(0)
                         }
                         Err(e) => Err(format!("dump sql to [{}]: {}", f, e)),
                     },
