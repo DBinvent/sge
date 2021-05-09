@@ -25,7 +25,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
  - use psql client for script execution, include native psql script support
  - no JVM nor Python required to run
  - lightweight (just about 10MB) and therefore fast
- - transactional changes with rollback and configurable non-transactional mode
+ - transactional changes with rollback OR use configurable non-transactional mode
  - dry run and diff in evaluation license
 
 

@@ -20,3 +20,4 @@ Cargo.lock
 /.idea
 /tests/*.rsa
 /tests/*.license
+**/*.out

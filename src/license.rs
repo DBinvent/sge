@@ -24,9 +24,15 @@ const INV_LL: &str =
 
 #[allow(dead_code)]
 const HOST: &str = "https://rdbm.dbinvent.com/";
+const ABOUT_EXPIRE: u8 = 20; // days
 
 /// on license action
 pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
+    let now: DateTime<FixedOffset> = Utc::now().into();
+    let now = match cfg.get_opt("TEST_DAYS") {
+        None => now, Some(test) => match test.parse::<i64>() {
+            Ok(t) =>  now + Duration::days(t as i64), Err(e) => { println!("TEST_DAYS: {} : {}", test, e); now } },
+    };
     let email = cfg.get("email");
     let dry_run = cfg.get_bool("dry_run", false);
     let license_file = cfg.get("license_file");
@@ -62,16 +68,16 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
                         }
                     );
 
-                    if l.find(&db_host, &logdb_host, &db_name, &logdb_name) {
+                    if l.find(&db_host, &logdb_host, &db_name, &logdb_name, &now) {
                         info!(log, "Good to use for your connection(s)! Thank you! ");
-                        if l.is_about_expire() {
-                            ApiRequest::Pull(l).call(&license_file,  dry_run, log)
+                        if l.is_about_expire(&now, ABOUT_EXPIRE) {
+                            ApiRequest::Pull(l).call(&license_file, &now, dry_run, log)
                         } else {
                             Ok(())
                         }
                     } else if email.len() > 0 && do_subscribe {
                         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
-                        ApiRequest::Update(l, lc).call(&license_file, dry_run, log)
+                        ApiRequest::Update(l, lc).call(&license_file, &now, dry_run, log)
                     } else {
                         Err(format!("The license loaded from file [{}] is not valid: {}. Set '--email' and use '--subscribe' to request", license_file, INV_LL))
                     }
@@ -88,7 +94,7 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
         }
     } else if email.len() > 0 && do_subscribe {
         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
-        ApiRequest::Create(lc).call(&license_file, dry_run, log)
+        ApiRequest::Create(lc).call(&license_file, &now, dry_run, log)
     } else {
         Err(format!("No '--email' nor '--license_file' set. Please check ./rdbm help license for more details."))
     }
@@ -111,16 +117,10 @@ impl ApiRequest {
     }
 
     #[inline]
-    fn call(&self, file: &String, dry_run: bool,
-        log: &Logger,
+    fn call(&self, file: &String, now: &DateTime<FixedOffset>, dry_run: bool, log: &Logger
     ) -> Result<(), String> {
         let url = format!("{}/api/license", api_host());
         let method = &self.method();
-        // let method = match &self {
-        //     ApiRequest::Create(_) => "creating",
-        //     ApiRequest::Pull(_) => "checking",
-        //     ApiRequest::Update(_,_) => "updating",
-        // };
         if dry_run {
             info!(log, "About to call {} to {} license, but --dry_run set.", url, method);
             return Ok(());
@@ -168,8 +168,8 @@ impl ApiRequest {
                     Err(response.as_err())
                 }
             }
-            ApiRequest::Update(l, _) => LicenseResponse::save(file, response, l, encm, log),
-            ApiRequest::Pull(l) => LicenseResponse::save(file, response, l, encm, log),
+            ApiRequest::Update(l, _) => LicenseResponse::save(file, response, l, encm, now, log),
+            ApiRequest::Pull(l) => LicenseResponse::save(file, response, l, encm, now, log),
         }
     }
 }
@@ -177,7 +177,7 @@ impl ApiRequest {
 impl LicenseResponse {
     #[inline]
     fn save(file: &String, response: Response, license: &License,
-    encoded_map: HashMap<String, String>,
+    encoded_map: HashMap<String, String>, now: &DateTime<FixedOffset>,
     log: &Logger,
     ) -> Result<(), String> {
         let lr: LicenseResponse = serde_json::from_str(
@@ -189,7 +189,7 @@ impl LicenseResponse {
         let mut lr = lr.result;
         debug!(log, "loaded: {:?} ", lr);
 
-        if lr.patch(license, &encoded_map) {
+        if lr.patch(license, &encoded_map, now) {
             lr.verify()?;
             // TODO remove after ucb complete
             let file = format!("x.{}", file);
@@ -638,11 +638,11 @@ impl License {
 
     /// opposite to clean
     #[inline]
-    fn patch(&mut self, lic: &License, enc: &HashMap<String, String>) -> bool {
+    fn patch(&mut self, lic: &License, enc: &HashMap<String, String>, now: &DateTime<FixedOffset>) -> bool {
         self.notice = lic.notice.clone();
         self.key = lic.key.clone();
-        let mut self_now = Utc::now().into();
-        let mut lic_now = Utc::now().into();
+        let mut self_now = now.clone(); //Utc::now().into();
+        let mut lic_now = now.clone();
         for c in &lic.connects {
             if c.valid_until > lic_now {
                 lic_now = c.valid_until.clone();
@@ -668,9 +668,9 @@ impl License {
     }
 
     #[inline]
-    fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String) -> bool {
+    fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String, now: &DateTime<FixedOffset>) -> bool {
         let user = &env::var("USER").unwrap_or("".into());
-        let now: DateTime<FixedOffset> = Utc::now().into();
+        let now: DateTime<FixedOffset> = now.clone();
         for c in &self.connects {
             if c.valid_until > now {
                 if (c.hosts.contains("*")
@@ -756,8 +756,8 @@ impl License {
 
     #[inline]
     #[allow(dead_code)]
-    fn is_about_expire(&self) -> bool {
-        let about_expire: DateTime<FixedOffset> = (Utc::now() + Duration::days(20)).into();
+    fn is_about_expire(&self, now: &DateTime<FixedOffset>, pull_ahead_days: u8) -> bool {
+        let about_expire: DateTime<FixedOffset> = (*now + Duration::days(pull_ahead_days as i64)).into();
         for c in &self.connects {
             if c.valid_until < about_expire {
                 return true;
@@ -768,6 +768,7 @@ impl License {
 
     #[inline]
     #[allow(dead_code)]
+    // TODO test timesone
     pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
         convert_datetime(&self.timezone, input)
     }
@@ -1012,6 +1013,7 @@ mod tests {
     #[test]
     fn clean_lic() -> Result<(), String> {
         let mut l = License::blank();
+        let now: DateTime<FixedOffset> = Utc::now().into();
         l.cpk = Some(PK.into());
         l.key = "a".into();
         let mut hosts = BTreeSet::new();
@@ -1032,7 +1034,7 @@ mod tests {
         assert_eq!(cl.connects.len(), 1);
         assert!(!cl.connects[0].hosts.contains("h"));
         assert!(!cl.connects[0].db_names.contains("db"));
-        cl.patch(&l, &mut enc);
+        cl.patch(&l, &mut enc, &now);
         assert_eq!(cl.connects.len(), 1);
         assert!(cl.connects[0].hosts.contains("h"));
         assert!(cl.connects[0].db_names.contains("db"));
