@@ -10,8 +10,9 @@ use std::result::Result;
 use std::env;
 
 use crate::dbm_yml::{safe_sql, str2bool};
+use chrono::{DateTime, FixedOffset, Utc, Duration};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConfigMap {
     map: HashMap<String, String>,
     file: String,
@@ -57,12 +58,19 @@ impl ConfigMap {
     }
 
     #[inline]
-    fn unquote(v: &str) -> String {
-        if v.len() > 2
-            && v.as_bytes()[0] == v.as_bytes()[v.len() - 1]
+    pub fn unquote(v: &str) -> String {
+        let last = if v.len() > 2 {
+            if v.as_bytes()[v.len() - 1] == b'\n' {
+                v.len() - 2
+            } else {
+                v.len() - 1
+            }
+        } else { 0 };
+
+        if v.len() > 2 && v.as_bytes()[0] == v.as_bytes()[last]
             && (v.as_bytes()[0] == b'"' || v.as_bytes()[0] == b'\'')
         {
-            v[1..v.len() - 1].into()
+            v[1..last].into()
         } else {
             v.to_string()
         }
@@ -195,6 +203,24 @@ impl ConfigMap {
         }
         result
     }
+
+    #[inline]
+    pub fn now(&self) -> DateTime<FixedOffset>  {
+        match self.get_opt("TEST_DAYS") {
+            None => Utc::now().into(),
+            Some(test) => match test.parse::<i64>() {
+                Ok(t) => {
+                    let now: DateTime<FixedOffset> = Utc::now().into();
+                    now + Duration::days(t as i64)
+                },
+                Err(e) => {
+                    println!("TEST_DAYS: {} : {}", test, e);
+                    Utc::now().into()
+                }
+            },
+        }
+    }
+
 }
 
 impl Display for ConfigMap {

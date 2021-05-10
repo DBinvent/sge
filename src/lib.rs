@@ -3,6 +3,7 @@ extern crate slog;
 use lazy_static::lazy_static;
 
 extern crate semver;
+extern crate yaml_rust;
 
 pub mod dbm_cfg;
 mod dbm_dbc;
@@ -18,8 +19,6 @@ use postgres::{Client, NoTls, Transaction};
 use postgres_openssl::MakeTlsConnector;
 use slog::Logger;
 use std::fs;
-
-extern crate yaml_rust;
 
 use yaml_rust::YamlLoader;
 
@@ -221,9 +220,13 @@ args:
         long: config
         short: c
         takes_value: true
-        help: \"Load all params from config file (: or = separated), any command line params will override parameters loaded from file. \
-            If neither set than environment variables (with CAPITALIZED names) will be search to use. If still not found, then default value will be use (if set).\
-            Notice: please see '--db_url' and '--logdb_url' for additional use hierarcy\"
+        help: \"Load all params from config file (: or = separated) \
+            any command line params will override parameters loaded from file. \n \
+            If neither set than environment variables (with CAPITALIZED names) will be search to use. \n \
+            If still not found, then default value will be use (if set).\n \
+            Support: YAML, Properties, Conf, Cfg, JSON, env etc formats of text files with a strings ':' or '=' separated to key-value pair. \
+            So, the 'key' will be lowercase and the 'value' will be unquoted.\n \
+            Notice: please see '--db_url' and '--logdb_url' for additional use hierarchy\"
     - after:
         long: after
         default_value: \"after.sql\"
@@ -277,7 +280,7 @@ args:
     - license_file:
         long: license_file
         default_value: rdbm.license
-        help: The license file. Use './rdbm --email=your@email license' OR check 'http://rdbm.dbinvent.com/' to get one. Also use the source_dir to search.
+        help: The license file. Use './rdbm --email=your@email license' OR check 'https://rdbm.dbinvent.com/' to get one. Also use the source_dir to search.
 
 
 subcommands:

@@ -58,7 +58,7 @@ fn main() -> Result<(), String> {
         "prepare" => rdbm::migrate(cfg, true, &log),
         "snapshot" => rdbm::load(true, cfg, &log),
         "info" => rdbm::load(false, cfg, &log),
-        "license" => license::license(cfg, &log),
+        "license" => license::license(&cfg, &log, None),
         c @ _ => Err(format!("Unknown command: {}", c)),
     }
 }

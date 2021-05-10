@@ -15,7 +15,7 @@ use slog::Logger;
 use std::collections::HashMap;
 use std::process::Command;
 use yaml_rust::{Yaml, YamlLoader};
-use ureq::Response;
+use crate::dbm_yml::safe_sql;
 
 const PK: &str = "tYV/+g8q0/K0DhWxcrTesII0/ludUrOxDsHTopTcV5FmyXzCrK75z3ARiK67pHa5r5sQCkstK0JKs2/izmp2sjfsm/lLSmLvViBgbzd96bQYZe6Z3zBhyLHa4xVNe5o+VeWX7tOI5EenG0JPkvfMGijS4AHbQs33SZ1z8UKRg8ES4Ab/YK3d/ddfJ8Fs+fvDyuoO+NK10te/wdsvZgsK87v36hLoZi7ZwKSkdzH0dxC6JqM/YYyA72fMFtoRw6s3gT8rdjuLHPuyIh7OC5W7ufH9Fe0r10tS0KeUsNo77ZM82HdknWbSsznl3RyWkj5C0dY9ez+TK3xSot4Gfj/a5tFUyLIJMP+QlPTQZlXO+04ClOJDvJBfd8A+x0i5DqQgbwV3rBSzAi30086pOTxmlZvfT7Zze1Q6KJZhCukNcLDLxqnDm8gV/i7/i3f5EmsIbOvKKBHdNi1QDDqmgG787BXxW9a34Po9APxT4nALBWPqLTMs1cx6MpOxJBJelKr9AQAB";
 
@@ -27,12 +27,8 @@ const HOST: &str = "https://rdbm.dbinvent.com/";
 const ABOUT_EXPIRE: u8 = 20; // days
 
 /// on license action
-pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
-    let now: DateTime<FixedOffset> = Utc::now().into();
-    let now = match cfg.get_opt("TEST_DAYS") {
-        None => now, Some(test) => match test.parse::<i64>() {
-            Ok(t) =>  now + Duration::days(t as i64), Err(e) => { println!("TEST_DAYS: {} : {}", test, e); now } },
-    };
+pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
+    let now = cfg.now();
     let email = cfg.get("email");
     let dry_run = cfg.get_bool("dry_run", false);
     let license_file = cfg.get("license_file");
@@ -71,13 +67,13 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
                     if l.find(&db_host, &logdb_host, &db_name, &logdb_name, &now) {
                         info!(log, "Good to use for your connection(s)! Thank you! ");
                         if l.is_about_expire(&now, ABOUT_EXPIRE) {
-                            ApiRequest::Pull(l).call(&license_file, &now, dry_run, log)
+                            ApiRequest::Pull(l).call(&license_file, &now, dry_run, log, test)
                         } else {
                             Ok(())
                         }
                     } else if email.len() > 0 && do_subscribe {
                         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
-                        ApiRequest::Update(l, lc).call(&license_file, &now, dry_run, log)
+                        ApiRequest::Update(l, lc).call(&license_file, &now, dry_run, log, test)
                     } else {
                         Err(format!("The license loaded from file [{}] is not valid: {}. Set '--email' and use '--subscribe' to request", license_file, INV_LL))
                     }
@@ -94,13 +90,13 @@ pub fn license(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
         }
     } else if email.len() > 0 && do_subscribe {
         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
-        ApiRequest::Create(lc).call(&license_file, &now, dry_run, log)
+        ApiRequest::Create(lc).call(&license_file, &now, dry_run, log, test)
     } else {
-        Err(format!("No '--email' nor '--license_file' set. Please check ./rdbm help license for more details."))
+        Err(format!("No '--email' nor '--license_file' set, also might be helpful: --subscribe=* and db connections to set. Please check ./rdbm help license for more details."))
     }
 }
 
-enum ApiRequest {
+pub enum ApiRequest {
     Create(CreateUpdateRequest),
     Update(License, CreateUpdateRequest),
     Pull(License),
@@ -117,7 +113,7 @@ impl ApiRequest {
     }
 
     #[inline]
-    fn call(&self, file: &String, now: &DateTime<FixedOffset>, dry_run: bool, log: &Logger
+    fn call(&self, file: &String, now: &DateTime<FixedOffset>, dry_run: bool, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>
     ) -> Result<(), String> {
         let url = format!("{}/api/license", api_host());
         let method = &self.method();
@@ -127,40 +123,43 @@ impl ApiRequest {
         }
         let auth_header = "X-Header";
         let mut encm = HashMap::new();
-        let response = match &self {
-            ApiRequest::Create(lc) => {
-                let request = serde_json::to_string(lc)
-                    .map_err(|e| format!("creating payload of a license create request: {}", e))?;
-                ureq::post(url.as_str()) //.set(auth_header, "newbie")
-                    .send_string(request.as_str())
-                    .map_err(|e| format!("{} license: {}", method, e))?
+        let response = match test {
+            None => {
+                let response = match &self {
+                    ApiRequest::Create(lc) => {
+                        let request = serde_json::to_string(lc)
+                            .map_err(|e| format!("creating payload of a license create request: {}", e))?;
+                        ureq::post(url.as_str()) //.set(auth_header, "newbie")
+                            .send_string(request.as_str())
+                            .map_err(|e| format!("{} license: {}", method, e))?
+                    }
+                    ApiRequest::Update(l, lu) => {
+                        let _ = l.clean(&mut encm)?;
+                        let request = serde_json::to_string(lu)
+                            .map_err(|e| format!("creating payload of a license update request: {}", e))?;
+                        ureq::put(url.as_str())
+                            .set(auth_header, l.header()?.as_str())
+                            .send_string(request.as_str())
+                            .map_err(|e| format!("{} license: {}", method, e))?
+                    }
+                    ApiRequest::Pull(l) => {
+                        let _ = l.clean(&mut encm)?;
+                        ureq::get(format!("{}/{}", url.as_str(), l.api_key).as_str())
+                            .set(auth_header, l.header()?.as_str())
+                            .call()
+                            .map_err(|e| format!("{} license: {}", method, e))?
+                    }
+                };
+                debug!(log, "response [{}] from {} at {}", response.status(), method, url);
+                response.into_string().map_err(|e| format!("getting response: {}", e))?
             }
-            ApiRequest::Update(l, lu) => {
-                let _ = l.clean(&mut encm)?;
-                let request = serde_json::to_string(lu)
-                    .map_err(|e| format!("creating payload of a license update request: {}", e))?;
-                ureq::put(url.as_str())
-                    .set(auth_header, l.header()?.as_str())
-                    .send_string(request.as_str())
-                    .map_err(|e| format!("{} license: {}", method, e))?
-            }
-            ApiRequest::Pull(l) => {
-                let _ = l.clean(&mut encm)?;
-                ureq::get(format!("{}/{}", url.as_str(), l.api_key).as_str())
-                    .set(auth_header, l.header()?.as_str())
-                    .call()
-                    .map_err(|e| format!("{} license: {}", method, e))?
-            }
+            Some(callback) => callback(&self),
         };
-        debug!(log, "response [{}] from {} at {}", response.status(), method, url);
 
         match self {
             ApiRequest::Create(_l) => {
-                let resp_str = response
-                    .into_string()
-                    .map_err(|e| format!("getting response: {}", e))?;
-                let response: ApiResponse = serde_json::from_str(resp_str.as_str())
-                    .map_err(|e| format!("converting response: {}", e))?;
+                let response: ApiResponse = serde_json::from_str(response.as_str())
+                    .map_err(|e| format!("converting response on create: {} from {}", e, response))?;
                 if response.success {
                     println!("{}", response.result);
                     Ok(())
@@ -176,16 +175,12 @@ impl ApiRequest {
 
 impl LicenseResponse {
     #[inline]
-    fn save(file: &String, response: Response, license: &License,
-    encoded_map: HashMap<String, String>, now: &DateTime<FixedOffset>,
-    log: &Logger,
+    fn save(file: &String, response: String, license: &License,
+        encoded_map: HashMap<String, String>, now: &DateTime<FixedOffset>,
+        log: &Logger,
     ) -> Result<(), String> {
-        let lr: LicenseResponse = serde_json::from_str(
-            response
-                .into_string()
-                .map_err(|e| format!("getting response: {}", e))?
-                .as_str(),
-        ).map_err(|e| format!("converting response: {}", e))?;
+        let lr: LicenseResponse = serde_json::from_str(response.as_str())
+            .map_err(|e| format!("converting response on save: {} from {}", e, response))?;
         let mut lr = lr.result;
         debug!(log, "loaded: {:?} ", lr);
 
@@ -223,6 +218,17 @@ pub struct CreateUpdateRequest {
     pub time_zone_hm: String,
 }
 
+#[inline]
+fn append_name(name: &String, ip:bool, list: &mut Vec<String>) {
+    let user = env::var("USER").unwrap_or("".to_string());
+    if name.len() > 0 && name.as_str() != "*"
+        && ( (ip  && !is_ip(name) )
+        || (!ip && name != &user && name == &safe_sql(name.clone())) )
+    {
+        list.push(name.clone());
+    }
+}
+
 impl CreateUpdateRequest {
     #[inline]
     #[allow(dead_code)]
@@ -234,23 +240,16 @@ impl CreateUpdateRequest {
         logdb_name: &String,
     ) -> Result<Self, String> {
         let time_zone_hm = match Command::new("date").arg("+\"%z\"").output() {
-            Ok(cmd) => String::from_utf8_lossy(&cmd.stdout).to_string(),
+            Ok(cmd) => ConfigMap::unquote( &*String::from_utf8_lossy(&cmd.stdout)), //.to_string(),
             Err(_) => "".to_string(),
         };
         let mut hosts = Vec::new();
-        if db_host.len() > 0 {
-            hosts.push(db_host.clone())
-        }
-        if logdb_host.len() > 0 {
-            hosts.push(logdb_host.clone())
-        }
+        append_name(db_host, true, &mut hosts);
+        append_name(logdb_host, true, &mut hosts);
         let mut db_names = Vec::new();
-        if db_name.len() > 0 {
-            db_names.push(db_name.clone())
-        }
-        if logdb_name.len() > 0 {
-            db_names.push(logdb_name.clone())
-        }
+        append_name(db_name, false, &mut db_names);
+        append_name(logdb_name, false, &mut db_names);
+
         Ok(CreateUpdateRequest {
             personal: true,
             email: email.clone(),
@@ -279,7 +278,7 @@ impl CreateUpdateRequest {
                         Some("invalid email".into())
                     } else {
                         if self.time_zone_hm.len() > 5 {
-                            Some("invalid timezone".into())
+                            Some(format!("invalid timezone: {}", self.time_zone_hm))
                         } else {
                             if let Some(m) = valid_name(&self.hosts) {
                                 Some(format!("invalid hosts: {}", m))
@@ -339,8 +338,14 @@ struct LicenseResponse {
 struct ApiResponse {
     result: String,
     success: bool,
-    errors: Vec<String>,
-    messages: Vec<String>,
+    errors: Vec<ApiMessage>,
+    messages: Vec<ApiMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiMessage {
+    pub code: i32,
+    pub message: String
 }
 
 impl ApiResponse {
@@ -348,24 +353,32 @@ impl ApiResponse {
         let mut res = String::new();
         for e in &self.errors {
             if res.len() > 0 {res.push_str(", ");}
-            res.push_str(e.as_str());
+            res.push_str(e.message.as_str());
         }
         for e in &self.messages {
             if res.len() > 0 {res.push_str(", ");}
-            res.push_str(e.as_str());
+            res.push_str(e.message.as_str());
         }
         res
     }
 }
 #[cfg(debug_assertions)]
-pub fn is_ok(_cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
-    Ok(true)
+/// use with: "FORCE_CHECK:any" and "TEST_DAYS:int"
+pub fn is_ok(cfg: &ConfigMap, log: &Logger) -> Result<bool, String> {
+    match cfg.get_opt("FORCE_CHECK") {
+        None => Ok(true),
+        Some(_) => do_check(cfg, log)
+    }
 }
 
 #[cfg(not(debug_assertions))]
 #[inline]
 /// on migrate action
-pub fn is_ok(cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
+pub fn is_ok(cfg: &ConfigMap, log: &Logger) -> Result<bool, String> {
+    do_check(cfg, log)
+}
+
+fn do_check(cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
     match cfg.get_opt("license_file") {
         None => Err("--license_file is not set".into()),
         Some(lf) => {
@@ -376,6 +389,7 @@ pub fn is_ok(cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
                 &cfg.get("logdb_host"),
                 &cfg.get("db_name"),
                 &cfg.get("logdb_name"),
+                &cfg.now()
             ))
         }
     }
@@ -1039,5 +1053,25 @@ mod tests {
         assert!(cl.connects[0].hosts.contains("h"));
         assert!(cl.connects[0].db_names.contains("db"));
         Ok(())
+    }
+
+    #[test]
+    fn test_append_name() {
+        let user = env::var("USER").unwrap_or("".to_string());
+        let mut v = Vec::new();
+        append_name(&"".to_string(), true, &mut v);
+        append_name(&"*".to_string(), true, &mut v);
+        append_name(&"localhost".to_string(), true, &mut v);
+        append_name(&"127.0.0.1".to_string(), true, &mut v);
+        append_name(&"/var/".to_string(), true, &mut v);
+
+        append_name(&"".to_string(), false, &mut v);
+        append_name(&"*".to_string(), false, &mut v);
+        append_name(&user, false, &mut v);
+        assert_eq!(v.len(), 0);
+
+        append_name(&"aaa".to_string(), true, &mut v);
+        append_name(&"ooo".to_string(), false, &mut v);
+        assert_eq!(v.len(), 2);
     }
 }
