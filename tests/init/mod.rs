@@ -216,21 +216,6 @@ mod tests {
 
     #[test]
     fn test_test() {
-        if let Err(e)  = compare_with("./tests/test_scen/case0".into(), "".into()) {
-            assert!(true, "{}", e);
-        };
-        if let Err(e)  = compare_with("./tests/test_scen/case0".into(),
-"CREATE TABLE public.rdbm_history (source varchar(250)  , scheduled_on timestamp  , catalog varchar(80)  , executed_by varchar(80)  , msg varchar(250)  , target varchar(250)  , source_type char  , id serial  , script_tag varchar(80)  , version varchar(80)  , created_on timestamp  , checksum varchar(80)  , took_sec bigint  , executed_on timestamp  , ok bool   ) ; \n\
-\n\
-COMMENT ON COLUMN public.rdbm_history.source_type IS 'The schema deployment log';\n\
-COMMENT ON COLUMN public.rdbm_history.ok IS 'The schema deployment log';\n\
-\n\
-\n\
-COMMENT ON TABLE public.rdbm_history IS 'The schema deployment log'; \n\
-\n\
-".into()) {
-            assert!(false, "{}", e);
-        }
 
     }
 

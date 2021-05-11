@@ -1,4 +1,4 @@
-#[macro_use]
+// # [macro_use]
 extern crate slog;
 
 use clap::App;
@@ -8,8 +8,6 @@ use sloggers::types::{Format, Severity};
 use sloggers::Build;
 
 use rdbm::dbm_cfg::ConfigMap;
-
-mod license;
 
 #[inline]
 pub fn logger(debug: bool) -> Logger {
@@ -49,7 +47,7 @@ fn main() -> Result<(), String> {
 
     match cmd.as_str() {
         "migrate" => {
-            if license::is_ok(&cfg, &log)? {
+            if rdbm::license::is_ok(&cfg, &log)? {
                 rdbm::migrate(cfg, false, &log)
             } else {
                 Err(format!("Invalid license"))
@@ -58,7 +56,7 @@ fn main() -> Result<(), String> {
         "prepare" => rdbm::migrate(cfg, true, &log),
         "snapshot" => rdbm::load(true, cfg, &log),
         "info" => rdbm::load(false, cfg, &log),
-        "license" => license::license(&cfg, &log, None),
+        "license" => rdbm::license::license(&cfg, &log, None),
         c @ _ => Err(format!("Unknown command: {}", c)),
     }
 }
