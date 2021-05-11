@@ -10,7 +10,7 @@ use yaml_rust::YamlLoader;
 use crate::dbm_dbc::{FKTable, InfoSchemaType, STable};
 
 use self::yaml_rust::Yaml;
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::fmt::{Formatter, Write};
 use std::result::Result;
 
@@ -20,6 +20,7 @@ use slog::Logger;
 use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
+use serde::ser::SerializeSeq;
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -624,15 +625,13 @@ pub(crate) fn safe_sql(input: String) -> String {
 }
 
 /// String key for BTreeMap, sorted by adding order
-#[derive(Debug, Clone, Serialize)]
-pub struct OrderedHashMap<T: Named> {
-    #[serde(skip)]
+#[derive(Debug, Clone)]
+pub struct OrderedHashMap<T: Named + Serialize> {
     map: BTreeMap<String, usize>,
-    // TODO implement #[serde(flatten)] for this as remove list field to have snapshot on same format as input
     pub(crate) list: Vec<T>,
 }
 
-impl<T: Named> OrderedHashMap<T> {
+impl<T: Named + Serialize> OrderedHashMap<T> {
     #[inline]
     pub(crate) fn new() -> Self {
         OrderedHashMap {
@@ -664,6 +663,17 @@ impl<T: Named> OrderedHashMap<T> {
     pub fn len(&self) -> usize {
         self.list.len()
     }
+}
+
+impl<T: Named + Serialize > Serialize for OrderedHashMap<T> {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+        S: Serializer, T: Named + Serialize {
+            let mut seq = serializer.serialize_seq(Some(self.len()))?;
+            for element in &self.list {
+                seq.serialize_element(element)?;
+            }
+            seq.end()
+        }
 }
 
 impl YTable {
@@ -1094,6 +1104,20 @@ mod tests {
         assert_eq!("a".to_string(), safe_sql("a\n ".to_string()));
         assert_eq!("a".to_string(), safe_sql("a\t ".to_string()));
     }
+
+    #[test]
+    fn serialize_test() {
+        let mut l: OrderedHashMap<YTrig> = OrderedHashMap::new();
+        let _ = l.append(YTrig{
+            name: "a".to_string(),
+            event: "b".to_string(),
+            when: "c".to_string(),
+            proc: "d".to_string()
+        });
+        assert_eq!("[{'name':'a','event':'b','when':'c','proc':'d'}]".replace("'", "\""),
+            serde_json::to_string(&l).unwrap());
+    }
+
 }
 
 /*

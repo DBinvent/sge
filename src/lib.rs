@@ -241,8 +241,7 @@ args:
         long: after_end
         default_value: \"after_end.sql\"
         takes_value: true
-        help: Try to find and run the script after migration executed and history log committed. Do not fail if not found. This script execution wont log into history table. \
-            Script will feed with parameter if most recent history log id stored in 'current_setting('{table}.id')'.
+        help: Try to find and run the script after migration executed and history log committed. Do not fail if not found. This script execution wont log into history table.
     - createdb:
         long: createdb
         default_value: \"false\"
@@ -280,7 +279,7 @@ args:
     - license_file:
         long: license_file
         default_value: rdbm.license
-        help: The license file. Use './rdbm --email=your@email license' OR check 'https://rdbm.dbinvent.com/' to get one. Also use the source_dir to search.
+        help: The license file. Use './rdbm --email=your@email license' OR check 'https://rdbm.dbinvent.com/' to get one.
 
 
 subcommands:

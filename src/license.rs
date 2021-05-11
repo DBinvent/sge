@@ -185,8 +185,6 @@ impl LicenseResponse {
 
         if lr.patch(license, &encoded_map, now) {
             lr.verify()?;
-            // TODO remove after ucb complete
-            let file = format!("x.{}", file);
             debug!(log, "saving to {}", file);
             fs::write(file.clone(), serde_yaml::to_string(&lr)
                 .map_err(|e| format!("creating license: {}", e))?)
@@ -781,7 +779,6 @@ impl License {
 
     #[inline]
     #[allow(dead_code)]
-    // TODO test timesone
     pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
         convert_datetime(&self.timezone, input)
     }
