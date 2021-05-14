@@ -5,7 +5,7 @@ use std::path::Path;
 use std::{env, fs};
 
 use crate::ConfigMap;
-use chrono::{DateTime, Duration, FixedOffset, NaiveDateTime, Utc};
+use chrono::{Date, Duration, FixedOffset, NaiveDateTime, Utc, NaiveDate, Datelike};
 use crypto_hash::Algorithm;
 use rand::thread_rng;
 use rsa::{BigUint, PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use slog::Logger;
 use std::collections::HashMap;
-use std::process::Command;
 use yaml_rust::{Yaml, YamlLoader};
 
 const PK: &str = "tYV/+g8q0/K0DhWxcrTesII0/ludUrOxDsHTopTcV5FmyXzCrK75z3ARiK67pHa5r5sQCkstK0JKs2/izmp2sjfsm/lLSmLvViBgbzd96bQYZe6Z3zBhyLHa4xVNe5o+VeWX7tOI5EenG0JPkvfMGijS4AHbQs33SZ1z8UKRg8ES4Ab/YK3d/ddfJ8Fs+fvDyuoO+NK10te/wdsvZgsK87v36hLoZi7ZwKSkdzH0dxC6JqM/YYyA72fMFtoRw6s3gT8rdjuLHPuyIh7OC5W7ufH9Fe0r10tS0KeUsNo77ZM82HdknWbSsznl3RyWkj5C0dY9ez+TK3xSot4Gfj/a5tFUyLIJMP+QlPTQZlXO+04ClOJDvJBfd8A+x0i5DqQgbwV3rBSzAi30086pOTxmlZvfT7Zze1Q6KJZhCukNcLDLxqnDm8gV/i7/i3f5EmsIbOvKKBHdNi1QDDqmgG787BXxW9a34Po9APxT4nALBWPqLTMs1cx6MpOxJBJelKr9AQAB";
@@ -112,7 +111,7 @@ impl ApiRequest {
     }
 
     #[inline]
-    fn call(&self, file: &String, now: &DateTime<FixedOffset>, dry_run: bool, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>
+    fn call(&self, file: &String, now: &LicenseDate, dry_run: bool, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>
     ) -> Result<(), String> {
         let url = format!("{}/api/license", api_host());
         let method = &self.method();
@@ -175,7 +174,7 @@ impl ApiRequest {
 impl LicenseResponse {
     #[inline]
     fn save(file: &String, response: String, license: &License,
-        encoded_map: HashMap<String, String>, now: &DateTime<FixedOffset>,
+        encoded_map: HashMap<String, String>, now: &LicenseDate,
         log: &Logger,
     ) -> Result<(), String> {
         let lr: LicenseResponse = serde_json::from_str(response.as_str())
@@ -212,7 +211,6 @@ pub struct CreateUpdateRequest {
     pub email: String,
     pub hosts: Vec<String>,
     pub db_names: Vec<String>,
-    pub time_zone_hm: String,
 }
 
 #[inline]
@@ -236,10 +234,6 @@ impl CreateUpdateRequest {
         db_name: &String,
         logdb_name: &String,
     ) -> Result<Self, String> {
-        let time_zone_hm = match Command::new("date").arg("+\"%z\"").output() {
-            Ok(cmd) => ConfigMap::unquote( &*String::from_utf8_lossy(&cmd.stdout)), //.to_string(),
-            Err(_) => "".to_string(),
-        };
         let mut hosts = Vec::new();
         append_name(db_host, true, &mut hosts);
         append_name(logdb_host, true, &mut hosts);
@@ -252,14 +246,7 @@ impl CreateUpdateRequest {
             email: email.clone(),
             hosts,
             db_names,
-            time_zone_hm,
         })
-    }
-
-    #[inline]
-    #[allow(dead_code)]
-    pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
-        convert_datetime(&self.time_zone_hm, input)
     }
 
     #[inline]
@@ -274,36 +261,18 @@ impl CreateUpdateRequest {
                     if i == 0 || i == self.email.len() - 1 {
                         Some("invalid email".into())
                     } else {
-                        if self.time_zone_hm.len() > 5 {
-                            Some(format!("invalid timezone: {}", self.time_zone_hm))
+                        if let Some(m) = valid_name(&self.hosts) {
+                            Some(format!("invalid hosts: {}", m))
+                        } else if let Some(m) = valid_name(&self.db_names) {
+                            Some(format!("invalid db names: {}", m))
                         } else {
-                            if let Some(m) = valid_name(&self.hosts) {
-                                Some(format!("invalid hosts: {}", m))
-                            } else if let Some(m) = valid_name(&self.db_names) {
-                                Some(format!("invalid db names: {}", m))
-                            } else {
-                                None
-                            }
+                            None
                         }
                     }
                 }
             }
         }
     }
-}
-
-#[inline]
-fn convert_datetime(timezone: &String, input: NaiveDateTime) -> DateTime<FixedOffset> {
-    let offset = if timezone.len() >= 4 {
-        let min = timezone[timezone.len() - 2..timezone.len()]
-            .parse::<i32>()
-            .unwrap_or(0);
-        let h = timezone[..timezone.len() - 2].parse::<i32>().unwrap_or(0);
-        h * 3600 + min * 60
-    } else {
-        0
-    };
-    DateTime::from_utc(input, FixedOffset::east(offset))
 }
 
 #[inline]
@@ -392,7 +361,7 @@ fn do_check(cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
     }
 }
 
-type LicenseDate = chrono::DateTime<FixedOffset>;
+pub type LicenseDate = chrono::NaiveDate; //DateTime<FixedOffset>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct License {
@@ -412,8 +381,8 @@ pub struct License {
     #[serde(skip)]
     /// clients RSA Pub key: use to encode connections, if they are not
     pub cpk: Option<String>,
-    /// users timezone in hoursminutes as -/+1200 from UTC result of 'date +"%z"'
-    pub timezone: String,
+    // users timezone in hoursminutes as -/+1200 from UTC result of 'date +"%z"'
+    // pub timezone: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,9 +397,9 @@ impl Connection {
     #[allow(unused, dead_code)]
     #[inline]
     /// digest stings (prepare for encryption) and encrypt by public key separately
-    pub fn new(input: NaiveDateTime, timezone: &String) -> Self {
+    pub fn new(input: NaiveDateTime) -> Self {
         Connection {
-            valid_until: convert_datetime(timezone, input),
+            valid_until: Utc::today().naive_utc(),
             hosts: Default::default(),
             db_names: Default::default(),
         }
@@ -483,14 +452,13 @@ impl License {
             email: "".to_string(),
             notice: "".to_string(),
             connects: vec![],
-            api_key_valid_until: Utc::now().into(),
+            api_key_valid_until: Utc::today().naive_utc(),
             api_key: "".to_string(),
             license_type: "".to_string(),
             license: "".to_string(),
             crc: "".to_string(),
             key: "".to_string(),
             cpk: None,
-            timezone: "".to_string(),
         }
     }
 
@@ -514,7 +482,8 @@ impl License {
         let _ = hasher.write(self.issued_to.as_bytes());
         let _ = hasher.write(self.email.as_bytes());
         for c in &self.connects {
-            let _ = hasher.write(c.valid_until.to_rfc3339().as_bytes());
+            let _ = hasher.write(&c.valid_until.year().to_be_bytes());
+            let _ = hasher.write(&c.valid_until.num_days_from_ce().to_be_bytes());
             for e in &c.encrypt_all(&public_key)? {
                 crc::a(&mut cc, &e);
                 let _ = hasher.write(e.as_ref());
@@ -562,7 +531,6 @@ impl License {
                         license: yaml_as_str(y, "license"),
                         crc: yaml_as_str(y, "crc"),
                         key: yaml_as_str(y, "key"),
-                        timezone: yaml_as_str(y, "timezone"),
                         cpk: None,
                     })
                 } else {
@@ -649,7 +617,7 @@ impl License {
 
     /// opposite to clean
     #[inline]
-    fn patch(&mut self, lic: &License, enc: &HashMap<String, String>, now: &DateTime<FixedOffset>) -> bool {
+    fn patch(&mut self, lic: &License, enc: &HashMap<String, String>, now: &LicenseDate) -> bool {
         self.notice = lic.notice.clone();
         self.key = lic.key.clone();
         let mut self_now = now.clone(); //Utc::now().into();
@@ -679,9 +647,9 @@ impl License {
     }
 
     #[inline]
-    fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String, now: &DateTime<FixedOffset>) -> bool {
+    fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String, now: &LicenseDate) -> bool {
         let user = &env::var("USER").unwrap_or("".into());
-        let now: DateTime<FixedOffset> = now.clone();
+        let now: LicenseDate = now.clone();
         for c in &self.connects {
             if c.valid_until > now {
                 if (c.hosts.contains("*")
@@ -703,7 +671,7 @@ impl License {
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn header(&self) -> Result<String, String> {
-        let now: DateTime<FixedOffset> = Utc::now().into();
+        let now: LicenseDate = Utc::today().naive_utc();
         if self.api_key.len() < 30 {
             Err("api_key is not set".into())
         } else if self.api_key_valid_until < now {
@@ -767,8 +735,8 @@ impl License {
 
     #[inline]
     #[allow(dead_code)]
-    fn is_about_expire(&self, now: &DateTime<FixedOffset>, pull_ahead_days: u8) -> bool {
-        let about_expire: DateTime<FixedOffset> = (*now + Duration::days(pull_ahead_days as i64)).into();
+    fn is_about_expire(&self, now: &LicenseDate, pull_ahead_days: u8) -> bool {
+        let about_expire: LicenseDate = (*now + Duration::days(pull_ahead_days as i64)).into();
         for c in &self.connects {
             if c.valid_until < about_expire {
                 return true;
@@ -777,11 +745,6 @@ impl License {
         false
     }
 
-    #[inline]
-    #[allow(dead_code)]
-    pub fn as_datetime(&self, input: NaiveDateTime) -> DateTime<FixedOffset> {
-        convert_datetime(&self.timezone, input)
-    }
 }
 
 #[inline]
@@ -846,29 +809,32 @@ fn to_list(yaml: &Yaml, input: &str) -> BTreeSet<String> {
 fn to_date(yaml: &Yaml, field: &str) -> Result<LicenseDate, String> {
     match yaml[field].as_str() {
         None => Err(format!("not date set in: {}", field)),
-        Some(s) => match DateTime::parse_from_rfc3339(s) {
-            Ok(d) => Ok(d),
-            Err(e) => Err(format!("date parsing [{}] error: {}", s, e)),
-        },
+        Some(s) => NaiveDate::parse_from_str(s, DATE_FORMAT)
+            .map_err(|e| format!("date parsing [{}] error: {}", s, e))
     }
 }
 
-mod local_date_format {
-    use chrono::{DateTime, FixedOffset};
-    use serde::{self, Deserialize, Deserializer, Serializer};
+pub const DATE_FORMAT: &str = "%Y-%m-%d";
 
-    pub fn serialize<S>(date: &DateTime<FixedOffset>, serializer: S) -> Result<S::Ok, S::Error>
+mod local_date_format {
+    use chrono::NaiveDate;
+    use serde::{self, Deserialize, Deserializer, Serializer};
+    use crate::license::{LicenseDate, DATE_FORMAT};
+
+    pub fn serialize<S>(date: &LicenseDate, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        serializer.serialize_str(&date.to_rfc3339())
+        serializer.serialize_str(&date.format(DATE_FORMAT).to_string())
     }
+
     #[allow(dead_code)]
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<FixedOffset>, D::Error>
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<LicenseDate, D::Error>
     where
         D: Deserializer<'de>,
     {
-        DateTime::parse_from_rfc3339(String::deserialize(deserializer)?.as_str())
+        NaiveDate::parse_from_str(String::deserialize(deserializer)?.as_str(), DATE_FORMAT)
+        // DateTime::parse_from_rfc3339(String::deserialize(deserializer)?.as_str())
             .map_err(serde::de::Error::custom)
     }
 }
@@ -946,6 +912,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use chrono::{Local, DateTime};
 
     #[test]
     fn test_date1() {
@@ -1023,7 +990,7 @@ mod tests {
     #[test]
     fn clean_lic() -> Result<(), String> {
         let mut l = License::blank();
-        let now: DateTime<FixedOffset> = Utc::now().into();
+        let now: LicenseDate = Utc::today().naive_utc();
         l.cpk = Some(PK.into());
         l.key = "a".into();
         let mut hosts = BTreeSet::new();
@@ -1031,7 +998,7 @@ mod tests {
         let mut db_names = BTreeSet::new();
         db_names.insert("db".to_string());
         l.connects.push(Connection {
-            valid_until: Utc::now().into(),
+            valid_until: Utc::today().naive_utc(),
             hosts,
             db_names,
         });
@@ -1070,4 +1037,33 @@ mod tests {
         append_name(&"ooo".to_string(), false, &mut v);
         assert_eq!(v.len(), 2);
     }
+/*
+    #[test]
+    fn test_offset() {
+        assert_eq!(0, offset(&"".to_string()));
+        assert_eq!(3600, offset(&"0100".to_string()));
+        assert_eq!(3600, offset(&"+0100".to_string()));
+        assert_eq!(3600, offset(&"+01:00".to_string()));
+        assert_eq!(3600, offset(&"01:00".to_string()));
+        assert_eq!(-3600, offset(&"-0100".to_string()));
+        assert_eq!(-3600, offset(&"-01:00".to_string()));
+        assert_eq!(1800, offset(&"0030".to_string()));
+        assert_eq!(1800, offset(&"00:30".to_string()));
+        assert_eq!(1800, offset(&"+0030".to_string()));
+        assert_eq!(1800, offset(&"+00:30".to_string()));
+        assert_eq!(-5400, offset(&"-01:30".to_string()));
+        assert_eq!(-5400, offset(&"-0130".to_string()));
+        assert_eq!(-1800, offset(&"-00:30".to_string()));
+        assert_eq!(-1800, offset(&"-0030".to_string()));
+
+        let u: NaiveDateTime = Utc::today().naive_utc();
+        let l: NaiveDateTime = Local::now().naive_local();
+        // l.timestamp() - u.timestamp()) / 3600
+
+        let tz: Tz = "US/Central".parse().unwrap_or(chrono_tz::UTC);
+        let t = tz.from_local_datetime(&l).unwrap();
+        println!("{:?} \n {:?} \n loc {:?} \n utc {:?} \n {}", tz, t, l, u,
+        ( l.timestamp() - u.timestamp()) / 3600);
+    }
+    */
 }

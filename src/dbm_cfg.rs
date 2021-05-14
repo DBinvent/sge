@@ -10,7 +10,9 @@ use std::result::Result;
 use std::env;
 
 use crate::dbm_yml::{safe_sql, str2bool};
-use chrono::{DateTime, FixedOffset, Utc, Duration};
+use chrono::{Utc, Duration};
+use std::time::SystemTime;
+use crate::license::LicenseDate;
 
 #[derive(Debug, Clone)]
 pub struct ConfigMap {
@@ -18,10 +20,11 @@ pub struct ConfigMap {
     file: String,
     file_total_lines: usize,
     file_loaded_lines: usize,
+    // timezone: &str,
 }
 
 impl ConfigMap {
-    /// universal properties loader
+    /// universal properties loader, or create default id filename is empty
     #[inline]
     pub fn load(filename: &str) -> Result<Self, String> {
         let mut file_total_lines = 0;
@@ -35,8 +38,8 @@ impl ConfigMap {
             for line in reader.lines() {
                 file_total_lines += 1;
                 if let Ok(l) = line {
-                    if let Some(i) = l.chars().position(|c| c == '=' || c == ':' || c == '#') {
-                        if l.as_bytes()[i] != b'#' {
+                    if let Some(i) = l.chars().position(|c| c == '=' || c == ':' || c == '#' || c == ';' || c == '/' || c == '[') {
+                        if l.as_bytes()[i] != b'#' && l.as_bytes()[i] != b';' && l.as_bytes()[i] != b'/' && l.as_bytes()[i] != b'[' {
                             let key = l[..i].trim().to_lowercase();
                             if crate::CONFIG_APP.contains_key(&key) {
                                 ConfigMap::map_insert(&mut cfg, &key, l[i + 1..].trim());
@@ -204,18 +207,20 @@ impl ConfigMap {
         result
     }
 
+    /// TODO FIXME add local time by timezone
     #[inline]
-    pub fn now(&self) -> DateTime<FixedOffset>  {
+    pub fn now(&self) -> LicenseDate  {
+        // self.map
         match self.get_opt("TEST_DAYS") {
-            None => Utc::now().into(),
+            None => Utc::today().naive_utc(),
             Some(test) => match test.parse::<i64>() {
                 Ok(t) => {
-                    let now: DateTime<FixedOffset> = Utc::now().into();
+                    let now: LicenseDate = Utc::today().naive_utc();
                     now + Duration::days(t as i64)
                 },
                 Err(e) => {
                     println!("TEST_DAYS: {} : {}", test, e);
-                    Utc::now().into()
+                    Utc::today().naive_utc()
                 }
             },
         }
@@ -382,6 +387,8 @@ fn parse_kve(prefix: &String, val: String, map: &mut HashMap<String, String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Local;
+    use std::time::{UNIX_EPOCH, SystemTimeError};
 
     fn _conf(p: &str) -> ConfigMap {
         let mut map = HashMap::new();
@@ -393,6 +400,7 @@ mod tests {
             file_loaded_lines: 0,
         }
     }
+        // DateTime::naive_local()
 
     #[test]
     fn cfg_test() -> Result<(), String> {
@@ -444,5 +452,16 @@ mod tests {
     }
 
 
+    #[test]
+    fn date_test() -> Result<(), SystemTimeError>  {
+        let now = SystemTime::now();
+        let local = Local::now();
+        let utc = Utc::now();
+        let z = utc.timestamp() - local.timestamp();
+        println!("{}", z ); // 3600
+        let z = utc.timestamp() - now.duration_since(UNIX_EPOCH)?.as_secs() as i64;
+        println!("{}", z ); // 3600
+        Ok(())
+    }
 
 }

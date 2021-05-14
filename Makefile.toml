@@ -48,6 +48,10 @@ script = [
 #../target/debug/rdbm -c ./local_test_cfg.yaml migrate
 #psql -p 5434 -h $(pwd)/db/5434 -c "select count(*) from rdbm_history" ucb
 
+#cargo test --test integration-test --  --nocapture
+
+#ps augx | grep tmp/tests/
+
 rm -rf /tmp/tests
 echo TESTED OK
 '''

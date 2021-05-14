@@ -244,18 +244,18 @@ impl StatementLog {
     pub(crate) fn after(
         &self,
         key: &str,
-        yschemas: &FilesMap,
+        files: &FilesMap,
         logs: &LogSchemaType,
         pgsrv: &str,
         cfg: &ConfigMap,
         t: Option<&mut Transaction>,
-        id: i32,
+        ids: Vec<i32>,
         log: &Logger,
     ) -> Result<(), String> {
-        if let Some((va, afile)) = yschemas.after.get_key_value(key) {
+        if let Some((va, afile)) = files.after.get_key_value(key) {
             if afile.ends_with(format!("/{}", cfg.get(key)).as_str()) {
                 let _ = self.instance(' ', va, afile)
-                    .deploy(&logs, pgsrv, cfg, t, id, log)?;
+                    .deploy(&logs, pgsrv, cfg, t, ids, log)?;
             }
         }
         Ok(())
@@ -269,7 +269,7 @@ impl StatementLog {
         pgsrv: &str,
         cfg: &ConfigMap,
         t: Option<&mut Transaction>,
-        _id: i32,
+        _id: Vec<i32>,
         log: &Logger,
     ) -> Result<i32, String> {
         let key = format!("{}{}", self.source_type, self.version);
@@ -634,10 +634,9 @@ mod tests {
     use super::*;
     #[test]
     fn v_test() {
-        assert!(!find_single_transaction("./tests/scripts/P1_1__data.sql"));
-        assert!(!find_single_transaction(
-            "./tests/scripts/V1_1__sample_ddl.sql"
-        ));
-        assert!(find_single_transaction("./tests/scripts/R1_1__data.sql"));
+        let test_ctx_dir = "./tests/test_scen/case1";
+        assert!(!find_single_transaction(format!("{}/P1_1__data.sql", test_ctx_dir).as_str()));
+        assert!(!find_single_transaction(format!("{}/V1_1__sample_ddl.sql", test_ctx_dir).as_str()));
+        assert!(find_single_transaction(format!("{}/R1_1__data.sql", test_ctx_dir).as_str()));
     }
 }

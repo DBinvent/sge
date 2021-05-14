@@ -1,0 +1,100 @@
+---
+uri: column
+schema:
+  type: object
+  items:
+    column:
+      type: object
+      items:
+        name:
+          type: string
+        type:
+          type: string
+        defaultValue:
+          type: string
+        constraint:
+          type: object
+          items:
+            primaryKey:
+              type: boolean
+            nullable:
+              type: boolean
+            foreignKey:
+              type: object
+              items:
+                references:
+                  type: string
+                sql:
+                  type: string
+        description:
+          type: string
+        sql:
+          type: string
+
+---
+uri: trigger
+schema:
+  type: object
+  items:
+    trigger:
+      type: object
+      items:
+        name:
+          type: string
+        event:
+          type: string
+        when:
+          type: string
+        proc:
+          type: string
+
+---
+uri: table
+schema:
+  type: object
+  items:
+    table:
+      type: string
+    tableName:
+      type: string
+    description:
+      type: string
+    constraint:
+      type: string
+    sql:
+      type: string
+    columns:
+      type: array
+      items:
+        $ref: column
+    triggers:
+      type: array
+      items:
+        $ref: trigger
+
+---
+uri: schema
+schema:
+  type: object
+  items:
+    schema:
+      type: string
+    schemaName:
+      type: string
+    owner:
+      type: string
+    tables:
+      type: array
+      items:
+        $ref: table
+
+---
+uri: database
+schema:
+  type: object
+  items:
+    database:
+      type: array
+      items:
+        $ref: schema
+

@@ -4,7 +4,7 @@ extern crate rdbm;
 
 use lazy_static::lazy_static;
 use std::sync::{RwLock, Arc};
-use std::{thread, fs};
+use std::{thread, fs, env};
 use slog::Logger;
 use sloggers::terminal::{TerminalLoggerBuilder, Destination};
 use sloggers::types::{Format, Severity};
@@ -15,7 +15,9 @@ use uuid::Uuid;
 use std::cmp::min;
 use std::process::{Command, Output};
 use std::io::{Read, Error};
+use rdbm::dbm_cfg::ConfigMap;
 
+pub const PG_VER: &str = "12";
 
 lazy_static! {
     pub static ref LOG: Logger = logger(true);
@@ -45,6 +47,31 @@ pub(crate) fn logger(debug: bool) -> Logger {
     builder.build().unwrap()
 }
 
+#[derive(Debug, Clone)]
+pub struct PgInstance {
+    pub work_dir: String,
+    pub port: u16,
+    pub db_name: String,
+    pub db_pwd: String,
+    pub ver: u8,
+    pub cfg: ConfigMap,
+}
+
+impl PgInstance {
+    pub fn with_src(&self, d: &String, opts: Vec<&str>) -> ConfigMap {
+        let mut cfg = self.cfg.clone();
+        cfg.insert( & "source_dir".to_string(), d.as_str());
+        if opts.len() > 1 {
+            for i in 0..opts.len()/2{
+                cfg.insert(&opts[i*2].to_string(), opts[i*2 + 1]);
+            }
+        }
+        cfg
+    }
+}
+
+const TESTS_DIR: &str = "./tests";
+
 /*
   echo " 2: working dir for postgres DB (like 'data')"
   echo " 3: port to bind and appending working folder name (like 5434)"
@@ -53,18 +80,31 @@ pub(crate) fn logger(debug: bool) -> Logger {
 
 */
 ///work_dir: &str, port: u16, db_name: &str,
-pub fn prepare_db(dir: &str, user: &str, ver: u8) -> Result<(String, u16, String, String), String> {
+pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
+    if let Ok(ev) = env::var("RDBM_IT") {
+        if ev.as_str() == "ignore" {
+           return Err(format!("migration_tests RDBM_IT set to: {}", ev));
+        }
+    }
+    let ver = env::var("PG_VER")
+        .unwrap_or(PG_VER.to_string())
+        .parse::<u8>()
+        .map_err(|e| format!("Parsing env PG_VER for testing: {} (default is {})", e, PG_VER))
+        .unwrap();
+
     // let work_dir = uuid();
     let work_dir = format!("{}/dd{}", dir, uuid());
 
-    let port = pseudo_rnd(5555, 6666);
+    let port = pseudo_rnd(5555, 7777);
     let db_name = format!("db{}", uuid());
     let db_pwd = uuid();
 
-    println!("Starting DB on {} {} {} {}... ", work_dir, port, db_name, ver);
+    fs::create_dir_all(work_dir.as_str());
+
+    println!("Starting DB on ./postgres.sh start {} {} {} {} ... ", work_dir, port, ver, db_name);
 
     let mut pc = Command::new("./postgres.sh");
-        pc.current_dir("./tests")
+        pc.current_dir(TESTS_DIR)
         .arg("start")
         .arg(work_dir.clone())
         .arg(port.to_string())
@@ -80,7 +120,7 @@ pub fn prepare_db(dir: &str, user: &str, ver: u8) -> Result<(String, u16, String
                     *writer = Ok(format!("postgres: {}", String::from_utf8_lossy(&p.stdout)));
                 } else {
                     let mut writer = sc.write().unwrap();
-                    *writer = Err(format!("postgres: {}", String::from_utf8_lossy(&p.stdout)));
+                    *writer = Err(format!("starting postgres: {}", String::from_utf8_lossy(&p.stdout)));
                 }
             }
             Err(e) => {
@@ -89,26 +129,43 @@ pub fn prepare_db(dir: &str, user: &str, ver: u8) -> Result<(String, u16, String
             }
         }
     });
-    thread::sleep(Duration::from_secs(3));
-    let res = status.read().unwrap();
-    match &*res {
-        Ok(e) => {
-            println!("{}", e);
-        }
-        Err(e) => {
-            return Err(e.clone());
+
+    for i in 0..10 {
+        thread::sleep(Duration::from_secs(1));
+        let res = status.read().unwrap();
+        match &*res {
+            Ok(e) => {
+                if e.len() > 0 {
+                    println!("{}", e);
+                    break;
+                } else {
+                    print!(".");
+                }
+            }
+            Err(e) => {
+                return Err(e.clone());
+            }
         }
     }
-    Ok((work_dir, port, db_name, db_pwd))
+
+    let mut cfg = ConfigMap::load("")?;
+    cfg.insert(&"createdb_user".to_string(), env::var("USER").unwrap().as_str());
+    cfg.insert(&"createdb_pwd".to_string(), db_pwd.as_str());
+    cfg.insert(&"db_name".to_string(), db_name.as_str());
+    cfg.insert(&"db_user".to_string(), env::var("USER").unwrap().as_str());
+    cfg.insert(&"db_password".to_string(), db_pwd.as_str());
+    cfg.insert(&"db_port".to_string(), port.to_string().as_str());
+
+    Ok(PgInstance{work_dir, port, db_name, db_pwd, ver, cfg})
 }
 
-pub fn cleanup_db(work_dir: String, port: u16, db_name: String, ver: u8) {
-    println!("\n\nCleanup on {}", work_dir);
+pub fn cleanup_db(pg: PgInstance) {
+    println!("\n\nCleanup on {}", pg.work_dir);
     match Command::new("./postgres.sh")
         .current_dir("./tests")
         .arg("stop")
-        .arg(work_dir.clone())
-        .arg(port.to_string())
+        .arg(pg.work_dir.clone())
+        .arg(pg.port.to_string())
         .output().map_err(|e| format!("{}", e)) {
         Ok(pc) => {
             println!("stop: [{}] {} {}", pc.status.success(), String::from_utf8_lossy(&pc.stderr), String::from_utf8_lossy(&pc.stdout));
@@ -120,12 +177,12 @@ pub fn cleanup_db(work_dir: String, port: u16, db_name: String, ver: u8) {
 
 }
 
-pub fn dump_db(work_dir: &String, port: u16, db_name: &String, ver: u8) -> Result<String, String> {
-    println!("Dumping:  pg_dump -s -h localhost -p {} {}", port, db_name);
+pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
+    println!("Dumping:  pg_dump -s -h localhost -p {} {}", pg.port, pg.db_name);
     let p = Command::new("pg_dump").arg("-s")
         .arg("-h").arg("localhost")
-        .arg("-p").arg(port.to_string().as_str())
-        .arg(db_name.as_str()).output().map_err(|e| format!("{}", e))?;
+        .arg("-p").arg(pg.port.to_string().as_str())
+        .arg(pg.db_name.as_str()).output().map_err(|e| format!("{}", e))?;
     if p.status.success() {
         let dbd = String::from_utf8_lossy(&p.stdout).split("\n")
             .filter(|l| !(l.len()==0 || l.starts_with("--")
@@ -145,10 +202,10 @@ pub fn dump_db(work_dir: &String, port: u16, db_name: &String, ver: u8) -> Resul
 }
 
 
-pub fn compare_with(d: String, b: String) -> Result<(), String> {
-    let a = fs::read_to_string(format!("{}/test.result", d).as_str())
-            .map_err(|e| format!("reading [{}/test.result] {}", d, e))?;
-    fs::write(format!("{}/dump.out", d), &b); // dump the dump
+pub fn compare_with(d: String, dump: &str, b: String) -> Result<(), String> {
+    let a = fs::read_to_string(format!("{}/{}", d, dump).as_str())
+            .map_err(|e| format!("reading [{}/{}] {}", d, dump, e))?;
+    fs::write(format!("{}/{}.out", d, dump), &b); // dump the dump
     let a:Vec<&str> = a.split("\n").collect();
     let b:Vec<&str> = b.split("\n").collect();
     let mut i = 0usize;
@@ -175,7 +232,7 @@ fn pseudo_rnd(min: u16, max: u16) -> u16 {
 		.duration_since(UNIX_EPOCH)
 		.unwrap()
 		.subsec_nanos();
-	prc(min, max, pseudo_random as u16, 0)
+	prc(min, max, min + pseudo_random as u16, 0)
 }
 
 #[inline]

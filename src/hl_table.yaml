@@ -1,0 +1,74 @@
+tableName: rdbm_history
+description: The schema deployment log
+columns:
+    - column:
+        name: id
+        type: serial
+        constraint:
+            primaryKey: true
+            nullable: false
+    - column:
+        name: source
+        type: varchar(250)
+        constraint:
+            nullable: false
+    - column:
+        name: target
+        type: varchar(250)
+    - column:
+        name: source_type
+        type: char
+        description: "P: Pre-Deploy, S: Schema, V: Version, R: Re-Runnable, A: After-Migrate"
+        constraint:
+            nullable: false
+    - column:
+        name: version
+        type: varchar(80)
+        constraint:
+            nullable: false
+    - column:
+        name: created_on
+        type: timestamp
+        defaultValue: current_timestamp
+        constraint:
+            nullable: false
+    - column:
+        name: checksum
+        type: varchar(80)
+    - column:
+        name: scheduled_on
+        type: timestamp
+    - column:
+        name: script_tag
+        type: varchar(80)
+    - column:
+        name: catalog
+        type: varchar(80)
+    - column:
+        name: executed_on
+        type: timestamp WITH TIME ZONE
+    - column:
+        name: executed_by
+        type: varchar(80)
+    - column:
+        name: ok
+        type: bool
+        constraint:
+          nullable: false
+        defaultValue: "false"
+        description: Successful execution of the script
+    - column:
+        name: msg
+        type: varchar(250)
+    - column:
+        name: took_sec
+        type: bigint
+        constraint:
+            nullable: false
+        defaultValue: "0"
+    - column:
+        name: times
+        type: int
+        defaultValue: '1'
+        constraint:
+            nullable: false

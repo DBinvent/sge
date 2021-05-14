@@ -54,7 +54,8 @@ The app intend to be a microservice ready with multi-database (microservice conf
 ### TODO
 
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
-- Add JSON format for schema definition
+- Add JSON format for schema definition, yaml to json converter, and schema validation https://docs.rs/jsonschema/0.9.0/jsonschema/index.html
+- Add YAML schema validation https://docs.rs/yaml-validator/0.1.0/yaml_validator/
 - Add git as a source for scripts and license (pull/push)
 - Add key-vault's cloud integration for DB connection and license store
 - Add UI / api to work as a service (php-admin inspired)
@@ -63,5 +64,5 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 ### License
 
-This software distributed as commercially licensed
+This software distributed as commercially licensed and free for personal use
 

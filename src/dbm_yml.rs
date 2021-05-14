@@ -1,6 +1,6 @@
 extern crate yaml_rust;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, BTreeSet};
 use std::fs;
 
 use postgres::Transaction;
@@ -21,6 +21,8 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::fmt::Display;
 use serde::ser::SerializeSeq;
+use std::convert::TryFrom;
+use yaml_validator::Validate;
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -37,9 +39,9 @@ pub(crate) struct FilesMap {
     pub after: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct FileVersion {
-    #[serde(skip_serializing)]
+    // #[serde(skip_serializing)]
     v: Version,
     pub s: String,
 }
@@ -87,16 +89,30 @@ impl Display for FileVersion {
     }
 }
 
+impl Serialize for FileVersion {
+    fn serialize<S>(&self, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error>
+    where S: Serializer
+    {
+        serializer.serialize_str(&self.s)
+    }
+}
+
 pub(crate) fn load_all(cfg: &ConfigMap, log: &Logger) -> Result<FilesMap, String> {
     let mut schema = FilesMap::new();
     let mut dir = cfg.get("source_dir");
     if dir.len() == 0 { dir.push_str("./"); }
     else if dir.as_bytes()[dir.len()-1] != b'/' { dir.push('/'); }
+
+
+    let context = yaml_validator::Context::try_from(&crate::SCHEMA_YAML[..])
+        .map_err(|e| format!("correct schema.yaml: context {}", e))?;
+
     load_dir(
         dir.as_str(), dir.as_str(),
         &mut schema,
         &FileFilters::new(cfg)?,
         cfg.get_bool("source_recur", true),
+        &context,
         log,
     )?;
     Ok(schema)
@@ -115,25 +131,37 @@ impl FilesMap {
 
     /// looking for FKtable's PK
     #[inline]
-    fn pks(&self, schema: &String, table: &String) -> String {
+    fn pks(&self, schema: &String, table: &String, target: &FileVersion) -> String {
         let mut pk = String::new();
-        for (_, (_, sks)) in &self.schemas {
-            if let Some(fkst) = sks.get(schema) {
-                if let Some(tt) = fkst.tables.get(table) {
-                    for cc in &tt.columns.list {
-                        if cc.is_pk() {
-                            let _ = write!(
-                                pk,
-                                "{}{}",
-                                if pk.len() > 0 { ", " } else { "" },
-                                cc.get_name()
-                            );
+        for (v, (_, sks)) in &self.schemas {
+            if v <= target {
+                if let Some(fkst) = sks.get(schema) {
+                    if let Some(tt) = fkst.tables.get(table) {
+                        for cc in &tt.columns.list {
+                            if cc.is_pk() {
+                                let _ = write!(
+                                    pk,
+                                    "{}{}",
+                                    if pk.len() > 0 { ", " } else { "" },
+                                    cc.get_name()
+                                );
+                            }
                         }
                     }
                 }
             }
         }
         pk
+    }
+
+    /// return sorted list of loaded versions
+    pub fn all_versions(&self) -> BTreeSet<FileVersion>{
+        let mut res = BTreeSet::new();
+        self.schemas.keys().for_each(|f| {res.insert(f.clone());});
+        self.pre.keys().for_each(|f| {res.insert(f.clone());});
+        self.versions.keys().for_each(|f| {res.insert(f.clone());});
+        self.re_runnable.keys().for_each(|f| {res.insert(f.clone());});
+        res
     }
 }
 
@@ -164,6 +192,7 @@ fn load_dir(
     schema: &mut FilesMap,
     ff: &FileFilters,
     recursive: bool,
+    context: &yaml_validator::Context,
     log: &Logger,
 ) -> Result<(), String> {
     match fs::read_dir(dir) {
@@ -174,7 +203,7 @@ fn load_dir(
                         let fm = p.metadata().unwrap();
                         let fi = p.path().to_string_lossy().to_string();
                         if fm.is_dir() && recursive {
-                            load_dir(root, fi.as_str(), schema, ff, recursive, log)?;
+                            load_dir(root, fi.as_str(), schema, ff, recursive, context, log)?;
                         } else if fm.is_file() && fi.len() > 5 {
                             let file_name = if root.len() > 0 {
                                 fi[root.len()..].to_string()
@@ -192,7 +221,7 @@ fn load_dir(
                                         ff.schema_deploy.parse_type(&file_name, starting_pos)?
                                     {
                                         // todo read Schema in JSON format
-                                        match load(fi.as_str()) {
+                                        match load_yaml(fi.as_str(), context) {
                                             Ok(y) => match y["database"].as_vec() {
                                                 None => {}
                                                 Some(schemas) => {
@@ -350,10 +379,19 @@ pub(crate) fn semver_parse(input: &str) -> Result<Version, String> {
 }
 
 #[inline]
-fn load(filename: &str) -> Result<Yaml, String> {
+fn load_yaml(filename: &str, context: &yaml_validator::Context) -> Result<Yaml, String> {
     match fs::read_to_string(filename) {
         Ok(data) => match YamlLoader::load_from_str(data.as_str()) {
-            Ok(mut y) => Ok(y.remove(0)),
+            Ok(mut y) => {
+                let doc = y.remove(0);
+                let yts = match context.get_schema("database") {
+                    None => { return Err("correct schema.yaml: database".to_string()); }
+                    Some(y) => y,
+                };
+                yts.validate(&context, &doc)
+                    .map_err(|err| {format!("Schema [{}] validation error: {}", filename, err)})?;
+                Ok(doc)
+            },
             Err(e) => Err(format!("parsing error: {} of file: {}", e, filename)),
         },
         Err(e) => Err(format!("load error [{}]: {}", filename, e)),
@@ -551,7 +589,7 @@ impl YTrig {
 #[inline]
 fn as_str_esc(input: &Yaml, field: &str) -> String {
     let val = as_str(input, field, "");
-    match val.find(" --") {
+    match val.find("--") {
         None => {
             if val.len() > 0 {
                 format!("{}", val)
@@ -559,7 +597,7 @@ fn as_str_esc(input: &Yaml, field: &str) -> String {
                 "".into()
             }
         }
-        Some(i) => val[0..i].into(),
+        Some(i) => val[0..i].trim().into(),
     }
 }
 
@@ -923,7 +961,8 @@ impl YTable {
     #[allow(unused, unused_mut)]
     pub(crate) fn deploy_fk(
         &self,
-        yschemas: &FilesMap,
+        target: &FileVersion,
+        files: &FilesMap,
         dbc: &mut InfoSchemaType,
         db: &mut Transaction,
         schema: &String,
@@ -953,7 +992,7 @@ impl YTable {
                                     }
                                 }
                             }
-                            let fk_columns = yschemas.pks(&fk_schema, &fk_table);
+                            let fk_columns = files.pks(&fk_schema, &fk_table, target);
                             if fk_columns.len() > 0 {
                                 fk_list.push(FKTable {
                                     column: fk_columns,

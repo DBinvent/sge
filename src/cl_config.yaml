@@ -1,0 +1,303 @@
+name: rdbm
+version: "1.0"
+author: DBInvent LLC
+about: 'The SQL script tracker and DB deployment by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
+usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
+
+args:
+    - db_url:
+        long: db_url
+        takes_value: true
+        help: |
+            The url will be parsed to name, host etc. If any of one already set (include env), then they will be used instead.
+            Format is: 'postgres://' (see https://www.postgresql.org/docs/current/libpq-connect.html) OR space separated key=value
+    - db_name:
+        long: db_name
+        default_value: $USER
+        help: Postgres database name
+    - db_host:
+        long: db_host
+        default_value: /var/run/postgresql
+        help: Postgres host
+    - db_port:
+        long: db_port
+        default_value: "5432"
+        help: Postgres port
+    - db_user:
+        long: db_user
+        default_value: $USER
+        help: DB user, default value is a current user $USER
+    - db_password:
+        long: db_password
+        takes_value: true
+        help: Password or SSL certificates (see db_sslxxx params)
+    - db_sslmode:
+        long: db_sslmode
+        default_value: verify-full
+        help: sslmode
+    - db_sslrootcert:
+        long: db_sslrootcert
+        takes_value: true
+        help: /path/to/server-ca.crt
+    - db_sslcert:
+        long: db_sslcert
+        takes_value: true
+        help: /path/to/client.crt
+    - db_sslkey:
+        long: db_sslkey
+        takes_value: true
+        help: /path/to/client.key
+    - logdb_url:
+        long: logdb_url
+        takes_value: true
+        help: The url will be parsed to name, host etc. If they set, then those portion will be used instead
+    - logdb_name:
+        long: logdb_name
+        takes_value: true
+        help: History Log database name. If not set, then use 'db_***' configuration
+    - logdb_host:
+        long: logdb_host
+        default_value: /var/run/postgresql
+        help: History Log database host. If not set, then use 'db_***' configuration
+    - logdb_port:
+        long: logdb_port
+        default_value: "5432"
+        help: History Log database port. If not set, then use 'db_***' configuration
+    - logdb_user:
+        long: logdb_user
+        takes_value: true
+        help: History Log database user. If not set, then use 'db_***' configuration
+    - logdb_password:
+        long: logdb_password
+        takes_value: true
+        help: History Log database Password or SSL certificates (see xx_sslxxx params)
+    - logdb_sslmode:
+        long: logdb_sslmode
+        default_value: verify-full
+        takes_value: true
+        help: History Log database SSL Mode. If not set, then use 'db_***' configuration
+    - logdb_sslrootcert:
+        long: logdb_sslrootcert
+        takes_value: true
+        help: "History Log database SSL root Cert, ex: /path/to/server-ca.crt . If not set, then use 'db_***' configuration"
+    - logdb_sslcert:
+        long: logdb_sslcert
+        takes_value: true
+        help: "History Log database SSL crt file, ex: /path/to/client.crt . If not set, then use 'db_***' configuration"
+    - logdb_sslkey:
+        long: logdb_sslkey
+        takes_value: true
+        help: "History Log database SSL key file: /path/to/client.key. If not set, then use 'db_***' configuration"
+    - pre_deploy:
+        long: pre_deploy
+        default_value: "*"
+        help: Scan for files to perform (P)re Deploy scripts. Found file with suitable versions will check for absent in execution and run ahead of (S)chema file.
+    - schema_deploy:
+        long: schema_deploy
+        default_value: "*"
+        help: |
+            Scan for files to perform deploy (S)chema scripts, i.e. target schema files to deploy, up to the target version (* - means all).
+            Yaml schema files will be parsed, compared with DB information schema and tables will append with missed columns.
+            Existing columns wont change neither delete.
+    - checksum:
+        long: checksum
+        default_value: "true"
+        help: Fail on deploy if scripts checksum mismatch for (P)re and (V)ersion between files already deployed and logged and the the script found in source folder. This helps to keep file to be consistent between environments.
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - rr_deploy:
+        long: rr_deploy
+        default_value: "*"
+        help: Scan for files to perform deploy (R)e-runable scripts. Found file with suitable versions will check for hashsum and if file absent or changes detected, than script will execute.
+    - schema:
+        long: schema
+        default_value: public
+        help: The deployment history 'table' schema location
+    - schema_transaction:
+        long: schema_transaction
+        default_value: file
+        help: |
+          The value to override (S)chema file database.schema.table.transaction option
+          - file: (default) execute the (S)chema file in a single transaction. This is guarantee to have all or neither changes applied by the file marked as OK.
+          - table: perform all changes for each table per transaction. 
+          The value pass in parameter will override a value set in (S)chema file on a migration execution.        
+    - version_transaction:
+        long: version_transaction
+        takes_value: true
+        help: |
+          The value to override (V)ersion file execution option in psql
+          - single: (default) execute the (V)ersion file with a --single-transaction psql option.
+          - statement: execute psql without --single-transaction option. This is also available by set first line in file to 'false' like: --single-transaction=false        
+    - table:
+        long: table
+        default_value: rdbm_history
+        help: The deployment history table name in 'schema'
+    - source_dir:
+        long: source_dir
+        default_value: "./"
+        help: Directory scripts location, use <source_recur> to scan sub dir
+    - source_recur:
+        long: source_recur
+        default_value: "true"
+        help: Scan Directory recursively
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - executed_by:
+        long: executed_by
+        takes_value: true
+        help: The user name run the migration
+    - script_tag:
+        long: script_tag
+        takes_value: true
+        help: Set the Tag to applied scripts (rows)
+    - db_target:
+        long: db_target
+        takes_value: true
+        help: The target is a database name, it's an empty string (if the log history table on same database); OR environment(dev|prod)+host(node)+database for orchestration configuration.
+    - db_catalog:
+        long: db_catalog
+        takes_value: true
+        help: The name of set of DB schemas / module / microservice.
+    - version_deploy:
+        long: version_deploy
+        default_value: "*"
+        help: Perform Deploy (V)ersion files up to the target version (* means all)
+    - dry_run:
+        long: dry_run
+        default_value: "false"
+        help: |
+          Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE' / 'CREATE ROLE'), also log all attempts to script file run.
+          To avoid 'CREATE DATABASE'/'CREATE ROLE' SQL execution please remove '--createdb' parameter or set it to false.
+          For the 'license' command the dry_run will not call remote host, but check the license."
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - dry_run_to:
+        long: dry_run_to
+        takes_value: true
+        help: The name of file to dump the generated SQL script
+    - snapshot_format:
+        long: snapshot_format
+        default_value: yaml
+        possible_values: [yaml, json]
+        help: "The format of generated information of DB schema by the 'snapshot' command, also see '--snapshot_to' parameter."
+    - info_format:
+        long: info_format
+        default_value: json
+        possible_values: [yaml, json]
+        help: "The format of generated information of DB schema by the 'info' command"
+    - snapshot_to:
+        long: snapshot_to
+        takes_value: true
+        help: 'The name of file to dump the database structure. Used by snapshot command. default_value is: D<next>.0__<database_name>.yaml in the source_dir.'
+    - config_file:
+        long: config
+        short: c
+        takes_value: true
+        help: |
+            Load all params from config file (: or = separated)
+            any command line params will override parameters loaded from file.
+            If neither set than environment variables (with CAPITALIZED names) will be search to use.
+            If still not found, then default value will be use (if set).
+            Support: YAML, Properties, Conf, Cfg, JSON, env etc formats of text files with a strings ':' or '=' separated to key-value pair.
+            So, the 'key' will be lowercase and the 'value' will be unquoted. Please avoid multiline comments wrapped on first and last lines only!
+            Notice: please see '--db_url' and '--logdb_url' for additional use hierarchy"
+    - after:
+        long: after
+        default_value: "after.sql"
+        takes_value: true
+        help: Try to find and run the script after successful migration execution. Do not fail if not found. This script execution wont log into history table.
+    - after_each:
+        long: after_each
+        default_value: "after_each.sql"
+        takes_value: true
+        help: Try to find and run the script after each 'V' or 'R' successful execution. Do not fail if not found. This script execution wont log into history table.
+    - after_end:
+        long: after_end
+        default_value: "after_end.sql"
+        takes_value: true
+        help: Try to find and run the script after migration executed and history log committed. Do not fail if not found. This script execution wont log into history table.
+    - createdb:
+        long: createdb
+        default_value: "false"
+        help: Create DB if the db_name/log_dbname not exists. Will try to use same credentials and db postgres
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - verbose:
+        long: verbose
+        default_value: "false"
+        help: Turn DEBUG logging ON.
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - createdb_user:
+        long: createdb_user
+        default_value: postgres
+        help: The DB user to use during 'Create DB' step.
+    - createdb_pwd:
+        long: createdb_pwd
+        takes_value: true
+        help: The DB user's password to use during 'Create DB' step. If not set, then will be use db_sslxxx.
+    - createdblog_user:
+        long: createdblog_user
+        default_value: postgres
+        help: The DB user to use during 'Create LOGDB' step. LOGDB use if logdb_name set.
+    - createlogdb_pwd:
+        long: createlogdb_pwd
+        takes_value: true
+        help: DB user's password to use during 'Create LOGDB' step. If not set, then will be use logdb_sslxxx.
+    - email:
+        long: email
+        takes_value: true
+        help: The person's email to send a license file.
+    - subscribe:
+        long: subscribe
+        takes_value: true
+        help: 'Use to append license with connections: <db_name> or <host>. possible values: * OR <name>.'
+    - license_file:
+        long: license_file
+        default_value: rdbm.license
+        help: The license file. Use './rdbm --email=your@email license' OR check 'https://rdbm.dbinvent.com/' to get one.
+
+
+subcommands:
+    - migrate:
+        about: Perform a migration to specified version of all possible and suitable scripts
+        help: |
+          Perform a DB migration to a version set in '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' (without a sub-folder scan if '--source_recur' is disabled)
+          into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set.
+          The DB and DB user will be created if absent, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'.
+          The migration executor will be logged by '--executed_by' value
+          Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information) and environment orchestration.
+          
+          The execution order is: (P)->(S)->(V)->(R)->(after)
+          
+          i.e. (P)reDeploy SQL, (S)chema YAML, (V)ersion SQL, (R)e-runable SQL, (a)fter (each) migration SQL.
+          The (P)reDeploy SQL use to be executed before (S)chema YAML.
+          The (S)chema YAML will try to scan an information DB and apply changes required changes.
+          The (V)ersion SQL intended to be a major set of files for DB upgrade and will be executed only one time and store into a history log table.
+          The (R)e-runnable SQL very useful for handling Store Procedure upgrade and with a '--script_tag' very easily trackable.
+          The (P) and (V) will check for version and execute if version absent in target DB up to a target version.
+          Also (P) and (V) scripts will check for consistency and fail if the script changed and '--checksum' set.
+          The (S) script will check for version target and try to apply changes if they are absent in target DB.
+          The (R) script will check a file hashsum and run it if the file was changed to was not run yet on DB.
+          The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history.
+          The '--config_file' or '-c' use to put all params by name (without -- prefix) into a text file. The args pass in command line will override those from config file.
+          See more options in './rdbm help' command.
+          Use --dry_run to avoid DB change.
+
+          Require a valid license to run (use './rdbm help license' for more information).
+          Check https://rdbm.dbinvent.com for more information and best practice.
+
+    - prepare:
+        about: Create a history log table use to track scripts executions
+        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or '--db_name' if not set. Use '--dry_run' to avoid DB change."
+    - snapshot:
+        about: Perform a schema dump into snapshot_to file in yaml or json format.
+        help: "Perform a DB schema dump into a '--snapshot_to' file in yaml or json format. Only column name and type information for now will be stored."
+    - info:
+        about: Return deployment status and a tag version in JSON format. See '--info_format'.
+        help: Return deployment status and a tag version in JSON format. See '--info_format'.
+    - license:
+        about: Create apply, upgrade, subscribe or check a license to use this software.
+        help: |
+          Create apply, upgrade, subscribe or check a license.
+          Use '--email' and '--license' to request a license file if the file not found in '--license_file' OR Evaluation is expired.
+          If the file exist, than will try to check and upgrade a licenses 'valid_until' date.
+          Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections).
+          This is the only the command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid 'api_key' to perform upgrade or subscribe.
+          Use '--dry_run' to avoid calling remote host, but check the license.
+          Check https://rdbm.dbinvent.com/license for more information about licensing.
