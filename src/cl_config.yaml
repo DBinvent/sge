@@ -1,59 +1,61 @@
 name: rdbm
 version: "1.0"
 author: DBInvent LLC
-about: 'The SQL script tracker and DB deployment by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
+about: 'The SQL script tracker and DB deployment tool by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
 usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
 
 subcommands:
     - migrate:
-        about: Perform a migration to specified version of all possible and suitable scripts
+        about: Perform a DB migration to a specified version of all possible and suitable scripts
         help: |
-          Perform a DB migration to a version set in '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' (without a sub-folder scan if '--source_recur' is disabled)
-          into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set.
-          The DB and DB user will be created if absent, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'.
+          Perform a DB migration to a version set in '--target' OR,
+          in the argument for a particular phase: '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy'
+          of scripts located in '--source' (without a sub-folder scan if '--source_recur' is disabled)
+          into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb_name' not set.
+          The DB and DB user will be created if needed, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'.
           The migration executor will be logged by '--executed_by' value
-          Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information) and environment orchestration.
+          Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. These values are useful in a microservice architecture (see rdbm.dbinvent.com/best for more information) and environment orchestration.
 
           The execution order is: (P)->(S)->(V)->(R)->(after)
 
           i.e. (P)reDeploy SQL, (S)chema YAML, (V)ersion SQL, (R)e-runable SQL, (a)fter (each) migration SQL.
-          The (P)reDeploy SQL use to be executed before (S)chema YAML.
-          The (S)chema YAML will try to scan an information DB and apply changes required changes.
-          The (V)ersion SQL intended to be a major set of files for DB upgrade and will be executed only one time and store into a history log table.
-          The (R)e-runnable SQL very useful for handling Store Procedure upgrade and with a '--script_tag' very easily trackable.
-          The (P) and (V) will check for version and execute if version absent in target DB up to a target version.
-          Also (P) and (V) scripts will check for consistency and fail if the script changed and '--checksum' set.
-          The (S) script will check for version target and try to apply changes if they are absent in target DB.
-          The (R) script will check a file hashsum and run it if the file was changed to was not run yet on DB.
-          The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history.
-          The '--config_file' or '-c' use to put all params by name (without -- prefix) into a text file. The args pass in command line will override those from config file.
+          The (P)reDeploy SQL is to be executed before (S)chema YAML.
+          The (S)chema YAML will try to scan an information DB and apply changes required.
+          The (V)ersion SQL is intended to be a major set of files for DB upgrade and will be executed only one time and be stored into a history log table.
+          The (R)e-runnable SQL is very useful for handling stored procedure upgrades and with a '--script_tag' is very easily trackable.
+          The (P) and (V) will check the version and execute if the version is absent in target DB up to a target version.
+          The (P) and (V) scripts will also check for consistency and fail if the script changed and '--checksum' is set.
+          The (S) script will check for a target version and try to apply changes if they are absent in the target DB.
+          The (R) script will check a file hashsum and run it if the file was changed and was not run yet on DB.
+          The 'after.sql' and 'after_each.sql' (names are configurable) and will try always to execute, but won't record in the history.
+          The '--config_file' or '-c' is used to put all params by name (without -- prefix) into a text file. The arguments passed in the command line will override those from the config file.
           See more options in './rdbm help' command.
           Use --dry_run to avoid DB change.
 
-          Require a valid license to run (use './rdbm help license' for more information).
-          Check https://rdbm.dbinvent.com for more information and best practice.
+          A valid license is required to run (use './rdbm help license' for more information).
+          Check https://rdbm.dbinvent.com for more information and best practices.
 
     - prepare:
-        about: Create a history log table use to track scripts executions
-        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or '--db_name' if not set. Use '--dry_run' to avoid DB change."
+        about: Create a history log table to track scripts executions
+        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'.  '--dry_run' to avoid DB change."
     - snapshot:
         about: Perform a schema dump into snapshot_to file in yaml or json format.
         help: |
           Perform a DB schema dump into a '--snapshot_to' file in yaml or json format.
-          Notice: There is a limited column information will be converted from pg_catalog and information_schema
-          to fully match an input format of manual yaml schema created.
-          Therefore dump schema snapshot and yaml input file may differ.
+          Notice: There is a limited amount of column information that will be converted from pg_catalog and information_schema
+          to fully match an input format of the manual yaml schema created.
+          Therefore, the dump schema snapshot and yaml input file may differ.
     - info:
-        about: Return deployment status and a tag version in JSON format. See '--info_format'.
-        help: Return deployment status and a tag version in JSON format. See '--info_format'.
+        about: Return the deployment status and tag a version in JSON format. See '--info_format'.
+        help: Return the deployment status and tag a version in JSON format. See '--info_format'.
     - license:
-        about: Create apply, upgrade, subscribe or check a license to use this software.
+        about: Create apply, upgrade, subscribe or check a license is valid to use this software.
         help: |
-          Create apply, upgrade, subscribe or check a license.
-          Use '--email' and '--license' to request a license file if the file not found in '--license_file' OR Evaluation is expired.
-          If the file exist, than will try to check and upgrade a licenses 'valid_until' date.
+          Create apply, upgrade, subscribe or check a license is valid.
+          Use '--email' and '--license' to request a license file if the file is not found in '--license_file' OR Evaluation is expired.
+          If the file exists, then perform a check and upgrade the licenses 'valid_until' date.
           Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections).
-          This is the only the command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid 'api_key' to perform upgrade or subscribe.
+          This is the only command of ./rdbm which makes a connection to the https://rdbm.dbinvent.com and it will require a valid 'api_key' to perform an upgrade or subscribe.
           Use '--dry_run' to avoid calling remote host, but check the license.
           Check https://rdbm.dbinvent.com/license for more information about licensing.
 
@@ -62,7 +64,7 @@ args:
         long: db_url
         takes_value: true
         help: |
-            The url will be parsed to name, host etc. If any of one already set (include env), then they will be used instead.
+            The url will be parsed to name, host etc. If any of these are already set (include env), then they will be used instead.
             Format is: 'postgres://' (see https://www.postgresql.org/docs/current/libpq-connect.html) OR space separated key=value
     - db_name:
         long: db_name
@@ -79,7 +81,7 @@ args:
     - db_user:
         long: db_user
         default_value: $USER
-        help: DB user, default value is a current user $USER
+        help: DB user, the default value is the current user $USER
     - db_password:
         long: db_password
         takes_value: true
@@ -103,7 +105,7 @@ args:
     - logdb_url:
         long: logdb_url
         takes_value: true
-        help: The url will be parsed to name, host etc. If they set, then those portion will be used instead
+        help: The url will be parsed to name, host etc. If they are already set, then those values will be used instead
     - logdb_name:
         long: logdb_name
         takes_value: true
@@ -141,26 +143,35 @@ args:
         long: logdb_sslkey
         takes_value: true
         help: "History Log database SSL key file: /path/to/client.key. If not set, then use 'db_***' configuration"
+    - target:
+        long: target
+        default_value: "*"
+        help: Scans for files to perform migration. Use this as default value for '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy'.
     - pre_deploy:
         long: pre_deploy
         default_value: "*"
-        help: Scan for files to perform (P)re Deploy scripts. Found file with suitable versions will check for absent in execution and run ahead of (S)chema file.
+        help: |
+            Scans for files to perform (P)re Deploy scripts. Finds files with suitable versions and will check for absent files during its execution. It runs before the (S)chema file.
+            Use '--target' to set the default value for the migration.
     - schema_deploy:
         long: schema_deploy
         default_value: "*"
         help: |
             Scan for files to perform deploy (S)chema scripts, i.e. target schema files to deploy, up to the target version (* - means all).
-            Yaml schema files will be parsed, compared with DB information schema and tables will append with missed columns.
-            Existing columns wont change neither delete.
+            Yaml schema files will be parsed, compared with DB information schema and tables will append with missing columns.
+            Existing columns will not change or be deleted.
+            Use '--target' to set the default value for the migration.
     - checksum:
         long: checksum
         default_value: "true"
-        help: Fail on deploy if scripts checksum mismatch for (P)re and (V)ersion between files already deployed and logged and the the script found in source folder. This helps to keep file to be consistent between environments.
+        help: Fail on deploy if scripts checksum mismatch for (P)re and (V)ersion between files already deployed and logged, and the the script found in source folder. This helps to keep file to be consistent between environments.
         possible_values: [yes, no, ok, y, "1", "true", "false"]
     - rr_deploy:
         long: rr_deploy
         default_value: "*"
-        help: Scan for files to perform deploy (R)e-runable scripts. Found file with suitable versions will check for hashsum and if file absent or changes detected, than script will execute.
+        help: |
+            Scan for files to perform deploy (R)e-runable scripts. Files found with suitable versions will then have their hashsum checked and if the file is absent or changes are detected, then the script will execute.
+            Use '--target' to set the default value for the migration.
     - schema:
         long: schema
         default_value: public
@@ -170,7 +181,7 @@ args:
         default_value: file
         help: |
           The value to override (S)chema file database.schema.table.transaction option
-          - file: (default) execute the (S)chema file in a single transaction. This is guarantee to have all or neither changes applied by the file marked as OK.
+          - file: (default) execute the (S)chema file in a single transaction. This is a guarantee to be sure all or no changes applied by the file marked as OK.
           - table: perform all changes for each table per transaction. 
           The value pass in parameter will override a value set in (S)chema file on a migration execution.        
     - version_transaction:
@@ -179,7 +190,7 @@ args:
         help: |
           The value to override (V)ersion file execution option in psql
           - single: (default) execute the (V)ersion file with a --single-transaction psql option.
-          - statement: execute psql without --single-transaction option. This is also available by set first line in file to 'false' like: --single-transaction=false        
+          - statement: execute psql without --single-transaction option. This is also available by setting the first line in file to 'false' like: --single-transaction=false        
     - table:
         long: table
         default_value: rdbm_history
@@ -196,7 +207,7 @@ args:
     - executed_by:
         long: executed_by
         takes_value: true
-        help: The user name run the migration
+        help: The user name of the user running the migration
     - script_tag:
         long: script_tag
         takes_value: true
@@ -204,11 +215,11 @@ args:
     - db_target:
         long: db_target
         takes_value: true
-        help: The target is a database name, it's an empty string (if the log history table on same database); OR environment(dev|prod)+host(node)+database for orchestration configuration.
+        help: The DB target value is a database name, it's an empty string (if the log history table on same database); OR environment(dev|prod)+host(node)+database for orchestration configuration.
     - db_catalog:
         long: db_catalog
         takes_value: true
-        help: The name of set of DB schemas / module / microservice.
+        help: The name of a set of DB schemas / modules / microservices.
     - version_deploy:
         long: version_deploy
         default_value: "*"
@@ -217,7 +228,7 @@ args:
         long: dry_run
         default_value: "false"
         help: |
-          Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE' / 'CREATE ROLE'), also log all attempts to script file run.
+          Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE' / 'CREATE ROLE'), also log all attempts to run the script file.
           To avoid 'CREATE DATABASE'/'CREATE ROLE' SQL execution please remove '--createdb' parameter or set it to false.
           For the 'license' command the dry_run will not call remote host, but check the license."
         possible_values: [yes, no, ok, y, "1", "true", "false"]
@@ -241,30 +252,30 @@ args:
         help: |
             Load all params from config file (: or = separated)
             any command line params will override parameters loaded from file.
-            If neither set than environment variables (with CAPITALIZED names) will be search to use.
-            If still not found, then default value will be use (if set).
+            If neither is set, then environment variables (with CAPITALIZED names) will be searched to use.
+            If still not found, then default values will be used (if set).
             Support: YAML, Properties, Conf, Cfg, JSON, env etc formats of text files with a strings ':' or '=' separated to key-value pair.
-            So, the 'key' will be lowercase and the 'value' will be unquoted. Please avoid multiline comments wrapped on first and last lines only!
-            Notice: please see '--db_url' and '--logdb_url' for additional use hierarchy"
+            The 'key' will be lowercase and the 'value' will be unquoted. Please avoid multiline comments wrapped on first and last lines only!
+            Notice: please see '--db_url' and '--logdb_url' for additional hierarchy"
     - after:
         long: after
         default_value: "after.sql"
         takes_value: true
-        help: Try to find and run the script after successful migration execution. Do not fail if not found. This script execution wont log into history table.
+        help: Try to find and run the script after the successful migration execution. The program will not fail if the script is not not found. This script execution will not log into the history table.
     - after_each:
         long: after_each
         default_value: "after_each.sql"
         takes_value: true
-        help: Try to find and run the script after each 'V' or 'R' successful execution. Do not fail if not found. This script execution wont log into history table.
+        help: Try to find and run the script after each 'V' or 'R' successful execution. The program will not fail if the script is not found. This script execution will not log into the history table.
     - after_end:
         long: after_end
         default_value: "after_end.sql"
         takes_value: true
-        help: Try to find and run the script after migration executed and history log committed. Do not fail if not found. This script execution wont log into history table.
+        help: Try to find and run the script after migration executed and history log committed. The program will not fail if the script is not found. This script execution will not log into the history table.
     - createdb:
         long: createdb
         default_value: "false"
-        help: Create DB if the db_name/log_dbname not exists. Will try to use same credentials and db postgres
+        help: Create DB if the db_name/log_dbname does not exist then it will try to create with the same credentials with db postgres
         possible_values: [yes, no, ok, y, "1", "true", "false"]
     - verbose:
         long: verbose
@@ -278,15 +289,15 @@ args:
     - createdb_pwd:
         long: createdb_pwd
         takes_value: true
-        help: The DB user's password to use during 'Create DB' step. If not set, then will be use db_sslxxx.
+        help: The DB user's password to use during 'Create DB' step. If this is not set, then will be use db_sslxxx.
     - createdblog_user:
         long: createdblog_user
         default_value: postgres
-        help: The DB user to use during 'Create LOGDB' step. LOGDB use if logdb_name set.
+        help: The DB user to use during 'Create LOGDB' step.  Use LOGDB if logdb_name set.
     - createlogdb_pwd:
         long: createlogdb_pwd
         takes_value: true
-        help: DB user's password to use during 'Create LOGDB' step. If not set, then will be use logdb_sslxxx.
+        help: DB user's password to use during 'Create LOGDB' step. If this is not set, then use logdb_sslxxx.
     - email:
         long: email
         takes_value: true
@@ -298,6 +309,6 @@ args:
     - license_file:
         long: license_file
         default_value: rdbm.license
-        help: The license file. Use './rdbm --email=your@email license' OR check 'https://rdbm.dbinvent.com/' to get one.
+        help: The argument is the license file. Use './rdbm --email=your@email license' OR check 'https://rdbm.dbinvent.com/' to get one.
 
 
