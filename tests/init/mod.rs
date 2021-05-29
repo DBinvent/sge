@@ -101,7 +101,7 @@ pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
 
     fs::create_dir_all(work_dir.as_str());
 
-    println!("Starting DB on ./postgres.sh start {} {} {} {} ... ", work_dir, port, ver, db_name);
+    println!("Starting DB on ./postgres.sh start {} {} {} {} {} ... ", work_dir, port, ver, db_name, db_pwd);
 
     let mut pc = Command::new("./postgres.sh");
         pc.current_dir(TESTS_DIR)
@@ -155,6 +155,7 @@ pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
     cfg.insert(&"db_user".to_string(), env::var("USER").unwrap().as_str());
     cfg.insert(&"db_password".to_string(), db_pwd.as_str());
     cfg.insert(&"db_port".to_string(), port.to_string().as_str());
+    cfg.insert(&"db_host".to_string(), "localhost");
 
     Ok(PgInstance{work_dir, port, db_name, db_pwd, ver, cfg})
 }
@@ -214,7 +215,7 @@ pub fn compare_with(d: String, dump: &str, b: String) -> Result<(), String> {
         let y = if b.len() == 0 {""} else { b[min(b.len() - 1, i)] };
         if x != y
         {
-            return Err(format!("not equals at line [{}/{}:{}]: \n[{}]\n[{}]", i+1, a.len(), b.len(), x, y));
+            return Err(format!("not equals at line({}/{}) [{}/{}:{}]: \n[{}]\n[{}]", d, dump, i+1, a.len(), b.len(), x, y));
         }
         if a.len() <= i || b.len() <= i {
            return Ok(());// break;

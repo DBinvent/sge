@@ -36,7 +36,7 @@ fi
 
 if [ ! -f "$wd/postmaster.pid" ]; then
   echo "Starting Postgres$pver on port $3. use '$0 stop $2 $3 && rm -rf $wd' to stop and clean it."
-  ./postgres -p "$3" --hba_file="$wd/pg_hba.conf" -k "$wd" -D "$wd"
+  ./postgres -p "$3" --hba_file="$wd/pg_hba.conf" -k "$wd" -D "$wd" &
   sleep 2
 fi
 

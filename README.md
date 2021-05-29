@@ -37,30 +37,28 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 ### Schema/Table deploy restriction notice
 
- - Schemas and tables definition allowed only in YAML format 
- - The column definitions 'sql' field and constraints (except FK) will apply only for a new columns or new table
- - Adding constraint on existing column won't produce an ALTER TABLE SQL (except FK)
- - The multi primary key columns will fail. 
- - The multi column FK definition column will fail. 
- - All script files executed by psql with a flag --single-transaction, to be able to correctly handle a status and safely repeat
- - Adding columns for Schema/Table for using with programming languages and ORM framework, sensitive to column order must append columns list. Postgres does not support inserting column only append. 
+ - Schemas and tables definition allowed only in YAML format (JSON comming soon) 
+ - Adding sql & constraint on existing column won't produce an ALTER TABLE SQL (except FK)
+ - The composite primary key (multi columns) will fail, as well as FK to those column. 
+ - The columns use by some ORM framework might be sensitive to column order. So, because Postgres does not support inserting column, list column of used in such ORM must append. 
 
 ### Schema snapshot restriction notice
 
- - only column name and type
- - no indexes, foreign keys, constraint, special sql on table or column definition
+ - only column name and type, pk, not null and fk constraint 
+ - no indexes, constraint, special sql on table or column definition
 
 
 ### TODO
 
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
 - Add JSON format for schema definition, yaml to json converter, and schema validation https://docs.rs/jsonschema/0.9.0/jsonschema/index.html
-- Add YAML schema validation https://docs.rs/yaml-validator/0.1.0/yaml_validator/
+- Add schema features: view, foreign tables, partitioned tables, indexes, constraint
+- Add data snapshot (pg_dump) full for featuring reverse eng.
+- Add data ELT migrations for dictionary tables 
 - Add git as a source for scripts and license (pull/push)
 - Add key-vault's cloud integration for DB connection and license store
 - Add UI / api to work as a service (php-admin inspired)
 - Add scheduled deploy
-- Add data migration: dump - upgrade 
 
 ### License
 

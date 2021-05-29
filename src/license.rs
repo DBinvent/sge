@@ -5,7 +5,7 @@ use std::path::Path;
 use std::{env, fs};
 
 use crate::ConfigMap;
-use chrono::{Date, Duration, FixedOffset, NaiveDateTime, Utc, NaiveDate, Datelike};
+use chrono::{Duration, DateTime, Utc, NaiveDate, Datelike};
 use crypto_hash::Algorithm;
 use rand::thread_rng;
 use rsa::{BigUint, PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
@@ -242,7 +242,7 @@ impl CreateUpdateRequest {
         append_name(logdb_name, false, &mut db_names);
 
         Ok(CreateUpdateRequest {
-            personal: true,
+            personal: email.find("mail").unwrap_or(0) > 0,
             email: email.clone(),
             hosts,
             db_names,
@@ -362,6 +362,7 @@ fn do_check(cfg: &ConfigMap, _log: &Logger) -> Result<bool, String> {
 }
 
 pub type LicenseDate = chrono::NaiveDate; //DateTime<FixedOffset>;
+pub type LicenseTime = chrono::NaiveDateTime; //DateTime<FixedOffset>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct License {
@@ -369,8 +370,8 @@ pub struct License {
     pub email: String,     //"@gmail.com"
     pub notice: String,    //"это поле свободно редактируется"
     pub connects: Vec<Connection>,
-    #[serde(with = "local_date_format")]
-    pub api_key_valid_until: LicenseDate, //"2021-12-12"
+    #[serde(with = "rfc3339")]
+    pub api_key_valid_until: LicenseTime, //"2021-12-12"
     pub api_key: String, // "<jwt token 300-500char>"
     /// package name
     pub license_type: String,
@@ -381,8 +382,6 @@ pub struct License {
     #[serde(skip)]
     /// clients RSA Pub key: use to encode connections, if they are not
     pub cpk: Option<String>,
-    // users timezone in hoursminutes as -/+1200 from UTC result of 'date +"%z"'
-    // pub timezone: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -397,9 +396,9 @@ impl Connection {
     #[allow(unused, dead_code)]
     #[inline]
     /// digest stings (prepare for encryption) and encrypt by public key separately
-    pub fn new(input: NaiveDateTime) -> Self {
+    pub fn new(input: LicenseDate) -> Self {
         Connection {
-            valid_until: Utc::today().naive_utc(),
+            valid_until: input,
             hosts: Default::default(),
             db_names: Default::default(),
         }
@@ -452,7 +451,7 @@ impl License {
             email: "".to_string(),
             notice: "".to_string(),
             connects: vec![],
-            api_key_valid_until: Utc::today().naive_utc(),
+            api_key_valid_until: Utc::now().naive_utc(),
             api_key: "".to_string(),
             license_type: "".to_string(),
             license: "".to_string(),
@@ -526,7 +525,7 @@ impl License {
                         email: yaml_as_str(y, "email"),
                         notice: yaml_as_str(y, "notice"),
                         connects,
-                        api_key_valid_until: to_date(y, "api_key_valid_until")?,
+                        api_key_valid_until: to_time(y, "api_key_valid_until")?,
                         api_key: yaml_as_str(y, "api_key"),
                         license: yaml_as_str(y, "license"),
                         crc: yaml_as_str(y, "crc"),
@@ -671,7 +670,7 @@ impl License {
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn header(&self) -> Result<String, String> {
-        let now: LicenseDate = Utc::today().naive_utc();
+        let now: LicenseTime = Utc::now().naive_utc();
         if self.api_key.len() < 30 {
             Err("api_key is not set".into())
         } else if self.api_key_valid_until < now {
@@ -814,6 +813,15 @@ fn to_date(yaml: &Yaml, field: &str) -> Result<LicenseDate, String> {
     }
 }
 
+#[inline]
+fn to_time(yaml: &Yaml, field: &str) -> Result<LicenseTime, String> {
+    match yaml[field].as_str() {
+        None => Err(format!("not date set in: {}", field)),
+        Some(s) => Ok(DateTime::parse_from_rfc3339(s)
+            .map_err(|e| format!("date parsing [{}] error: {}", s, e))?.naive_utc())
+    }
+}
+
 pub const DATE_FORMAT: &str = "%Y-%m-%d";
 
 mod local_date_format {
@@ -834,8 +842,31 @@ mod local_date_format {
         D: Deserializer<'de>,
     {
         NaiveDate::parse_from_str(String::deserialize(deserializer)?.as_str(), DATE_FORMAT)
-        // DateTime::parse_from_rfc3339(String::deserialize(deserializer)?.as_str())
             .map_err(serde::de::Error::custom)
+    }
+}
+
+mod rfc3339 {
+    use chrono::{DateTime, Utc};
+    use serde::{self, Deserialize, Deserializer, Serializer};
+    use crate::license::LicenseTime;
+
+    pub fn serialize<S>(date_time: &LicenseTime, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let s = DateTime::<Utc>::from_utc(*date_time, Utc).to_rfc3339();
+        serializer.serialize_str(&s)
+    }
+
+    #[allow(dead_code)]
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<LicenseTime, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        let dt = DateTime::parse_from_rfc3339(&s).map_err(serde::de::Error::custom)?;
+        Ok(dt.naive_utc())
     }
 }
 
@@ -951,7 +982,7 @@ mod tests {
         let one = Utc::now();
         sleep(Duration::from_millis(100));
         let two = Utc::now();
-        let t: DateTime<FixedOffset> = two.into();
+        // let t: DateTime<FixedOffset> = two.into();
         assert!(one < two);
         let mut ss: BTreeSet<String> = BTreeSet::new();
         "a".split(",").for_each(|c| {
@@ -974,7 +1005,7 @@ mod tests {
 
     #[test]
     fn init_lic() -> Result<(), String> {
-        let lf = "tests/signed_test_rdbm.license";
+        let lf = "tests/signed_test_rdbm.license_ignore"; // TODO re-sign and unignore
         if Path::new(lf).is_file() {
             let l = License::load(lf)?;
             l.verify()?;

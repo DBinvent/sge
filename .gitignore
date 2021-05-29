@@ -21,4 +21,5 @@ Cargo.lock
 /tests/*.rsa
 /tests/*.license
 **/*.out
+**/dump.*
 /tests/test_scen/case0/empty.result

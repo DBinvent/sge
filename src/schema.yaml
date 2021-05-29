@@ -54,23 +54,24 @@ schema:
   type: object
   items:
     table:
-      type: string
-    tableName:
-      type: string
-    description:
-      type: string
-    constraint:
-      type: string
-    sql:
-      type: string
-    columns:
-      type: array
+      type: object
       items:
-        $ref: column
-    triggers:
-      type: array
-      items:
-        $ref: trigger
+        tableName:
+          type: string
+        description:
+          type: string
+        constraint:
+          type: string
+        sql:
+          type: string
+        columns:
+          type: array
+          items:
+            $ref: column
+        triggers:
+          type: array
+          items:
+            $ref: trigger
 
 ---
 uri: schema

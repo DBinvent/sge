@@ -18,13 +18,16 @@ use crate::init::PgInstance;
 
 /**
 Test plan:
-1. logdb on other db, schema, table (done  in it2)
+1. logdb on other db, schema, table (done in it2)
 2. create db, role, schema, check owner
 3. create table (sql, constraint), column (sql) check null, defaultValue, owner
 4. alter column: add fk to table in another schema
 5. yaml dump compare
+(see it1)
 6. check version destination for P/S/V/R, multiple schema files for same table
 7. check filter: target, catalog, script_tag for P/S/V/R info action
+
+8. check.1 with tsl
 */
 
 #[test]
@@ -59,9 +62,9 @@ fn run_all(pg: &PgInstance) -> Result<(), String> {
         migrate(pg.with_src(&d, vec!["createdb", i.to_string().as_str()]), false, &init::LOG)?;
         init::compare_with(d.clone(), "test.result", init::dump_db(&pg)?)?;
 
-        let dumys = format!("{}/dump.yaml", d).as_str();
-        rdbm::load(true, pg.with_src(&d, vec!["snapshot_to", dumys]), &init::LOG)?;
-        let dumpys = fs::read_to_string(dumys).map_err(|e| format!("reading [{}] {}", dumpus, e))?;
+        let dumys = format!("{}/dump.yaml", d);
+        rdbm::load(true, pg.with_src(&d, vec!["snapshot_to", dumys.as_str()]), &init::LOG)?;
+        let dumpys = fs::read_to_string(dumys.as_str()).map_err(|e| format!("reading [{}] {}", dumys, e))?;
         init::compare_with(d, "test.result.yaml", dumpys)?;
 
     }

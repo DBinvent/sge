@@ -11,7 +11,6 @@ use std::env;
 
 use crate::dbm_yml::{safe_sql, str2bool};
 use chrono::{Utc, Duration};
-use std::time::SystemTime;
 use crate::license::LicenseDate;
 
 #[derive(Debug, Clone)]
@@ -20,7 +19,6 @@ pub struct ConfigMap {
     file: String,
     file_total_lines: usize,
     file_loaded_lines: usize,
-    // timezone: &str,
 }
 
 impl ConfigMap {
@@ -207,10 +205,8 @@ impl ConfigMap {
         result
     }
 
-    /// TODO FIXME add local time by timezone
     #[inline]
     pub fn now(&self) -> LicenseDate  {
-        // self.map
         match self.get_opt("TEST_DAYS") {
             None => Utc::today().naive_utc(),
             Some(test) => match test.parse::<i64>() {
@@ -388,7 +384,7 @@ fn parse_kve(prefix: &String, val: String, map: &mut HashMap<String, String>) {
 mod tests {
     use super::*;
     use chrono::Local;
-    use std::time::{UNIX_EPOCH, SystemTimeError};
+    use std::time::{UNIX_EPOCH, SystemTimeError, SystemTime};
 
     fn _conf(p: &str) -> ConfigMap {
         let mut map = HashMap::new();

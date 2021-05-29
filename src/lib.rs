@@ -23,16 +23,21 @@ use std::fs;
 use yaml_rust::YamlLoader;
 
 use crate::dbm_cfg::ConfigMap;
-use chrono::{TimeZone, Utc};
 use openssl::error::ErrorStack;
 use postgres::error::SqlState;
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::time::SystemTime;
 
 /// TODO: --schema_transaction:
 //     - (column-TBD): perform all changes on a table per transaction. \\n \
 //     - (repeat-TBD): try to obtain a lock perform changes repetally - suitable on high load systems \\n \
+//
+//     - pg_dump:
+//         long: pg_dump
+//         default_value: "false"
+//         possible_values: [yes, no, ok, y, "1", "true", "false"]
+//         help: "dump schema by pg_dump into"
+
 pub const CONFIG_DEF_YML: &'static str = include_str!("cl_config.yaml");
 
 const STATEMENT_LOG_TABLE_YML: &'static str = include_str!("hl_table.yaml");
@@ -92,13 +97,13 @@ lazy_static! {
 
     pub static ref SCHEMA_YAML: Vec<yaml_rust::Yaml> = YamlLoader::load_from_str(crate::YAML_SCHEMA).expect("wrong schema");
 
-    static ref EPOC_2020: i64 = Utc.ymd(2020, 2, 2).and_hms(0, 0, 0).timestamp();
-    static ref EPOC_2020H: u64 = EPOC_2020.clone() as u64 >> 12;
+    // static ref EPOC_2020: i64 = Utc::ymd(2020, 2, 2).and_hms(0, 0, 0).timestamp();
+    // static ref EPOC_2020H: u64 = EPOC_2020.clone() as u64 >> 12;
 }
 
 
-/// pseudo hours (real hours + 14% as divided to 4096 (>> 12) instead of 3600)
-/// science 2020
+/* // pseudo hours (real hours + 14% as divided to 4096 (>> 12) instead of 3600)
+/ // science 2020
 #[inline]
 pub(crate) fn _hp() -> u32 {
     let r = if let Ok(n) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
@@ -108,6 +113,7 @@ pub(crate) fn _hp() -> u32 {
     };
     r as u32
 }
+*/
 
 /// Main entry point
 /// Relation (PostgreSQL) DB Migration Management tool (inspired by flyway while it was free)
@@ -143,7 +149,10 @@ fn migrate_db(
 ) -> Result<(), String> {
     // prepare schema
     let schema = cfg.schema();
-    let mut dbc = crate::dbm_dbc::load_info_schema(log_client)?;
+
+    let db_name = cfg.get_opt("logdb_name").unwrap_or(cfg.get("db_name"));
+
+    let mut dbc = crate::dbm_dbc::load_info_schema(db_name.as_str(),log_client)?;
     let files = crate::dbm_yml::load_all(cfg, log)?;
     let mut t = log_client.transaction().unwrap(); // begin self install if not exists
     let err = {
@@ -153,7 +162,7 @@ fn migrate_db(
                 if exec {
                     debug!(log, "self deploy of: {} complete", BASELINE);
                     if let Err(e) = StatementLog::new(cfg)
-                        .instance('S', &BASELINE.into(), &BASELINE.into())
+                        .instance('S', &BASELINE.into(), &"".into(), &BASELINE.into())
                         .persist(None, Some(&mut t))
                     {
                         Some(e)
@@ -180,7 +189,17 @@ fn migrate_db(
     } else {
         // select table for update -- row level lock, revert changes
         let logs = { StatementLog::load_all(&mut t, cfg.get_bool("dry_run", true), cfg)? };
-        migrate_all_versions(&mut dbc, &logs, &files, pgsrv.as_str(), cfg, &mut t, log)
+
+        let mut dbc = if let None = cfg.get_opt("logdb_name") {
+            let mut client = connect("db_", &cfg, None, log)?;
+            let dbc = crate::dbm_dbc::load_info_schema(cfg.get("db_name").as_str(),&mut client)?;
+            let _ = client.close();
+            dbc
+        } else { dbc };
+        let mut client = connect("db_", &cfg, None, log)?;
+        let r = migrate_all_versions(&mut client, &mut dbc, &logs, &files, pgsrv.as_str(), cfg, &mut t, log);
+        let _ = client.close();
+        r
     };
     let ret = match t.commit() {
         Ok(()) => {
@@ -209,6 +228,7 @@ fn migrate_db(
 
 /// version level ordering
 fn migrate_all_versions(
+    client: &mut Client,
     dbc: &mut InfoSchemaType,
     logs: &LogSchemaType,
     files: &FilesMap,
@@ -221,7 +241,7 @@ fn migrate_all_versions(
     for ver in files.all_versions() {
         info!(log, "Deploying version: {}", ver);
         res.push(deploy_pre_files(&logs, &ver, &files, pgsrv, &cfg, t, log)?);
-        res.push(deploy_all_schemas(&ver, &files, dbc, &cfg, t, log)?);
+        res.push(deploy_all_schemas(client, &ver, &files, dbc, &cfg, t, log)?);
         res.push(deploy_all_files(&logs, &ver, &files, pgsrv, &cfg, t, log)?);
     }
     Ok(res)
@@ -260,9 +280,9 @@ fn deploy_pre_files(
     let draft = StatementLog::new(cfg);
     // deploy versions
     Ok(
-        if let Some(file) = &files.pre.get(ver) {
+        if let Some(file) = files.pre.get(ver) {
             let id = draft
-                .instance('P', &ver.s, file)
+                .instance('P', &ver.s, &cfg.get("source_dir"), file)
                 .deploy(&logs, pgsrv, cfg, Some(t), vec![], log)?;
             draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
             id
@@ -286,14 +306,14 @@ fn deploy_all_files(
     // deploy versions
     if let Some(file) = &files.versions.get(ver) {
         id = draft
-            .instance('V', &ver.s, file)
+            .instance('V', &ver.s, &cfg.get("source_dir"), file)
             .deploy(&logs, pgsrv, cfg, Some(t), vec![], log)?;
         draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
     }
     // deploy re-runable
     if let Some(file) = &files.re_runnable.get(ver) {
         id = draft
-            .instance('R', &ver.s, file)
+            .instance('R', &ver.s, &cfg.get("source_dir"), file)
             .deploy(&logs, pgsrv, cfg, Some(t), vec![], log)?;
         draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![], log)?;
     }
@@ -304,6 +324,7 @@ fn deploy_all_files(
 #[inline]
 /// deploy schema by definitions - declaratives
 fn deploy_all_schemas(
+    client: &mut Client,
     ver: &FileVersion,
     files: &FilesMap,
     dbc: &mut InfoSchemaType,
@@ -313,7 +334,7 @@ fn deploy_all_schemas(
 ) -> Result<i32, String> {
     let mut id = 0;
     let mut err = None;
-    let mut client = connect("db_", &cfg, None, log)?;
+    // let mut client = connect("db_", &cfg, None, log)?;
     {
         let stl = StatementLog::new(cfg);
         let table_tr = cfg.get("schema_transaction") == "table";
@@ -405,7 +426,8 @@ fn deploy_all_schemas(
                 Err(e) => err = Some(format!("creating transaction for {} {}", file, e)),
             }
             if do_persist {
-                match stl.instance('S', &ver.s, file).persist(err.clone(), Some(lt)) {
+                match stl.instance('S', &ver.s, &cfg.get("source_dir"), file)
+                    .persist(err.clone(), Some(lt)) {
                     Ok(i) => {
                         id = i;
                     }
@@ -414,12 +436,9 @@ fn deploy_all_schemas(
                     }
                 }
             }
-            // if let Some(_) = &err {
-            //     break;
-            // }
         }
     }
-    let _ = client.close();
+    // let _ = client.close();
     match err {
         None => Ok(id),
         Some(e) => Err(e),
@@ -496,7 +515,7 @@ fn connect(
         }
     };
     let db = format!("postgresql:///{}?{}", dbname, url);
-    debug!(log, "connecting: {}", log_url);
+    debug!(log, "connecting: {} {}", log_url, dbname);
     match if cfg.is_ssl() {
         let connector = match make_tls_connector(&cfg.get(prefix)) {
             Ok(c) => c,
@@ -627,39 +646,32 @@ pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     let result = { load_impl(dump, &mut db_client, &mut log_client, &cfg) };
     let _ = db_client.close();
     let _ = log_client.close();
+
     match result {
         Ok(loaded) => {
-            if dump {
-                match snapshot_to {
-                    None => {
-                        println!("{}", loaded);
-                    }
-                    Some(file) => {
-                        let _ = fs::write(file, loaded);
-                    }
-                };
-            } else {
-                info!(log, "{}", loaded);
-            };
+            match snapshot_to {
+                None => println!("{}", loaded),
+                Some(file) => dump_loaded(file, loaded)?,
+            }
             Ok(())
         }
         Err(e) => {
-            if dump {
-                let yaml = format!("error: \"{}\"", e);
-                match snapshot_to {
-                    None => {
-                        println!("{}", yaml);
-                    }
-                    Some(file) => {
-                        let _ = fs::write(file, yaml);
-                    }
-                }
-            } else {
-                error!(log, "{}", e);
+            let yaml = format!("error: \"{}\"", e);
+            match snapshot_to {
+                None => println!("{}", yaml),
+                Some(file) => dump_loaded(file, yaml)?,
             }
             Err(e)
         }
     }
+}
+
+#[inline]
+fn dump_loaded(file: String, content: String) -> Result<(), String> {
+    if let Some(i) = file.rfind("/") {
+        let _ = fs::create_dir_all(&file[..i]).map_err(|e| format!("writing to dir {} : {}", &file, e))?;
+    }
+    fs::write(&file, content).map_err(|e| format!("writing to {} : {}", file, e))
 }
 
 #[cfg(test)]
@@ -670,6 +682,12 @@ mod tests {
         assert!(STATEMENT_LOG_TBL.table_name.len() > 1);
         assert!(STATEMENT_LOG_TBL.description.len() > 15);
         assert!(STATEMENT_LOG_TBL.columns.len() > 15);
+        let last = STATEMENT_LOG_TBL.columns.len()-1;
+        let times = STATEMENT_LOG_TBL.columns.list[last].clone();
+        assert_eq!(times.name, "times".to_string());
+        assert_eq!(times.default_value.clone()
+            .unwrap_or("".to_string()), "1".to_string());
+
     }
 
     #[test]

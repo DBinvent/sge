@@ -2,10 +2,10 @@ issued_to: "Evaluation"
 email: "v.krinitsyn@gmail.com"
 notice: "это поле свободно редактируется"
 connects:
-  - valid_until: "2021-12-12T00:00:00+00:00"
+  - valid_until: "2021-12-12"
     hosts: ["rtx","rt"]
     db_names: ["gpc"]
-  - valid_until: "2022-12-12T00:00:00+00:00"
+  - valid_until: "2022-12-12"
     hosts: ["rt2","rt3"]
     db_names: ["gpc2"]
 api_key_valid_until: "2021-12-12T00:00:00+00:00"

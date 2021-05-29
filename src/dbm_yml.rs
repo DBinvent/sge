@@ -7,7 +7,7 @@ use postgres::Transaction;
 use semver::{SemVerError, Version};
 use yaml_rust::YamlLoader;
 
-use crate::dbm_dbc::{FKTable, InfoSchemaType, STable};
+use crate::dbm_dbc::{FKTable, InfoSchemaType, STable, SColumnDfn};
 
 use self::yaml_rust::Yaml;
 use serde::{Serialize, Serializer};
@@ -174,6 +174,7 @@ struct FileFilters {
 }
 
 impl FileFilters {
+    // TODO add default version target as "target"
     #[inline]
     fn new(cfg: &ConfigMap) -> Result<Self, String> {
         Ok(FileFilters {
@@ -313,7 +314,7 @@ struct FileFilter {
 impl FileFilter {
     #[inline]
     fn new(field: &str, cfg: &ConfigMap, file_type: &str) -> Result<Self, String> {
-        let f = cfg.get_def(field, "*".into());
+        let f = cfg.get_def(field, cfg.get_def("target", "*".into()));
         let filter = if f.as_bytes()[0] == b'*' {
             None
         } else {
@@ -404,8 +405,10 @@ pub(crate) struct YSchema {
     pub schema_name: String,
     pub owner: String,
     /// tableName: table(with name)
+    #[serde(with = "ytables")]
     pub tables: OrderedHashMap<YTable>,
     /// the table definition loaded from file
+    #[serde(skip)]
     pub file: String,
 }
 
@@ -414,14 +417,75 @@ pub struct YTable {
     #[serde(rename = "tableName")]
     pub table_name: String,
     /// comments
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub description: String,
     /// transaction: -- single (default) OR table OR column OR retry (wrap to psql)
+    #[serde(skip)]
     pub transaction: String,
     /// suffix on table create
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub sql: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub constraint: String,
+    #[serde(with = "ycolumns")]
     pub columns: OrderedHashMap<YColumn>,
+    #[serde(skip_serializing_if = "OrderedHashMap::is_empty")]
     pub triggers: OrderedHashMap<YTrig>,
+}
+
+/// wrapper for table to get a format as on lb
+#[derive(Serialize)]
+struct YtVO<'a> {
+    /// createTable
+    table: &'a YTable,
+}
+
+/// wrapper for columns to get a format as on lb
+#[derive(Serialize)]
+struct YcVO<'a> {
+    column: &'a YColumn,
+}
+
+mod ycolumns {
+    use serde::{Deserializer, Serializer};
+    use crate::dbm_yml::{OrderedHashMap, YColumn, YcVO};
+    use serde::ser::SerializeSeq;
+
+    pub fn serialize<S>(columns: &OrderedHashMap<YColumn>, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+        S: Serializer
+    {
+        let mut seq = serializer.serialize_seq(Some(columns.len()))?;
+        for c in &columns.list {
+            let ref vo = YcVO {column: c};
+            seq.serialize_element(vo)?;
+        }
+        seq.end()
+    }
+
+    #[allow(dead_code)]
+    pub fn deserialize<'de, D>(_deserializer: D) -> Result<OrderedHashMap<YColumn>, D::Error> where D: Deserializer<'de> { unimplemented!() }
+
+}
+
+mod ytables {
+    use serde::{Deserializer, Serializer};
+    use crate::dbm_yml::{OrderedHashMap, YColumn, YtVO, YTable};
+    use serde::ser::SerializeSeq;
+
+    pub fn serialize<S>(tables: &OrderedHashMap<YTable>, serializer: S) -> Result<<S as Serializer>::Ok, <S as Serializer>::Error> where
+        S: Serializer
+    {
+        let mut seq = serializer.serialize_seq(Some(tables.len()))?;
+        for t in &tables.list {
+            let ref vo = YtVO {table: t};
+            seq.serialize_element(vo)?;
+        }
+        seq.end()
+    }
+
+    #[allow(dead_code)]
+    pub fn deserialize<'de, D>(_deserializer: D) -> Result<OrderedHashMap<YColumn>, D::Error> where D: Deserializer<'de> { unimplemented!() }
+
 }
 
 pub trait Named {
@@ -448,28 +512,32 @@ impl Named for YTrig {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct YColumn {
-    pub name: String, // id
+    pub name: String,
     #[serde(rename = "type")]
-    pub column_type: String, // serial
-    #[serde(rename = "defaultValue")] // pub defaultValue: String, //
-    pub default_value: String, //
-    pub constraint: Option<YConstr>, //# changes on PK & NULL wont apply
-    pub description: String, //
-    pub sql: String,  // -- some SQL suffix on new column create
+    pub column_type: String,
+    #[serde(rename = "defaultValue", skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>, //
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub constraint: Option<YConstr>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub sql: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct YConstr {
-    #[serde(rename = "primaryKey")] // pub primaryKey: bool, //true
-    pub primary_key: bool, //true
-    pub nullable: bool, //false
-    #[serde(rename = "foreignKey")] // pub foreignKey: Option<YForeignKey>
+    #[serde(rename = "primaryKey", skip_serializing_if = "Option::is_none")]
+    pub primary_key: Option<bool>,
+    pub nullable: bool,
+    #[serde(rename = "foreignKey", skip_serializing_if = "Option::is_none")]
     pub foreign_key: Option<YForeignKey>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct YForeignKey {
     pub references: String, //fk_table
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub sql: String, //-- some SQL suffix on new FK create- on delete no action on update no action
 }
 
@@ -501,7 +569,7 @@ impl YColumn {
         let nullable = as_bool(constraint, "nullable", true);
         let constraint = if primary_key || !nullable || fk_set {
             Some(YConstr {
-                primary_key,
+                primary_key: if primary_key {Some(true)} else {None},
                 nullable,
                 foreign_key,
             })
@@ -511,7 +579,7 @@ impl YColumn {
         YColumn {
             name: safe_sql(as_str_esc(input, "name")),
             column_type: as_str_esc(input, "type"),
-            default_value: as_str_esc(input, "defaultValue"),
+            default_value: input["defaultValue"].as_str().map(|s| as_esc(s)),
             description: as_str_esc(input, "description"),
             sql: as_str_esc(input, "sql"),
             constraint,
@@ -521,44 +589,65 @@ impl YColumn {
     pub(crate) fn is_pk(&self) -> bool {
         match &self.constraint {
             None => false,
-            Some(c) => c.primary_key,
+            Some(c) => c.primary_key.unwrap_or(false),
         }
     }
 
-    /// column defenition to SQL string
     #[inline]
     fn column_def(
         &self,
         schema: &String,
         table_name: &String,
         file: &str,
-    ) -> Result<String, String> {
+    ) -> Result<SColumnDfn, String> {
         if self.column_type.len() == 0 {
             Err(format!(
                 "Error column definition on table: {}.{} column {} file {}",
                 schema, table_name, self.name, file
             ))
         } else {
-            let mut cs = format!("{} {}", self.name, self.column_type);
-            if let Some(constraint) = &self.constraint {
-                if constraint.primary_key {
-                    let _ = write!(cs, " primary key ");
-                }
-                if !constraint.nullable {
-                    let _ = write!(cs, " not null ");
-                }
-            }
-            if self.default_value.len() > 0 {
-                let _ = write!(cs, " default {}", self.default_value);
-            }
-            if self.sql.len() > 0 {
-                let _ = write!(cs, " {} ", self.sql);
-            }
-
-            Ok(cs)
+            let c = self.constraint.clone();
+            Ok(SColumnDfn {
+                column_name: self.name.clone(),
+                column_type: self.column_type.clone(),
+                column_default: self.default_value.clone(),
+                sql: Some(self.sql.trim().into()),
+                pk: c.clone().map_or(false, |c| c.primary_key.unwrap_or(false)),
+                nullable: c.clone().map_or(true, |c| c.nullable),
+                fk: c.map_or(None, |cs| cs.foreign_key
+                        .map_or(None, |fk| Some((fk.references.trim().into(), fk.sql.trim().into())))),
+                sort_order: 0
+            })
         }
     }
 }
+
+impl Display for SColumnDfn {
+    /// column defenition to SQL string
+
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let _ = write!(f, "{} {}", self.column_name, self.column_type)?;
+        if self.pk {
+            let _ = write!(f, " primary key")?;
+        }
+        if !self.nullable {
+            let _ = write!(f, " not null")?;
+        }
+        if let Some(def) = &self.column_default {
+            if def.len() > 0 {
+                let _ = write!(f, " default {}", def)?;
+            }
+        }
+        if let Some(sql) = &self.sql {
+            if sql.len() > 0 {
+                let _ = write!(f, " {}", sql)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+
 
 impl YTrig {
     fn new(input: &Yaml) -> Self {
@@ -588,7 +677,11 @@ impl YTrig {
 
 #[inline]
 fn as_str_esc(input: &Yaml, field: &str) -> String {
-    let val = as_str(input, field, "");
+    as_esc(as_str(input, field, "").as_str())
+}
+
+#[inline]
+fn as_esc(val: &str) -> String {
     match val.find("--") {
         None => {
             if val.len() > 0 {
@@ -700,6 +793,11 @@ impl<T: Named + Serialize> OrderedHashMap<T> {
     #[inline]
     pub fn len(&self) -> usize {
         self.list.len()
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.map.len() == 0
     }
 }
 
@@ -850,9 +948,11 @@ impl YTable {
             let owner = "";
             let mut columns = String::new();
             let mut st = STable {
+                table_name: self.table_name.clone(),
                 columns: HashMap::new(),
                 fks: Default::default(),
                 triggers: HashMap::new(),
+                sort_order: 0
             };
             for dc in &self.columns.list {
                 let cd = dc.column_def(schema, &self.table_name, file)?;
@@ -907,6 +1007,7 @@ impl YTable {
                 );
             }
         }
+
         if cfg.get_bool("dry_run", false) {
             match StatementLog::dry_store(cfg.get_opt("dry_run_to"), sql, log) {
                 Ok(_) => {
@@ -916,6 +1017,7 @@ impl YTable {
                 Err(e) => Err(format!("dry_run: [{}] {}", cfg.get("dry_run_to"), e)),
             }
         } else {
+            deploy_log(&sql, log);
             if exec {
                 match db.batch_execute(sql.as_str()) {
                     Ok(()) => {
@@ -1015,9 +1117,9 @@ impl YTable {
                 }
             }
             let _ = writeln!(sql,
-                "ALTER TABLE {}.{} ADD CONSTRAINT fk_{}_{}_{}_{} FOREIGN KEY ({}) REFERENCES {} ({}) {};",
-                schema, self.table_name, schema, self.table_name, ff.schema, ff.table,
-                ff.name, &ff.table, ff.column, ff.sql
+                "ALTER TABLE {}.{} ADD CONSTRAINT fk_{}_{}_{} FOREIGN KEY ({}) REFERENCES {}.{} ({}) {};",
+                schema, self.table_name, schema, self.table_name, ff.table,
+                ff.name, ff.schema, &ff.table, ff.column, ff.sql
             );
         }
 
@@ -1037,6 +1139,16 @@ impl YTable {
     }
 }
 //YTable
+
+#[cfg(debug_assertions)]
+#[inline]
+fn deploy_log(msg: &String, log: &Logger) {
+    debug!(log, "SQL>\n{}", msg);
+}
+
+#[cfg(not(debug_assertions))]
+#[inline]
+fn deploy_log(msg: &String, log: &Logger) { }
 
 impl YSchema {
     #[inline]
@@ -1061,6 +1173,7 @@ impl YSchema {
     fn append(&mut self, input: &Yaml, log: &Logger) -> Result<(), String> {
         if let Some(tbls) = input["tables"].as_vec() {
             for t in tbls {
+                let t = &t["table"];
                 match t["tableName"].as_str() {
                     None => {
                         return Err(format!("no table name set in file: {}", self.file));

@@ -64,11 +64,11 @@ columns:
         name: took_sec
         type: bigint
         constraint:
-            nullable: false
+          nullable: false
         defaultValue: "0"
     - column:
         name: times
         type: int
         defaultValue: '1'
         constraint:
-            nullable: false
+          nullable: false

@@ -10,7 +10,7 @@ use serde::Serialize;
 use slog::Logger;
 
 use crate::dbm_cfg::ConfigMap;
-use crate::dbm_dbc::{InfoSchemaOwnerType, InfoSchemaType};
+use crate::dbm_dbc::{InfoSchemaOwnerType, InfoSchemaType, STable, SColumnDfn};
 use crate::dbm_yml::{semver_parse, FilesMap, OrderedHashMap, YColumn, YSchema, YTable};
 use crate::*;
 use chrono::{DateTime, Utc};
@@ -222,7 +222,7 @@ impl StatementLog {
     }
 
     /// create an instance [StatementLog]
-    pub(crate) fn instance(&self, code: char, version: &String, file: &String) -> Self {
+    pub(crate) fn instance(&self, code: char, version: &String, dir: &String, file: &String) -> Self {
         let mut insta = self.clone();
         insta.source_type = code;
         insta.version = tlim(version, SLT_C_LEN);
@@ -230,10 +230,14 @@ impl StatementLog {
         insta.checksum = if file.as_str() == BASELINE {
             "".into()
         } else {
+            let file = if dir.len() > 0 {
+                format!("{}{}{}", dir, if dir.as_bytes()[dir.len()-1] == b'/' {""} else {"/"}, file)
+            } else { file.into() };
             match fs::File::open(file) {
                 Ok(mut file) => hash_it(&mut file),
                 Err(e) => e.to_string(),
             }
+
         };
         insta.started = Instant::now();
         insta
@@ -254,7 +258,7 @@ impl StatementLog {
     ) -> Result<(), String> {
         if let Some((va, afile)) = files.after.get_key_value(key) {
             if afile.ends_with(format!("/{}", cfg.get(key)).as_str()) {
-                let _ = self.instance(' ', va, afile)
+                let _ = self.instance(' ', va, &"".into(), afile)
                     .deploy(&logs, pgsrv, cfg, t, ids, log)?;
             }
         }
@@ -554,10 +558,11 @@ pub(crate) fn load_impl(
     cfg: &ConfigMap,
 ) -> Result<String, String> {
     if dump {
-        let dbc = crate::dbm_dbc::load_info_schema(db_client)?;
-        let dbco = crate::dbm_dbc::load_info_schema_owner(db_client)?;
+        let db_name = cfg.get("db_name");
+        let dbc = crate::dbm_dbc::load_info_schema(db_name.as_str(), db_client)?;
+        let dbco = crate::dbm_dbc::load_info_schema_owner(db_name.as_str(),db_client)?;
         let logs = LoadResult::new(dbc, dbco);
-        if cfg.get("snapshot_format").as_str() == "json" {
+        if cfg.get("out_format").as_str() == "json" {
             serde_json::to_string(&logs)
                 .map_err(|e| format!("converting result to JSON format with error: {}", e))
         } else {
@@ -565,11 +570,10 @@ pub(crate) fn load_impl(
                 .map_err(|e| format!("converting result to YAML format with error: {}", e))
         }
     } else {
-        let mut t = log_client.transaction().unwrap(); // begin
-                                                       // let yschemas = crate::dbm_yml::load_all(cfg)?;
+        let mut t = log_client.transaction().unwrap();
         let logs = StatementLog::load_ok(&mut t, cfg)?;
         let _ = t.rollback();
-        if cfg.get("info_format").as_str() == "json" {
+        if cfg.get("out_format").as_str() == "json" {
             serde_json::to_string(&logs)
                 .map_err(|e| format!("converting result to JSON format with error: {}", e))
         } else {
@@ -588,10 +592,12 @@ impl LoadResult {
     fn new(input: InfoSchemaType, owners: InfoSchemaOwnerType) -> Self {
         let mut schemas = Vec::new();
         for (schema, tables) in input {
+            let mut tables = tables.values().cloned().collect::<Vec<STable>>();
+            tables.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
             let mut ytables = OrderedHashMap::new();
-            for (table_name, table) in &tables {
-                let mut yt = YTable {
-                    table_name: table_name.into(),
+            for  table in &tables {
+               let mut yt = YTable {
+                    table_name: table.table_name.clone(),
                     description: "".to_string(),
                     transaction: "".to_string(),
                     sql: "".to_string(),
@@ -599,12 +605,20 @@ impl LoadResult {
                     columns: OrderedHashMap::new(),
                     triggers: OrderedHashMap::new(),
                 };
-                for (cc, cy) in &table.columns {
+                let mut columns = table.columns.values().cloned().collect::<Vec<SColumnDfn>>();
+                columns.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
+                for c in columns {
                     let yc = YColumn {
-                        name: cc.into(),
-                        column_type: cy.into(),
-                        default_value: "".to_string(),
-                        constraint: None,
+                        name: c.column_name.into(),
+                        column_type: c.column_type.clone(),
+                        default_value: c.column_default.clone(),
+                        constraint: if !c.nullable || c.pk || c.fk.is_some() { Some(YConstr {
+                            primary_key: if c.pk { Some(true) } else { None },
+                            nullable: c.nullable,
+                            foreign_key: c.fk.clone()
+                                .map( |f| YForeignKey{ references: f.0.clone(), sql: f.1.clone() })
+                        }) }
+                        else { None },
                         description: "".to_string(),
                         sql: "".to_string(),
                     };

@@ -4,6 +4,59 @@ author: DBInvent LLC
 about: 'The SQL script tracker and DB deployment by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
 usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
 
+subcommands:
+    - migrate:
+        about: Perform a migration to specified version of all possible and suitable scripts
+        help: |
+          Perform a DB migration to a version set in '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' (without a sub-folder scan if '--source_recur' is disabled)
+          into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set.
+          The DB and DB user will be created if absent, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'.
+          The migration executor will be logged by '--executed_by' value
+          Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information) and environment orchestration.
+
+          The execution order is: (P)->(S)->(V)->(R)->(after)
+
+          i.e. (P)reDeploy SQL, (S)chema YAML, (V)ersion SQL, (R)e-runable SQL, (a)fter (each) migration SQL.
+          The (P)reDeploy SQL use to be executed before (S)chema YAML.
+          The (S)chema YAML will try to scan an information DB and apply changes required changes.
+          The (V)ersion SQL intended to be a major set of files for DB upgrade and will be executed only one time and store into a history log table.
+          The (R)e-runnable SQL very useful for handling Store Procedure upgrade and with a '--script_tag' very easily trackable.
+          The (P) and (V) will check for version and execute if version absent in target DB up to a target version.
+          Also (P) and (V) scripts will check for consistency and fail if the script changed and '--checksum' set.
+          The (S) script will check for version target and try to apply changes if they are absent in target DB.
+          The (R) script will check a file hashsum and run it if the file was changed to was not run yet on DB.
+          The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history.
+          The '--config_file' or '-c' use to put all params by name (without -- prefix) into a text file. The args pass in command line will override those from config file.
+          See more options in './rdbm help' command.
+          Use --dry_run to avoid DB change.
+
+          Require a valid license to run (use './rdbm help license' for more information).
+          Check https://rdbm.dbinvent.com for more information and best practice.
+
+    - prepare:
+        about: Create a history log table use to track scripts executions
+        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or '--db_name' if not set. Use '--dry_run' to avoid DB change."
+    - snapshot:
+        about: Perform a schema dump into snapshot_to file in yaml or json format.
+        help: |
+          Perform a DB schema dump into a '--snapshot_to' file in yaml or json format.
+          Notice: There is a limited column information will be converted from pg_catalog and information_schema
+          to fully match an input format of manual yaml schema created.
+          Therefore dump schema snapshot and yaml input file may differ.
+    - info:
+        about: Return deployment status and a tag version in JSON format. See '--info_format'.
+        help: Return deployment status and a tag version in JSON format. See '--info_format'.
+    - license:
+        about: Create apply, upgrade, subscribe or check a license to use this software.
+        help: |
+          Create apply, upgrade, subscribe or check a license.
+          Use '--email' and '--license' to request a license file if the file not found in '--license_file' OR Evaluation is expired.
+          If the file exist, than will try to check and upgrade a licenses 'valid_until' date.
+          Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections).
+          This is the only the command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid 'api_key' to perform upgrade or subscribe.
+          Use '--dry_run' to avoid calling remote host, but check the license.
+          Check https://rdbm.dbinvent.com/license for more information about licensing.
+
 args:
     - db_url:
         long: db_url
@@ -172,16 +225,11 @@ args:
         long: dry_run_to
         takes_value: true
         help: The name of file to dump the generated SQL script
-    - snapshot_format:
+    - out_format:
         long: snapshot_format
         default_value: yaml
         possible_values: [yaml, json]
         help: "The format of generated information of DB schema by the 'snapshot' command, also see '--snapshot_to' parameter."
-    - info_format:
-        long: info_format
-        default_value: json
-        possible_values: [yaml, json]
-        help: "The format of generated information of DB schema by the 'info' command"
     - snapshot_to:
         long: snapshot_to
         takes_value: true
@@ -253,51 +301,3 @@ args:
         help: The license file. Use './rdbm --email=your@email license' OR check 'https://rdbm.dbinvent.com/' to get one.
 
 
-subcommands:
-    - migrate:
-        about: Perform a migration to specified version of all possible and suitable scripts
-        help: |
-          Perform a DB migration to a version set in '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy' of scripts located in '--source' (without a sub-folder scan if '--source_recur' is disabled)
-          into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb' not set.
-          The DB and DB user will be created if absent, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'.
-          The migration executor will be logged by '--executed_by' value
-          Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. Those values are useful to microservice architecture (see rdbm.dbinvent.com/best for more information) and environment orchestration.
-          
-          The execution order is: (P)->(S)->(V)->(R)->(after)
-          
-          i.e. (P)reDeploy SQL, (S)chema YAML, (V)ersion SQL, (R)e-runable SQL, (a)fter (each) migration SQL.
-          The (P)reDeploy SQL use to be executed before (S)chema YAML.
-          The (S)chema YAML will try to scan an information DB and apply changes required changes.
-          The (V)ersion SQL intended to be a major set of files for DB upgrade and will be executed only one time and store into a history log table.
-          The (R)e-runnable SQL very useful for handling Store Procedure upgrade and with a '--script_tag' very easily trackable.
-          The (P) and (V) will check for version and execute if version absent in target DB up to a target version.
-          Also (P) and (V) scripts will check for consistency and fail if the script changed and '--checksum' set.
-          The (S) script will check for version target and try to apply changes if they are absent in target DB.
-          The (R) script will check a file hashsum and run it if the file was changed to was not run yet on DB.
-          The 'after.sql' and 'after_each.sql' (names are configurable) will try always execute, but wont record in the history.
-          The '--config_file' or '-c' use to put all params by name (without -- prefix) into a text file. The args pass in command line will override those from config file.
-          See more options in './rdbm help' command.
-          Use --dry_run to avoid DB change.
-
-          Require a valid license to run (use './rdbm help license' for more information).
-          Check https://rdbm.dbinvent.com for more information and best practice.
-
-    - prepare:
-        about: Create a history log table use to track scripts executions
-        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or '--db_name' if not set. Use '--dry_run' to avoid DB change."
-    - snapshot:
-        about: Perform a schema dump into snapshot_to file in yaml or json format.
-        help: "Perform a DB schema dump into a '--snapshot_to' file in yaml or json format. Only column name and type information for now will be stored."
-    - info:
-        about: Return deployment status and a tag version in JSON format. See '--info_format'.
-        help: Return deployment status and a tag version in JSON format. See '--info_format'.
-    - license:
-        about: Create apply, upgrade, subscribe or check a license to use this software.
-        help: |
-          Create apply, upgrade, subscribe or check a license.
-          Use '--email' and '--license' to request a license file if the file not found in '--license_file' OR Evaluation is expired.
-          If the file exist, than will try to check and upgrade a licenses 'valid_until' date.
-          Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections).
-          This is the only the command of ./rdbm which making a connection to the https://rdbm.dbinvent.com and require a valid 'api_key' to perform upgrade or subscribe.
-          Use '--dry_run' to avoid calling remote host, but check the license.
-          Check https://rdbm.dbinvent.com/license for more information about licensing.
