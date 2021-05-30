@@ -211,7 +211,7 @@ fn load_dir(
                             } else {
                                 fi.clone()
                             };
-                            debug!(log, "parsing {} from {}", file_name, fi);
+                            // debug!(log, "parsing {} from {}", file_name, fi);
                             let starting_pos = match file_name.rfind("/") {
                                 None => 0,
                                 Some(i) => i + 1,
