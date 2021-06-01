@@ -51,6 +51,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 ### TODO
 
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
+- Add changing/extending datatype: "ALTER TABLE ... SET DATA TYPE"
 - Add JSON format for schema definition, yaml to json converter, and schema validation https://docs.rs/jsonschema/0.9.0/jsonschema/index.html
 - Add schema features: view, foreign tables, partitioned tables, indexes, constraint
 - Add data snapshot (pg_dump) full for featuring reverse eng.

@@ -22,7 +22,7 @@ const INV_LL: &str =
 
 #[allow(dead_code)]
 const HOST: &str = "https://rdbm.dbinvent.com/";
-const ABOUT_EXPIRE: u8 = 20; // days
+const ABOUT_EXPIRE: u8 = 17; // days
 
 /// on license action
 pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
@@ -49,29 +49,14 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
         match License::load(license_file.as_str()) {
             Ok(l) => match l.verify() {
                 Ok(_) => {
-                    info!(
-                        log,
-                        "License [{}] issued to: {} {}{}",
-                        license_file,
-                        l.issued_to,
-                        l.email,
-                        if do_subscribe {
-                            ", will try to subscribe if necessary"
-                        } else {
-                            ""
-                        }
-                    );
+                    info!( log, "License [{}] issued to: {} {}{}", license_file, l.issued_to, l.email, if do_subscribe { ", will try to subscribe if necessary" } else { "" } );
 
-                    let found = match l.find(&db_host, &logdb_host, &db_name, &logdb_name) {
-                        None => false,
-                        Some(until) => (until - now).num_days() >= 0
-                    };
-
-                    if found {
-                        info!(log, "Good to use for your connection(s)! Thank you! ");
+                    if l.find(&db_host, &logdb_host, &db_name, &logdb_name).is_some() {
                         if l.is_about_expire(&now, ABOUT_EXPIRE) {
+                            debug!(log, "Trying to pull license to update ...");
                             ApiRequest::Pull(l).call(&license_file, &now, dry_run, log, test)
                         } else {
+                            info!(log, "Good to use for your connection(s)! Thank you! ");
                             Ok(())
                         }
                     } else if email.len() > 0 && do_subscribe {
@@ -107,7 +92,7 @@ pub enum ApiRequest {
 
 impl ApiRequest {
     #[inline]
-    fn method(&self) -> &str {
+    pub fn method(&self) -> &str {
         match &self {
                 ApiRequest::Create(_) => "creating",
                 ApiRequest::Pull(_) => "checking",
@@ -125,7 +110,11 @@ impl ApiRequest {
             return Ok(());
         }
         let auth_header = "X-Header";
-        let mut encm = HashMap::new();
+        let encm =  match &self {
+            ApiRequest::Create(_) => HashMap::new(),
+            ApiRequest::Update(l, _) => l.pre_send()?,
+            ApiRequest::Pull(l) => l.pre_send()?,
+        };
         let response = match test {
             None => {
                 let response = match &self {
@@ -137,26 +126,28 @@ impl ApiRequest {
                             .map_err(|e| format!("{} license: {}", method, e))?
                     }
                     ApiRequest::Update(l, lu) => {
-                        let _ = l.clean(&mut encm)?;
                         let request = serde_json::to_string(lu)
-                            .map_err(|e| format!("creating payload of a license update request: {}", e))?;
+                            .map_err(|e| format!("creating payload of a license create request: {}", e))?;
                         ureq::put(url.as_str())
                             .set(auth_header, l.header()?.as_str())
                             .send_string(request.as_str())
                             .map_err(|e| format!("{} license: {}", method, e))?
                     }
                     ApiRequest::Pull(l) => {
-                        let _ = l.clean(&mut encm)?;
-                        ureq::get(format!("{}/{}", url.as_str(), l.api_key).as_str())
+                        ureq::get(format!("{}/{}", url, l.api_key).as_str())
                             .set(auth_header, l.header()?.as_str())
                             .call()
                             .map_err(|e| format!("{} license: {}", method, e))?
                     }
                 };
-                debug!(log, "response [{}] from {} at {}", response.status(), method, url);
-                response.into_string().map_err(|e| format!("getting response: {}", e))?
+                let st = response.status();
+                let r = response.into_string().map_err(|e| format!("getting response: {}", e))?;
+                trace!(log, "response [{}] from {} at {}\n{}", st, method, url, r);
+                r
             }
-            Some(callback) => callback(&self),
+            Some(callback) => {
+                callback(&self)
+            },
         };
 
         match self {
@@ -166,9 +157,7 @@ impl ApiRequest {
                 if response.success {
                     println!("{}", response.result);
                     Ok(())
-                } else {
-                    Err(response.as_err())
-                }
+                } else { Err(as_err(&response.errors, &response.messages)) }
             }
             ApiRequest::Update(l, _) => LicenseResponse::save(file, response, l, encm, now, log),
             ApiRequest::Pull(l) => LicenseResponse::save(file, response, l, encm, now, log),
@@ -180,22 +169,25 @@ impl LicenseResponse {
     #[inline]
     fn save(file: &String, response: String, license: &License,
         encoded_map: HashMap<String, String>, now: &LicenseDate,
-        log: &Logger,
+        _log: &Logger,
     ) -> Result<(), String> {
         let lr: LicenseResponse = serde_json::from_str(response.as_str())
-            .map_err(|e| format!("converting response on save: {} from {}", e, response))?;
-        let mut lr = lr.result;
-        debug!(log, "loaded: {:?} ", lr);
-
-        if lr.patch(license, &encoded_map, now) {
-            lr.verify()?;
-            debug!(log, "saving to {}", file);
-            fs::write(file.clone(), serde_yaml::to_string(&lr)
-                .map_err(|e| format!("creating license: {}", e))?)
-                .map_err(|e| format!("writing to [{}] {}", file, e))?;
+            .map_err(|e| format!("converting response on save from api response: {}, with error: {}", response, e))?;
+        match lr.result {
+            None => Err(as_err(&lr.errors, &lr.messages)),
+            Some(mut lr) => {
+                if lr.patch(license, &encoded_map, now) {
+                    lr.verify()?;
+                    fs::write(file.clone(), serde_yaml::to_string(&lr)
+                        .map_err(|e| format!("creating license: {}", e))?)
+                        .map_err(|e| format!("writing to [{}] {}", file, e))?;
+                }
+                Ok(())
+            }
         }
-        Ok(())
+
     }
+
 }
 
 #[cfg(debug_assertions)]
@@ -299,10 +291,10 @@ fn valid_name(names: &Vec<String>) -> Option<String> {
 #[derive(Deserialize)]
 #[allow(dead_code)]
 struct LicenseResponse {
-    result: License,
+    result: Option<License>,
     success: bool,
-    errors: Vec<String>,
-    messages: Vec<String>,
+    errors: Vec<ApiMessage>,
+    messages: Vec<ApiMessage>,
 }
 
 #[derive(Deserialize)]
@@ -320,19 +312,17 @@ pub struct ApiMessage {
     pub message: String
 }
 
-impl ApiResponse {
-    fn as_err(&self) -> String {
-        let mut res = String::new();
-        for e in &self.errors {
-            if res.len() > 0 {res.push_str(", ");}
-            res.push_str(e.message.as_str());
-        }
-        for e in &self.messages {
-            if res.len() > 0 {res.push_str(", ");}
-            res.push_str(e.message.as_str());
-        }
-        res
+fn as_err(errors: &Vec<ApiMessage>, messages: &Vec<ApiMessage>) -> String {
+    let mut res = String::new();
+    for e in errors {
+        if res.len() > 0 {res.push_str(", ");}
+        res.push_str(e.message.as_str());
     }
+    for e in messages {
+        if res.len() > 0 {res.push_str(", ");}
+        res.push_str(e.message.as_str());
+    }
+    res
 }
 
 #[cfg(debug_assertions)]
@@ -603,7 +593,8 @@ impl License {
     // License
 
     #[inline]
-    fn clean(&self, enc: &mut HashMap<String, String>) -> Result<String, String> {
+    #[allow(dead_code)]
+    fn clean(&self) -> Result<String, String> {
         let mut lic = self.clone();
         lic.cpk = None;
         lic.api_key = "".into();
@@ -614,19 +605,31 @@ impl License {
             let hosts = c.hosts.to_owned();
             c.hosts = BTreeSet::new();
             for host in &hosts {
-                let e = Connection::encode(host, &public_key)?;
-                enc.insert(e.clone(), host.clone());
-                c.hosts.insert(e);
+                c.hosts.insert(Connection::encode(host, &public_key)?);
             }
             let db_names = c.db_names.to_owned();
             c.db_names = BTreeSet::new();
             for db_name in &db_names {
-                let e =  Connection::encode(db_name, &public_key)?;
-                enc.insert(e.clone(), db_name.clone());
-                c.db_names.insert(e);
+                c.db_names.insert(Connection::encode(db_name, &public_key)?);
             }
         }
         serde_yaml::to_string(&lic).map_err(|e| format!("creating payload of a license: {}", e))
+    }
+    // License
+
+    #[inline]
+    fn pre_send(&self) -> Result<HashMap<String, String>, String>{
+        let mut enc = HashMap::new();
+        let public_key = self.pubk()?;
+        for c in &self.connects {
+            for host in &c.hosts {
+                enc.insert(Connection::encode(host, &public_key)?, host.clone());
+            }
+            for db_name in &c.db_names {
+                enc.insert(Connection::encode(db_name, &public_key)?, db_name.clone());
+            }
+        }
+        Ok(enc)
     }
     // License
 
@@ -635,7 +638,7 @@ impl License {
     fn patch(&mut self, lic: &License, enc: &HashMap<String, String>, now: &LicenseDate) -> bool {
         self.notice = lic.notice.clone();
         self.key = lic.key.clone();
-        let mut self_now = now.clone(); //Utc::now().into();
+        let mut self_now = now.clone();
         let mut lic_now = now.clone();
         for c in &lic.connects {
             if c.valid_until > lic_now {
@@ -658,7 +661,7 @@ impl License {
                     .insert(enc.get(db_name).unwrap_or(db_name).into());
             }
         }
-        lic_now > self_now
+        self_now > lic_now
     }
     // License
 
@@ -731,7 +734,11 @@ impl License {
                 PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
                 &d,
             ) {
-                Ok(s) => Ok(format!("{}:{}", self.api_key, base64::encode(s))),
+                // Ok(s) => Ok(format!("{}:{}", self.api_key, base64::encode(s))),
+                Ok(s) => {
+                    // crc::debug("header", &d, &s,  &rsa.to_public_key());
+                    Ok(base64::encode(s))
+                },
                 Err(e) => Err(format!("key is not good for sign: {}", e)),
             }
         }
@@ -755,16 +762,12 @@ impl License {
         match base64::decode(auth) {
             Ok(sign) => {
                 let d = self.header_digest();
-                match self.pubk()?.verify(
-                    PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
-                    &d,
-                    &sign,
-                ) {
-                    Ok(_) => Ok(()),
-                    Err(e) => Err(format!("invalid auth header: {}", e)),
-                }
+                let pubk = self.pubk()?;
+                // crc::debug("is_header", &d, &sign, &pubk);
+                pubk.verify(PaddingScheme::new_pss::<Sha1, _>(thread_rng()), &d, &sign)
+                    .map_err(|e| format!("invalid auth header: {}", e))
             }
-            Err(e) => Err(format!("reading header: {}", e)),
+            Err(e) => Err(format!("reading header [{}]: {}", auth.len(), e)),
         }
     }
     // License
@@ -800,8 +803,10 @@ fn is_ip(host: &String) -> bool {
         }
 }
 
+#[allow(dead_code)]
 mod crc {
     use std::fmt::Write;
+    use rsa::{RSAPublicKey, PublicKeyParts};
 
     #[cfg(not(debug_assertions))]
     #[inline]
@@ -826,6 +831,25 @@ mod crc {
             }
         );
     }
+
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    pub(crate) fn debug(_method: &str, _d: &[u8]) {}
+
+    #[cfg(debug_assertions)]
+    #[inline]
+    pub(crate) fn debug(method: &str, d: &[u8],  ds: &[u8], pubk: &RSAPublicKey) {
+        let mut s = String::new();
+        a(&mut s, d);
+        s.push_str(".pub");
+        a(&mut s, &pubk.n().to_bytes_be());
+        s.push_str(".sig[");
+        s.push_str(ds.len().to_string().as_str());
+        s.push_str("]");
+        a(&mut s, ds);
+        println!("{}.crc:{}{}", method, d.len(), s);
+    }
+
 }
 
 #[inline]
@@ -936,10 +960,12 @@ pub fn str2pub(input: &String) -> Result<RSAPublicKey, String> {
 fn strs2pub(input_n: &str, input_e: &str) -> Result<RSAPublicKey, rsa::errors::Error> {
     match base64::decode(input_n) {
         Ok(bn) => match base64::decode(input_e) {
-            Ok(be) => RSAPublicKey::new(
-                BigUint::from_bytes_be(bn.as_ref()),
-                BigUint::from_bytes_be(be.as_ref()),
-            ),
+            Ok(be) => {
+                RSAPublicKey::new(
+                    BigUint::from_bytes_be(bn.as_ref()),
+                    BigUint::from_bytes_be(be.as_ref()),
+                )
+            },
             Err(e) => Err(rsa::errors::Error::ParseError {
                 reason: format!("E: {}", e),
             }),
@@ -960,7 +986,7 @@ pub fn str2rsa(input: &str) -> Result<RSAPrivateKey, String> {
                     Err(e) => Err(format!("{:?}", e)),
                 }
             } else {
-                Err(format!("file is too small for PKCS: {}", der_bytes.len()))
+                Err(format!("input is too small for PKCS1: {}", der_bytes.len()))
             }
         }
         Err(e) => Err(e.to_string()),
@@ -1070,8 +1096,8 @@ mod tests {
             hosts,
             db_names,
         });
-        let mut enc = HashMap::new();
-        let cl = l.clean(&mut enc)?;
+        let enc = l.pre_send()?;
+        let cl = l.clean()?;
         assert_eq!(enc.len(), 2);
         println!("{:?}", enc);
 
@@ -1079,10 +1105,23 @@ mod tests {
         assert_eq!(cl.connects.len(), 1);
         assert!(!cl.connects[0].hosts.contains("h"));
         assert!(!cl.connects[0].db_names.contains("db"));
-        cl.patch(&l, &mut enc, &now);
+        cl.connects[0].valid_until += chrono::Duration::days(10);
+
+        assert!(cl.patch(&l, &enc, &now));
         assert_eq!(cl.connects.len(), 1);
         assert!(cl.connects[0].hosts.contains("h"));
         assert!(cl.connects[0].db_names.contains("db"));
+
+
+        cl.connects[0].hosts.insert("z".to_string());
+        cl.connects[0].db_names.insert("z".to_string());
+        assert!(cl.patch(&l, &enc, &now));
+
+        assert!(cl.connects[0].hosts.contains("h"));
+        assert!(cl.connects[0].hosts.contains("z"));
+        assert!(cl.connects[0].db_names.contains("db"));
+        assert!(cl.connects[0].db_names.contains("z"));
+
         Ok(())
     }
 
