@@ -174,7 +174,7 @@ struct FileFilters {
 }
 
 impl FileFilters {
-    // TODO add default version target as "target"
+    /// default version of xxx_deploy is a "target"
     #[inline]
     fn new(cfg: &ConfigMap) -> Result<Self, String> {
         Ok(FileFilters {

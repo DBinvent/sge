@@ -169,9 +169,13 @@ impl ConfigMap {
     }
 
     /// find the target database name for log storage, use a database from connection if not set use '' as current db
+    /// if logdb set, than db_target must default to {host/db_name}
     #[inline]
     pub(crate) fn target(&self) -> String {
-        self.get("db_target")
+        self.get_def("db_target", match self.get_opt("logdb_name") {
+            None => "".to_string(),
+            Some(_) => format!("{}/{}", self.get("db_host"), self.get("db_name"))
+        })
     }
 
     #[inline]
