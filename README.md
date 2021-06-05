@@ -52,9 +52,10 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
 - Add changing/extending datatype: "ALTER TABLE ... SET DATA TYPE"
+- Add --schema_transaction: column | retry_table | retry_column
 - Add JSON format for schema definition, yaml to json converter, and schema validation https://docs.rs/jsonschema/0.9.0/jsonschema/index.html
 - Add schema features: view, foreign tables, partitioned tables, indexes, constraint
-- Add data snapshot (pg_dump) full for featuring reverse eng.
+- Add data snapshot (use pg_dump) full for featuring reverse eng.
 - Add data ELT migrations for dictionary tables 
 - Add git as a source for scripts and license (pull/push)
 - Add key-vault's cloud integration for DB connection and license store

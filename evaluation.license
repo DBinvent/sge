@@ -1,0 +1,8 @@
+---
+issued_to: Evaluation
+notice: This is a build-in evaluation license
+connects:
+  - valid_until: 2021-07-06
+api_key_valid_until: "2021-06-04T16:00:47.865382198+00:00"
+license_type: Evaluation
+license:

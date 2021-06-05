@@ -41,7 +41,6 @@ pub(crate) struct FilesMap {
 
 #[derive(Debug, Clone)]
 pub(crate) struct FileVersion {
-    // #[serde(skip_serializing)]
     v: Version,
     pub s: String,
 }
@@ -661,7 +660,6 @@ impl YTrig {
 
     /// column defenition to SQL string
     #[inline]
-    // pub(crate)
     fn trig_def(&self, schema: &String, table_name: &String) -> Option<String> {
         // let proc = as_str_esc(input, "proc");
         if self.proc.len() > 0 {
@@ -1143,7 +1141,9 @@ impl YTable {
 #[cfg(debug_assertions)]
 #[inline]
 fn deploy_log(msg: &String, log: &Logger) {
-    debug!(log, "SQL>\n{}", msg);
+    if msg.len() > 0 {
+        debug!(log, "SQL>\n{}", msg);
+    }
 }
 
 #[cfg(not(debug_assertions))]

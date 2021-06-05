@@ -31,12 +31,6 @@ use std::fmt::Write;
 /// TODO: --schema_transaction:
 //     - (column-TBD): perform all changes on a table per transaction. \\n \
 //     - (repeat-TBD): try to obtain a lock perform changes repetally - suitable on high load systems \\n \
-//
-//     - pg_dump:
-//         long: pg_dump
-//         default_value: "false"
-//         possible_values: [yes, no, ok, y, "1", "true", "false"]
-//         help: "dump schema by pg_dump into"
 
 pub const CONFIG_DEF_YML: &'static str = include_str!("cl_config.yaml");
 
