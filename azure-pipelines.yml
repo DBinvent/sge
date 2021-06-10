@@ -61,8 +61,8 @@ steps:
 
   - task: CopyFiles@2
     inputs:
-      SourceFolder: '$(System.DefaultWorkingDirectory)/evaluation.license'
-      Contents: 'rdbm'
+      SourceFolder: '$(System.DefaultWorkingDirectory)'
+      Contents: 'evaluation.license'
       TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
       CleanTargetFolder: false
       OverWrite: true
