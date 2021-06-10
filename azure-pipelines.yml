@@ -55,8 +55,6 @@ jobs:
         target/release/sl /etc/corp0.rsa evaluation.license
       displayName: sign
 
-- job: Delivery
-  steps:
     - task: CopyFiles@2
       inputs:
         SourceFolder: '$(System.DefaultWorkingDirectory)/rdbm/target/release'
