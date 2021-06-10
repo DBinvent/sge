@@ -4,16 +4,78 @@
 # https://aka.ms/yaml
 
 trigger:
-- main
+- master
 
 pool:
-  vmImage: ubuntu-latest
+  name: Default
+  # vmImage: ubuntu-latest
+
+variables:
+  CHANNEL: stable
 
 steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
+  # install tools (these will be cached)
+  - bash: |
+      curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain none
+      source $HOME/.cargo/env
+      echo $HOME
+      which rustup && rustup -V
+    displayName: Enusure rustup is installed
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+  - bash: |
+      source $HOME/.cargo/env
+      rustup update
+      which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
+    displayName: Select toolchain for tools (if updating the cache anyway)
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+  - bash: |
+      source $HOME/.cargo/env
+      cargo install cargo2junit
+    displayName: Install cargo2junit (if updating the cache anyway)
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+  - bash: |
+      source $HOME/.cargo/env
+      cargo install cargo-make
+    displayName: Prepare make
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
 
-- script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+  - bash: |
+      source $HOME/.cargo/env
+      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
+    displayName: cargo test
+  - bash: |
+      source $HOME/.cargo/env
+      cargo build --release
+    displayName: cargo build --release
+  - bash: |
+      target/release/sl /etc/corp0.rsa evaluation.license
+    displayName: sign
+
+  - task: CopyFiles@2
+    inputs:
+      SourceFolder: '$(System.DefaultWorkingDirectory)/target/release'
+      Contents: 'rdbm'
+      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
+      CleanTargetFolder: true
+      OverWrite: true
+
+  - task: CopyFiles@2
+    inputs:
+      SourceFolder: '$(System.DefaultWorkingDirectory)'
+      Contents: 'evaluation.license'
+      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
+      CleanTargetFolder: false
+      OverWrite: true
+
+  - task: ArchiveFiles@2
+    displayName: 'Archive files'
+    inputs:
+      rootFolderOrFile: '$(Build.ArtifactStagingDirectory)/release'
+      includeRootFolder: false
+      archiveType: zip
+      archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+      replaceExistingArchive: true
+
+  - upload: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+    artifact: drop  
+
