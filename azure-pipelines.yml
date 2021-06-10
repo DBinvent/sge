@@ -42,6 +42,7 @@ jobs:
       condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
 
 - job: Build
+  dependsOn: PrepareRust
   steps:
     - bash: |
         source $HOME/.cargo/env
