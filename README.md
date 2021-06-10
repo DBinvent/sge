@@ -67,3 +67,6 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 This software distributed as commercially licensed and free for personal use
 
+### Used licenses
+
+cargo metadata --format-version=1 | jq | grep \"license\" | sort | uniq

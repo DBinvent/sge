@@ -31,10 +31,10 @@ include_str!("keys/corp9.pub"),
 ];
 
 const INV_LL: &str =
-    "Please check https://rdbm.dbinvent.com/license See './rdbm help license' for more details.";
+    "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details.";
 
 #[allow(dead_code)]
-const HOST: &str = "https://rdbm.dbinvent.com/";
+const API_HOST: &str = "https://dbinvent.com";
 const ABOUT_EXPIRE: u8 = 17; // days
 const EVALUATION_LICENSE: &str = "evaluation.license";
 
@@ -211,13 +211,13 @@ impl LicenseResponse {
 
 #[cfg(debug_assertions)]
 fn api_host() -> String {
-    "http://localhost:8000/".to_string()
+    "http://localhost:8000".to_string()
 }
 
 #[cfg(not(debug_assertions))]
 #[inline]
 fn api_host() -> String {
-    HOST.to_string()
+    API_HOST.to_string()
 }
 
 /// Request to register user and issue an license (by email)
@@ -645,7 +645,7 @@ impl License {
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn rewrite(&self, input: String, file: &str) -> Result<(), String> {
-        let mut l = License::new(input, "https://rdbm.dbinvent.com/")?;
+        let mut l = License::new(input, "https://dbinvent.com/")?;
         l.key = self.key.clone();
 
         match serde_yaml::to_string(&self) {
