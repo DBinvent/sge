@@ -27,11 +27,7 @@ steps:
 
   - bash: |
       source $HOME/.cargo/env
-      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
-    displayName: cargo test
-  - bash: |
-      source $HOME/.cargo/env
-      cargo build --release
+      cargo build --bin sl --release
     displayName: cargo build --release
   - bash: |
       target/release/sl /etc/corp0.rsa evaluation.license
