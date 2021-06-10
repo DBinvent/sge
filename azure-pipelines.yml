@@ -45,6 +45,8 @@ steps:
     displayName: cargo test
   - bash: |
       source $HOME/.cargo/env
+      sed -i 's/local_build/$(Build.BuildId)/' src/cl_config.yaml
+      head src/cl_config.yaml
       cargo build --release
     displayName: cargo build --release
   - bash: |
