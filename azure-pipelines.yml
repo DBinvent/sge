@@ -13,74 +13,69 @@ pool:
 variables:
   CHANNEL: stable
 
-jobs:
-- job: PrepareRust
-  steps:
-    # install tools (these will be cached)
-    - bash: |
-        curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain none
-        source $HOME/.cargo/env
-        echo $HOME
-        which rustup && rustup -V
-      displayName: Enusure rustup is installed
-      condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-    - bash: |
-        source $HOME/.cargo/env
-        rustup update
-        which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
-      displayName: Select toolchain for tools (if updating the cache anyway)
-      condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-    - bash: |
-        source $HOME/.cargo/env
-        cargo install cargo2junit
-      displayName: Install cargo2junit (if updating the cache anyway)
-      condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-    - bash: |
-        source $HOME/.cargo/env
-        cargo install cargo-make
-      displayName: Prepare make
-      condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+steps:
+  # install tools (these will be cached)
+  - bash: |
+      curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain none
+      source $HOME/.cargo/env
+      echo $HOME
+      which rustup && rustup -V
+    displayName: Enusure rustup is installed
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+  - bash: |
+      source $HOME/.cargo/env
+      rustup update
+      which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
+    displayName: Select toolchain for tools (if updating the cache anyway)
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+  - bash: |
+      source $HOME/.cargo/env
+      cargo install cargo2junit
+    displayName: Install cargo2junit (if updating the cache anyway)
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+  - bash: |
+      source $HOME/.cargo/env
+      cargo install cargo-make
+    displayName: Prepare make
+    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
 
-- job: Build
-  dependsOn: PrepareRust
-  steps:
-    - bash: |
-        source $HOME/.cargo/env
-        cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
-      displayName: cargo test
-    - bash: |
-        source $HOME/.cargo/env
-        cargo build --release
-      displayName: cargo build --release
-    - bash: |
-        target/release/sl /etc/corp0.rsa evaluation.license
-      displayName: sign
+  - bash: |
+      source $HOME/.cargo/env
+      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
+    displayName: cargo test
+  - bash: |
+      source $HOME/.cargo/env
+      cargo build --release
+    displayName: cargo build --release
+  - bash: |
+      target/release/sl /etc/corp0.rsa evaluation.license
+    displayName: sign
 
-    - task: CopyFiles@2
-      inputs:
-        SourceFolder: '$(System.DefaultWorkingDirectory)/rdbm/target/release'
-        Contents: 'rdbm'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
-        CleanTargetFolder: true
-        OverWrite: true
+  - task: CopyFiles@2
+    inputs:
+      SourceFolder: '$(System.DefaultWorkingDirectory)/rdbm/target/release'
+      Contents: 'rdbm'
+      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
+      CleanTargetFolder: true
+      OverWrite: true
 
-    - task: CopyFiles@2
-      inputs:
-        SourceFolder: '$(System.DefaultWorkingDirectory)/evaluation.license'
-        Contents: 'rdbm'
-        TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
-        CleanTargetFolder: false
-        OverWrite: true
+  - task: CopyFiles@2
+    inputs:
+      SourceFolder: '$(System.DefaultWorkingDirectory)/evaluation.license'
+      Contents: 'rdbm'
+      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
+      CleanTargetFolder: false
+      OverWrite: true
 
-    - task: ArchiveFiles@2
-      displayName: 'Archive files'
-      inputs:
-        rootFolderOrFile: '$(System.DefaultWorkingDirectory)/release'
-        includeRootFolder: false
-        archiveType: zip
-        archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
-        replaceExistingArchive: true
+  - task: ArchiveFiles@2
+    displayName: 'Archive files'
+    inputs:
+      rootFolderOrFile: '$(System.DefaultWorkingDirectory)/release'
+      includeRootFolder: false
+      archiveType: zip
+      archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+      replaceExistingArchive: true
 
-    - upload: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
-      artifact: drop  
+  - upload: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
+    artifact: drop  
 
