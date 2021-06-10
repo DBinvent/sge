@@ -51,6 +51,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 ### TODO
 
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
+- Add full support of https://www.postgresql.org/docs/current/libpq-envars.html
 - Add changing/extending datatype: "ALTER TABLE ... SET DATA TYPE"
 - Add --schema_transaction: column | retry_table | retry_column
 - Add JSON format for schema definition, yaml to json converter, and schema validation https://docs.rs/jsonschema/0.9.0/jsonschema/index.html

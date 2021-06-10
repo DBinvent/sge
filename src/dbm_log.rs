@@ -306,6 +306,9 @@ impl StatementLog {
             if let Some(port) = cfg.get_opt("db_port") {
                 cmd.arg(format!("-p{}", port));
             }
+            if let Some(user) = cfg.get_opt("db_user") {
+                cmd.env("PGUSER", user);
+            }
             if let Some(pgpass) = cfg.get_opt("db_password") {
                 cmd.env("PGPASSWORD", pgpass);
             }
@@ -394,14 +397,14 @@ impl StatementLog {
             .as_str(),
             &[&self.target, &self.source_type.to_string(), &self.version],
         ).map_err(|e| format!("{}", e))?;
-        if rows.len() > 0 {
+        let id = if rows.len() > 0 {
             let id: i32 = rows[0].get(0);
             let _ = t.execute(format!("update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
                 checksum = $5, script_tag = $6, catalog = $7, source = $8, executed_on=current_timestamp, times = times+1 where id = $9",
                 self.table).as_str(), &[
                     &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source,
                     &id]).map_err(|e| format!("{}", e))?;
-            Ok(id)
+            id
         } else {
             let r = t.query_one(format!("insert into {} (target, source_type, source, version, ok, msg, took_sec, executed_by, \
                 checksum, script_tag, catalog, executed_on, created_on) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, current_timestamp, current_timestamp) returning id",
@@ -409,7 +412,11 @@ impl StatementLog {
                     &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog,
                 ]).map_err(|e| format!("{}", e))?;
             let id: i32 = r.get(0);
-            Ok(id)
+            id
+        };
+        match err {
+            None => Ok(id),
+            Some(e) => Err(e)
         }
     }
 
