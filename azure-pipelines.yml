@@ -27,28 +27,13 @@ jobs:
     - bash: |
         source $HOME/.cargo/env
         rustup update
-        # rustup toolchain install nightly
-        # rustup default nightly
-        # rustup update
         which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
       displayName: Select toolchain for tools (if updating the cache anyway)
       condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
     - bash: |
         source $HOME/.cargo/env
-        cargo install sccache
-        echo '##vso[task.setvariable variable=RUSTC_WRAPPER]sccache'
-        which sccache && sccache --version && sccache --show-stats
-      displayName: Install sccache (if updating the cache anyway)
-      condition: and(succeeded(), and(eq(variables['ENABLE_SCCACHE'], '1'),ne(variables['CACHE_LOOKUP_RESULT'], 'true')))
-    - bash: |
-        source $HOME/.cargo/env
         cargo install cargo2junit
       displayName: Install cargo2junit (if updating the cache anyway)
-      condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-    - bash: |
-        echo cargo install cargo-cache
-        # cargo cache
-      displayName: Install cargo-cache (if updating the cache anyway)
       condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
     - bash: |
         source $HOME/.cargo/env
@@ -66,15 +51,32 @@ jobs:
         source $HOME/.cargo/env
         cargo build --release
       displayName: cargo build --release
-    # - bash: |
-        # .cargo/bin/cargo +nightly test --release -- -Z unstable-options --format json --report-time | tee test_results_release.json
+    - bash: |
+        target/release/sl /etc/corp0.rsa evaluation.license
+      displayName: sign
 
 - job: Delivery
   steps:
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)/rdbm/target/release'
+        Contents: 'rdbm'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
+        CleanTargetFolder: true
+        OverWrite: true
+
+    - task: CopyFiles@2
+      inputs:
+        SourceFolder: '$(System.DefaultWorkingDirectory)/evaluation.license'
+        Contents: 'rdbm'
+        TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
+        CleanTargetFolder: false
+        OverWrite: true
+
     - task: ArchiveFiles@2
       displayName: 'Archive files'
       inputs:
-        rootFolderOrFile: '$(System.DefaultWorkingDirectory)/target/release/rdbm'
+        rootFolderOrFile: '$(System.DefaultWorkingDirectory)/release'
         includeRootFolder: false
         archiveType: zip
         archiveFile: $(Build.ArtifactStagingDirectory)/$(Build.BuildId).zip
