@@ -7,7 +7,7 @@ schedules:
 - cron: '0 10 * * * '
   displayName: 'Evaluation license update'
   branches:
-    include: [ 'master' ] # which branches the schedule applies to
+    include: [ 'main' ] # which branches the schedule applies to
   always: true
 
 trigger:
