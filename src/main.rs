@@ -4,7 +4,7 @@ extern crate slog;
 use clap::App;
 use slog::Logger;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
-use sloggers::types::{Format, Severity};
+use sloggers::types::{Format, Severity, SourceLocation};
 use sloggers::Build;
 
 use rdbm::dbm_cfg::ConfigMap;
@@ -15,6 +15,7 @@ pub fn logger(debug: bool) -> Logger {
     builder.channel_size(1024);
     builder.destination(Destination::Stdout);
     builder.format(Format::Compact);
+    builder.source_location(SourceLocation::None);
     builder.level(if debug {
         Severity::Debug
     } else {
@@ -23,29 +24,42 @@ pub fn logger(debug: bool) -> Logger {
     builder.build().unwrap()
 }
 
-fn main() -> Result<(), String> {
+fn main() {
     let yaml = clap::YamlLoader::load_from_str(rdbm::CONFIG_DEF_YML).unwrap();
     let app = App::from_yaml(&yaml[0]).get_matches();
     let cmd = match app.subcommand_name() {
         Some(cmd) => cmd.to_owned(),
         None => {
             println!("{}", app.usage());
-            return Ok(());
+            std::process::exit(0);
         }
     };
-    let mut cfg = ConfigMap::load(if app.occurrences_of("config_file") > 0 {
+    let mut cfg = match ConfigMap::load(if app.occurrences_of("config_file") > 0 {
         app.value_of("config_file").unwrap_or("")
     } else {
         ""
-    })?;
+    }) {
+        Ok(c) => c,
+        Err(e) => { println!("{}", e); std::process::exit(2); }
+    };
     for ks in rdbm::CONFIG_APP.keys() {
         if app.occurrences_of(ks.as_str()) > 0 {
             cfg.insert(ks, app.value_of(ks).unwrap_or(""));
         }
     }
-    let log = logger(cfg.get_bool("verbose", false));
 
-    match cmd.as_str() {
+    std::process::exit(match act (cmd.as_str(), cfg) {
+        Ok(_) => 0,
+        Err(e) => {
+            println!("{}", e);
+            11
+        }
+    })
+}
+
+fn act(cmd: &str, cfg: ConfigMap, ) -> Result<(), String> {
+    let log = logger(cfg.get_bool("verbose", false));
+    match cmd {
         "migrate" => {
             if rdbm::license::is_ok(&cfg, &log)? {
                 rdbm::migrate(cfg, false, &log)

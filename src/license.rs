@@ -99,7 +99,7 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
         ApiRequest::Create(lc).call(&license_file, &now, dry_run, log, test)
     } else {
-        Err(format!("No '--email' nor '--license_file' set, also might be helpful: --subscribe=* and db connections to set. Please check ./rdbm help license for more details."))
+        Err(format!("No '--email' nor '--license_file' set, also might be helpful: --subscribe=* and db connections to set. Please check './rdbm help license' for more details."))
     }
 }
 
@@ -1329,12 +1329,12 @@ mod tests {
         assert!(l.find(&i, &zzz, &p, &zzz).is_none());
         // eval license
         assert!(l.find(&i, &h, &user, &e).unwrap() > Utc::today().naive_utc());
-        l.connects[0].hosts.insert("*".into());
+        l.connects[1].hosts.insert("*".into());
         // new license
         assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
         assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
-        assert!(l.find(&zzz, &h, &zzz, &p).unwrap() > Utc::today().naive_utc());
-        assert!(l.find(&i, &zzz, &p, &zzz).unwrap() > Utc::today().naive_utc());
+        assert_eq!((l.find(&zzz, &h, &user, &p).unwrap() - Utc::today().naive_utc()).num_days(), 1);
+        assert_eq!((l.find(&i, &zzz, &p, &e).unwrap() - Utc::today().naive_utc()).num_days(), 1);
 
     }
 }

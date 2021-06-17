@@ -35,7 +35,7 @@ slog-async = "^2.6.0"
 slog-envlogger = "^2.2.0"
 slog-stdlog = "^4.1.0"
 slog-term = "^2.8.0"
-sloggers = "^1.0.1"
+sloggers = "^2.0.0"
 lazy_static = "^1.4.0"
 postgres = { version = "^0.19.1", features=["with-chrono-0_4", "with-time-0_2"] }
 postgres-openssl = "^0.5.0"
@@ -61,5 +61,5 @@ uuid = {version="^0.8.1", features = ["v4"]}
 ipaddress = "^0.1.2"
 ureq = "^2.1.1"
 
-smallvec = "1.5.1"
+smallvec = "1.6.1"
 yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", features = []}

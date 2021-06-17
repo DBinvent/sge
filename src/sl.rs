@@ -68,7 +68,7 @@ mod tests {
 		)
 	}
 
-    #[test]
+    // #[test]
     fn pubk() -> Result<(), String> {
 		let rsaf = "tests/new.rsa";
 		let input = fs::read_to_string(rsaf.clone())
