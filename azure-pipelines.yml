@@ -47,6 +47,7 @@ steps:
       source $HOME/.cargo/env
       sed -i 's/local_build/$(Build.BuildId)/' src/cl_config.yaml
       head src/cl_config.yaml
+      ./ul.sh
       cargo build --release
     displayName: cargo build --release
   - bash: |
@@ -64,7 +65,10 @@ steps:
   - task: CopyFiles@2
     inputs:
       SourceFolder: '$(System.DefaultWorkingDirectory)'
-      Contents: 'evaluation.license'
+      Contents: |
+        evaluation.license
+        LICENSE
+        lib-licenses.txt
       TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
       CleanTargetFolder: false
       OverWrite: true

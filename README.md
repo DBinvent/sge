@@ -62,6 +62,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 - Add key-vault's cloud integration for DB connection and license store
 - Add UI / api to work as a service (php-admin inspired)
 - Add scheduled deploy
+- Add translations (i18n)
 
 ### License
 
@@ -70,3 +71,4 @@ This software distributed as commercially licensed and free for personal use
 ### Used licenses
 
 cargo metadata --format-version=1 | jq | grep \"license\" | sort | uniq
+cargo metadata --format-version=1 | jq | grep '"license": null' -B1 | grep id | grep -v rdbm

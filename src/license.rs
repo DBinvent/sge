@@ -587,6 +587,7 @@ impl License {
         format!("{}_v{}", License::parse_version(self.license_type.clone()).0, self.version)
     }
 
+    #[allow(unused)]
     #[inline]
     /// count total and encrypt connections except: localhost, postgres and $USER set on user_filter
     pub(crate) fn cnt(&self) -> usize {
@@ -1216,10 +1217,10 @@ mod tests {
         let h = "localhost".to_string();
         let p = "postgres".to_string();
         let i = "127.0.0.1".to_string();
-        test_find_assert(&l, &c, &h, &user);
-        test_find_assert(&l, &c, &i, &user);
-        test_find_assert(&l, &c, &h, &p);
-        test_find_assert(&l, &c, &i, &p);
+        test_find_assert_gt(&l, &c, &h, &user);
+        test_find_assert_gt(&l, &c, &i, &user);
+        test_find_assert_gt(&l, &c, &h, &p);
+        test_find_assert_gt(&l, &c, &i, &p);
 
         let sample_host = "aaaa".to_string();
         let sample_user = "bbbb".to_string();
@@ -1227,33 +1228,33 @@ mod tests {
         l.connects[0].hosts.insert(sample_host.clone());
         l.connects[0].db_names.insert(sample_user.clone());
 
-        test_find_assert(&l, &c, &sample_host, &sample_user);
-        test_find_assert(&l, &c, &sample_host, &user);
-        test_find_assert(&l, &c, &sample_host, &p);
-        test_find_assert(&l, &c, &h, &sample_user);
-        test_find_assert(&l, &c, &i, &sample_user);
+        test_find_assert_gt(&l, &c, &sample_host, &sample_user);
+        test_find_assert_gt(&l, &c, &sample_host, &user);
+        test_find_assert_gt(&l, &c, &sample_host, &p);
+        test_find_assert_gt(&l, &c, &h, &sample_user);
+        test_find_assert_gt(&l, &c, &i, &sample_user);
 
         l.connects.push(Connection::new(Utc::today().naive_utc() - chrono::Duration::days(10)));
         l.connects[1].hosts.insert(sample_host.clone());
         l.connects[1].db_names.insert(sample_user.clone());
 
-        test_find_assert(&l, &c, &sample_host, &sample_user);
-        test_find_assert(&l, &c, &sample_host, &user);
-        test_find_assert(&l, &c, &sample_host, &p);
-        test_find_assert(&l, &c, &h, &sample_user);
-        test_find_assert(&l, &c, &i, &sample_user);
+        test_find_assert_gt(&l, &c, &sample_host, &sample_user);
+        test_find_assert_gt(&l, &c, &sample_host, &user);
+        test_find_assert_gt(&l, &c, &sample_host, &p);
+        test_find_assert_gt(&l, &c, &h, &sample_user);
+        test_find_assert_gt(&l, &c, &i, &sample_user);
 
         let c = Utc::today().naive_utc() - chrono::Duration::days(100);
         l.connects.remove(0);
 
-        test_find_assert(&l, &c, &sample_host, &sample_user);
-        test_find_assert(&l, &c, &sample_host, &user);
-        test_find_assert(&l, &c, &sample_host, &p);
-        test_find_assert(&l, &c, &h, &sample_user);
-        test_find_assert(&l, &c, &i, &sample_user);
+        test_find_assert_gt(&l, &c, &sample_host, &sample_user);
+        test_find_assert_gt(&l, &c, &sample_host, &user);
+        test_find_assert_gt(&l, &c, &sample_host, &p);
+        test_find_assert_gt(&l, &c, &h, &sample_user);
+        test_find_assert_gt(&l, &c, &i, &sample_user);
     }
 
-    fn test_find_assert(l: &License, compare_to: &NaiveDate, host: &String, db: &String) {
+    fn test_find_assert_gt(l: &License, compare_to: &NaiveDate, host: &String, db: &String) {
         let e = "".to_string();
         assert!(l.find(host, &e, &e, &e).unwrap() > *compare_to);
         assert!(l.find(&e, &host, &e, &e).unwrap() > *compare_to);
@@ -1298,5 +1299,42 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn test_find_dbn_1() {
+        let user = env::var("USER").unwrap_or("".to_string());
+        let e = "".to_string();
+        let h = "localhost".to_string();
+        let p = "postgres".to_string();
+        let i = "127.0.0.1".to_string();
+        let zzz = "zzz".to_string();
+
+        let mut l = License::blank();
+        l.connects.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        l.connects[0].db_names.insert("*".into());
+        //only db name
+        assert!(l.find(&i, &h, &zzz, &p).is_some());
+        assert!(l.find(&i, &h, &user, &zzz).is_some());
+        assert!(l.find(&zzz, &h, &zzz, &p).is_none());
+        assert!(l.find(&i, &zzz, &p, &zzz).is_none());
+
+        // expiring license
+        l.connects[0].valid_until = Utc::today().naive_utc() - chrono::Duration::days(1);
+        l.connects.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        // expired license
+        assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
+        assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
+        assert!(l.find(&zzz, &h, &zzz, &p).is_none());
+        assert!(l.find(&i, &zzz, &p, &zzz).is_none());
+        // eval license
+        assert!(l.find(&i, &h, &user, &e).unwrap() > Utc::today().naive_utc());
+        l.connects[0].hosts.insert("*".into());
+        // new license
+        assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
+        assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
+        assert!(l.find(&zzz, &h, &zzz, &p).unwrap() > Utc::today().naive_utc());
+        assert!(l.find(&i, &zzz, &p, &zzz).unwrap() > Utc::today().naive_utc());
+
     }
 }
