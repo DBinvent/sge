@@ -209,6 +209,13 @@ impl ConfigMap {
         result
     }
 
+    #[cfg(not(debug_assertions))]
+    #[inline]
+    pub fn now(&self) -> LicenseDate  {
+        Utc::today().naive_utc()
+    }
+
+    #[cfg(debug_assertions)]
     #[inline]
     pub fn now(&self) -> LicenseDate  {
         match self.get_opt("TEST_DAYS") {
@@ -219,7 +226,7 @@ impl ConfigMap {
                     now + Duration::days(t as i64)
                 },
                 Err(e) => {
-                    println!("TEST_DAYS: {} : {}", test, e);
+                    println!("CFG:TEST_DAYS: {} : {}", test, e);
                     Utc::today().naive_utc()
                 }
             },

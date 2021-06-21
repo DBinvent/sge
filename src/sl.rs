@@ -1,10 +1,9 @@
 use std::{env, fs};
-use rsa::{RSAPrivateKey, PaddingScheme, PublicKeyParts};
+use rsa::{RSAPrivateKey, PaddingScheme};
 use rand::thread_rng;
 use sha1::Sha1;
 
 use chrono::{Utc, Duration};
-use rdbm::license::License;
 
 /// ssh-keygen -t rsa -m PKCS8  -f new.rsa
 fn main() -> Result<(), String> {
@@ -41,14 +40,13 @@ fn main() -> Result<(), String> {
 	let rsa = RSAPrivateKey::from_pkcs8(&encoded)
 			.map_err(|e| format!("key create error [{}] {:?}", rsaf, e))?;
 
-	let digest = lic.digest()?;
+	let digest =  lic.pre_digest(&rsa.to_public_key()).digest()?;
 	let sgn = rsa.sign_blinded(&mut thread_rng(),
 		 PaddingScheme::new_pss::<Sha1, _>(thread_rng()), &digest)
 			.map_err(|e| format!("sign license [{}] by [{}]: {}", file_name, rsaf, e))?;
+	rdbm::license::crc::debug("signed", &digest, &sgn, &rsa.to_public_key());
 
     lic.license = base64::encode(sgn);
-	lic.version = License::as_ver(&rsa.to_public_key());
-	lic.license_type = lic.as_type();
 
 	fs::write(&file_name, serde_yaml::to_string(&lic).unwrap())
 		.map_err(|e| format!("write [{}] {}", file_name, e))
@@ -58,7 +56,8 @@ fn main() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-	use rsa::RSAPublicKey;
+	use rsa::{RSAPublicKey, PublicKeyParts};
+	use std::path::Path;
 
 	pub fn pub2str(input: &RSAPublicKey) -> String {
 		format!(
@@ -68,25 +67,4 @@ mod tests {
 		)
 	}
 
-    // #[test]
-    fn pubk() -> Result<(), String> {
-		let rsaf = "tests/new.rsa";
-		let input = fs::read_to_string(rsaf.clone())
-			.map_err(|e| format!("read file {}: {}", rsaf, e))?
-			.lines()
-			.filter(|line| !line.starts_with("-"))
-			.fold(String::new(), |mut data, line| {
-				data.push_str(&line);
-				data
-			});
-
-		let encoded = base64::decode(&input)
-			.map_err(|e| format!("key decode error [{}] {} ", rsaf, e))?;
-		let rsa = RSAPrivateKey::from_pkcs8(&encoded)
-				.map_err(|e| format!("key create error [{}] {:?}", rsaf, e))?;
-
-		println!("{} PUB:[{}]", rsaf, pub2str(&rsa.to_public_key()));
-
-        Ok(())
-    }
 }

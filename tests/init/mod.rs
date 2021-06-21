@@ -233,6 +233,7 @@ fn pseudo_rnd(min: u16, max: u16) -> u16 {
 		.duration_since(UNIX_EPOCH)
 		.unwrap()
 		.subsec_nanos();
+    let pseudo_random = pseudo_random % (u16::MAX - min - 1) as u32;
 	prc(min, max, min + pseudo_random as u16, 0)
 }
 

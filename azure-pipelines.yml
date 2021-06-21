@@ -41,6 +41,11 @@ steps:
 
   - bash: |
       source $HOME/.cargo/env
+      cargo build --bin sl
+      target/release/sl /etc/corp0.rsa evaluation.license
+    displayName: sign
+  - bash: |
+      source $HOME/.cargo/env
       cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
     displayName: cargo test
   - bash: |
@@ -50,9 +55,6 @@ steps:
       ./ul.sh
       cargo build --release
     displayName: cargo build --release
-  - bash: |
-      target/release/sl /etc/corp0.rsa evaluation.license
-    displayName: sign
 
   - task: CopyFiles@2
     inputs:

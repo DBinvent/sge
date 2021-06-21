@@ -1,12 +1,13 @@
-Copyright notice for the Rust:
+Copyright notice for the Rumba:rdbm:
 
  (C) 2021 DBinvent LLC
 
-  This software is provided 'as-is', without any express or implied
-  warranty.  In no event will the authors be held liable for any damages
+  This software is provided 'as-is'.
+  In no event will the authors be held liable for any damages
   arising from the use of this software.
 
-  Permission is granted to anyone to use this software for any purpose,
+  Permission is granted to anyone to use this software for evaluation
+  OR solely to the person or company for any purpose,
   including commercial applications, subject to the following restrictions:
 
   1. The origin of this software must not be misrepresented; you must not
@@ -17,7 +18,7 @@ Copyright notice for the Rust:
   3. This notice may not be removed or altered from any source distribution.
 
 
-Libraries used in this software been licensed under list of licenses described in: see libs-licenses.txt.
+Libraries used in this software been licensed under list of licenses collected in libs-licenses.txt.
 
 
   DBinvent LLC
