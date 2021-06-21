@@ -71,7 +71,7 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
         match License::load(license_file.as_str()) {
             Ok(l) => match l.verify() {
                 Ok(_) => {
-                    info!( log, "License [{}] issued to: {} {}{}", license_file, l.issued_to, l.email);
+                    info!( log, "License [{}] issued to: {} {}", license_file, l.issued_to, l.email);
 
                     if l.find(&db_host, &logdb_host, &db_name, &logdb_name).is_some()
                         || (!conn_set && eval_set) {
