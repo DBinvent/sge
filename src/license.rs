@@ -37,40 +37,45 @@ const INV_LL: &str =
 const API_HOST: &str = "https://dbinvent.com";
 // const ABOUT_EXPIRE: u8 = 17; // days
 const EVALUATION_LICENSE: &str = "evaluation.license";
+const LICENSE_FILE: &str = "rdbm.license";
 
 /// on license action
 pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
     let email = cfg.get("email");
     let dry_run = cfg.get_bool("dry_run", false);
-    let mut license_file = cfg.get("license_file");
-    if license_file.len() == 0
-        && Path::new(EVALUATION_LICENSE).is_file() {
-        license_file = EVALUATION_LICENSE.to_string();
-    }
+    let license_file = match cfg.get_opt(LICENSE_FILE) {
+        None => EVALUATION_LICENSE.to_string(),
+        Some(f) => if Path::new(f.as_str()).is_file() { f } else {
+            EVALUATION_LICENSE.to_string()
+        }
+    };
 
     let mut subsr: BTreeSet<String> = BTreeSet::new();
     cfg.get("subscribe").split(",").for_each(|s| {
         subsr.insert(s.into());
     });
-    let db_host = cfg.get("db_host");
-    let logdb_host = cfg.get("logdb_host");
-    let db_name = cfg.get("db_name");
-    let logdb_name = cfg.get("logdb_name");
+    let db_host = cfg.get_opt("db_host").unwrap_or("".into());
+    let logdb_host = cfg.get_opt("logdb_host").unwrap_or("".into());
+    let db_name = cfg.get_opt("db_name").unwrap_or("".into());
+    let logdb_name = cfg.get_opt("logdb_name").unwrap_or("".into());
 
     let do_subscribe = subsr.contains("*")
         || (db_host.len() > 0 && subsr.contains(&db_host))
         || (logdb_host.len() > 0 && subsr.contains(&logdb_host))
         || (db_name.len() > 0 && subsr.contains(&db_name))
         || (logdb_name.len() > 0 && subsr.contains(&logdb_name));
+    let conn_set = db_host.len() + logdb_host.len() + db_name.len() + logdb_name.len() > 0;
+    let eval_set = license_file.as_str() == EVALUATION_LICENSE;
 
     if Path::new(license_file.as_str()).is_file() {
         match License::load(license_file.as_str()) {
             Ok(l) => match l.verify() {
                 Ok(_) => {
-                    info!( log, "License [{}] issued to: {} {}{}", license_file, l.issued_to, l.email, if do_subscribe { ", will try to subscribe if necessary" } else { "" } );
+                    info!( log, "License [{}] issued to: {} {}{}", license_file, l.issued_to, l.email);
 
-                    if l.find(&db_host, &logdb_host, &db_name, &logdb_name).is_some() {
-                        if dry_run {
+                    if l.find(&db_host, &logdb_host, &db_name, &logdb_name).is_some()
+                        || (!conn_set && eval_set) {
+                        if dry_run || eval_set {
                             info!(log, "Good to use for your connection(s)! Thank you! ");
                             Ok(())
                         } else {
@@ -80,6 +85,8 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
                     } else if email.len() > 0 && do_subscribe {
                         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
                         ApiRequest::Update(l, lc).call(&license_file, dry_run, log, test)
+                    } else if conn_set {
+                        Err(format!("The license loaded from file [{}] is valid, but not for configuration set, check your configuration and license file. Also,{}", license_file, INV_LL))
                     } else {
                         Err(format!("The license loaded from file [{}] is valid, but no configuration set to check! {}", license_file, INV_LL))
                     }
