@@ -42,7 +42,7 @@ steps:
   - bash: |
       source $HOME/.cargo/env
       cargo build --bin sl
-      target/release/sl /etc/corp0.rsa evaluation.license
+      target/debug/sl /etc/corp0.rsa evaluation.license
     displayName: sign
   - bash: |
       source $HOME/.cargo/env
