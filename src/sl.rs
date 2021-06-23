@@ -1,9 +1,11 @@
 use std::{env, fs};
-use rsa::{RSAPrivateKey, PaddingScheme};
+use rsa::RSAPrivateKey;
 use rand::thread_rng;
-use sha1::Sha1;
 
 use chrono::{Utc, Duration};
+use rsa::padding::PaddingScheme::PKCS1v15Sign;
+use rsa::hash::Hash::SHA2_512;
+use rdbm::license;
 
 /// ssh-keygen -t rsa -m PKCS8  -f new.rsa
 fn main() -> Result<(), String> {
@@ -42,7 +44,7 @@ fn main() -> Result<(), String> {
 
 	let digest =  lic.pre_digest(&rsa.to_public_key()).digest()?;
 	let sgn = rsa.sign_blinded(&mut thread_rng(),
-		 PaddingScheme::new_pss::<Sha1, _>(thread_rng()), &digest)
+                PKCS1v15Sign { hash: license::SIGN_SH }, &digest)
 			.map_err(|e| format!("sign license [{}] by [{}]: {}", file_name, rsaf, e))?;
 	rdbm::license::crc::debug("signed", &digest, &sgn, &rsa.to_public_key());
 

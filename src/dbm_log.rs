@@ -4,7 +4,6 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::process::Command;
 use std::result::Result;
 
-use crypto_hash::Algorithm;
 use postgres::{Client, Transaction};
 use serde::Serialize;
 use slog::Logger;
@@ -17,6 +16,7 @@ use chrono::{DateTime, Utc};
 use semver::Version;
 use std::fs::{File, OpenOptions};
 use std::time::Instant;
+use crypto::digest::Digest;
 
 /// loaded from DB or stored to DB, see [STATEMENT_LOG_TBL] and [STATEMENT_LOG_TABLE_YML] for table defenition
 #[derive(Debug, Clone, Serialize)]
@@ -234,7 +234,7 @@ impl StatementLog {
                 format!("{}{}{}", dir, if dir.as_bytes()[dir.len()-1] == b'/' {""} else {"/"}, file)
             } else { file.into() };
             match fs::File::open(file) {
-                Ok(mut file) => hash_it(&mut file),
+                Ok(mut file) => hash_md5(&mut file),
                 Err(e) => e.to_string(),
             }
 
@@ -540,20 +540,22 @@ const BUFFER_SIZE: usize = 1024;
 
 /// Compute digest value for given `Reader` and print it
 /// On any error simply return without doing anything
-fn hash_it<R: Read>(reader: &mut R) -> String {
-    let mut hasher = crypto_hash::Hasher::new(Algorithm::MD5);
+fn hash_md5<R: Read>(reader: &mut R) -> String {
+    let mut hasher = crypto::md5::Md5::new();
     let mut buffer = [0u8; BUFFER_SIZE];
     loop {
         let n = match reader.read(&mut buffer) {
             Ok(n) => n,
             Err(_) => return "".into(),
         };
-        let _ = hasher.write(&buffer[..n]);
+        let _ = hasher.input(&buffer[..n]);
         if n == 0 || n < BUFFER_SIZE {
             break;
         }
     }
-    base64::encode(hasher.finish())
+    let mut output = [0; 16]; // An MD5 is 16 bytes
+    hasher.result(&mut output);
+    base64::encode(output)
 }
 
 /// load impl

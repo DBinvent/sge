@@ -1,21 +1,22 @@
 #[allow(unused)]
 use std::collections::BTreeSet;
-use std::io::Write;
 use std::path::Path;
 use std::{env, fs};
 
 use crate::ConfigMap;
 use chrono::{DateTime, Utc, NaiveDate, Datelike};
-use crypto_hash::Algorithm;
 use rand::thread_rng;
-use rsa::{BigUint, PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
+use rsa::{BigUint, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use serde::{Deserialize, Serialize};
-use sha1::{Digest, Sha1};
 use slog::Logger;
 use std::collections::HashMap;
 use yaml_rust::{Yaml, YamlLoader};
 use std::cmp::max;
 use std::time::{UNIX_EPOCH, SystemTime};
+use std::mem::swap;
+use crypto::digest::Digest;
+use rsa::padding::PaddingScheme::PKCS1v15Sign;
+use rsa::hash::Hash::{SHA2_512, SHA2_256};
 
 static PKS: [&'static str; 10] = [
 include_str!("keys/corp0.pub"),
@@ -37,7 +38,7 @@ const INV_LL: &str =
 const API_HOST: &str = "https://dbinvent.com";
 // const ABOUT_EXPIRE: u8 = 17; // days
 const EVALUATION_LICENSE: &str = "evaluation.license";
-const LICENSE_FILE: &str = "rdbm.license";
+const LICENSE_FILE: &str = "license_file";
 
 /// on license action
 pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
@@ -59,7 +60,7 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
     let db_name = cfg.get_opt("db_name").unwrap_or("".into());
     let logdb_name = cfg.get_opt("logdb_name").unwrap_or("".into());
 
-    let do_subscribe = subsr.contains("*")
+    let do_subscribe = subsr.contains(&"*".to_string())
         || (db_host.len() > 0 && subsr.contains(&db_host))
         || (logdb_host.len() > 0 && subsr.contains(&logdb_host))
         || (db_name.len() > 0 && subsr.contains(&db_name))
@@ -135,8 +136,12 @@ impl ApiRequest {
             return Ok(());
         }
         let auth_header = "Authentication";
-        let mut encm = match &self {
-            ApiRequest::Update(l, _lu) => l.encrypt_all()?,
+        let encm = match &self {
+            ApiRequest::Update(l, lu) => {
+                let mut e = l.encrypt_all()?;
+                let _ = lu.encrypt_all(&mut e, &l)?;
+                e
+            },
             ApiRequest::Pull(l) => l.encrypt_all()?,
             ApiRequest::Create(_) => HashMap::new()
         };
@@ -151,7 +156,7 @@ impl ApiRequest {
                             .map_err(|e| format!("{} license: {}", method, e))?
                     }
                     ApiRequest::Update(l, lu) => {
-                        let request = serde_json::to_string(&lu.clean(&mut encm, &l)?)
+                        let request = serde_json::to_string(&lu.clean(&l)?)
                             .map_err(|e| format!("creating payload of a license create request: {}", e))?;
                         ureq::put(url.as_str())
                             .set(auth_header, l.header()?.as_str())
@@ -200,13 +205,16 @@ impl LicenseResponse {
         match lr.result {
             None => Err(as_err(&lr.errors, &lr.messages)),
             Some(lr) => {
-                let mut lr = lr.convert();
-                lr.patch(license, &encoded_map);
-                lr.verify()?;
-                fs::write(file.clone(), serde_yaml::to_string(&lr)
+                // let mut lr = lr.convert();
+                let lr = lr.convert().patch(license, &encoded_map);
+                let (file, resp) = match lr.verify() {
+                    Ok(_) => (file.clone(), Ok(())),
+                    Err(e) => (format!("{}.err", file), Err(e))
+                };
+                fs::write(&file, serde_yaml::to_string(&lr)
                     .map_err(|e| format!("creating license: {}", e))?)
                     .map_err(|e| format!("writing to [{}] {}", file, e))?;
-                Ok(())
+                resp
             }
         }
 
@@ -297,24 +305,35 @@ impl CreateUpdateRequest {
     }
 
     #[inline]
-    fn clean(&self, encm: &mut HashMap<String, String>, lic: &License) -> Result<Self, String> {
+    fn clean(&self, lic: &License) -> Result<Self, String> {
         let public_key = lic.pubk()?;
         Ok(CreateUpdateRequest {
             personal: self.personal,
             email: self.email.clone(),
-            hosts: clean_list(&self.hosts, encm, &public_key)?,
-            db_names: clean_list(&self.db_names, encm, &public_key)?,
+            hosts: clean_list(&self.hosts, &public_key)?,
+            db_names: clean_list(&self.db_names, &public_key)?,
         })
+    }
+
+    #[inline]
+    fn encrypt_all(&self, encm: &mut HashMap<String, String>, lic: &License) -> Result<(), String> {
+        let public_key = lic.pubk()?;
+        for item in &self.hosts {
+            encm.insert(Connection::encode(item, &public_key)?, item.clone());
+        }
+        for item in &self.db_names {
+            encm.insert(Connection::encode(item, &public_key)?, item.clone());
+        }
+        Ok(())
     }
 
 }
 
 #[inline]
-fn clean_list(list: &Vec<String>, encm: &mut HashMap<String, String>, public_key: &RSAPublicKey) -> Result<Vec<String>, String> {
+fn clean_list(list: &Vec<String>, public_key: &RSAPublicKey) -> Result<Vec<String>, String> {
     let mut res = Vec::new();
     for item in list {
         let encoded = Connection::encode(item, &public_key)?;
-        encm.insert(encoded.clone(), item.clone());
         res.push(encoded);
     }
     Ok(res)
@@ -463,25 +482,29 @@ impl Connection {
     pub(crate) fn encrypt_all(&self, public_key: &RSAPublicKey) -> Result<Vec<Vec<u8>>, String> {
         let mut encoded = Vec::new();
         for d in &self.db_names {
-            encoded.push(Connection::encrypt(d, public_key)?);
+            encoded.push(Connection::hash_md5(d, public_key)?);
         }
         for h in &self.hosts {
-            encoded.push(Connection::encrypt(h, public_key)?);
+            encoded.push(Connection::hash_md5(h, public_key)?);
         }
+        encoded.sort();
         Ok(encoded)
     }
 
     #[inline]
-    fn encrypt(input: &String, public_key: &RSAPublicKey) -> Result<Vec<u8>, String> {
+    fn hash_md5(input: &String, public_key: &RSAPublicKey) -> Result<Vec<u8>, String> {
         if is_encrypted(input) {
             Ok(base64::decode(&input[1..]).map_err(|e| e.to_string())?)
         } else {
-            let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA256);
-            let _ = hasher.write(input.as_bytes());
-            let _ = hasher.write(&public_key.e().to_bytes_be());
-            let _ = hasher.write(&public_key.n().to_bytes_be());
-            let d = hasher.finish();
-            Ok(Sha1::digest(&d).to_vec())
+            let mut hasher = crypto::md5::Md5::new();
+            hasher.input_str(input.as_str());
+            hasher.input(public_key.n().to_bytes_be().as_ref());
+
+            // let mut output = [0; 32]; // 256 is 2 bytes
+            let mut output = [0; 16]; // 256 is 2 bytes
+            hasher.result(&mut output);
+
+            Ok(output.to_vec())
         }
     }
 
@@ -489,7 +512,7 @@ impl Connection {
         if is_encrypted(input) || (input.len() == 1 && input.as_bytes()[0] == b'*') {
             Ok(input.clone())
         } else {
-            let mut res = base64::encode(Connection::encrypt(input, &public_key)?);
+            let mut res = base64::encode(Connection::hash_md5(input, &public_key)?);
             res.insert(0, '~');
             Ok(res)
         }
@@ -543,32 +566,45 @@ impl License {
     #[inline]
     pub fn digest(&self) -> Result<Vec<u8>, String> {
         let public_key = self.pubk();
-        let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA512);
-        let _ = hasher.write(self.issued_to.as_bytes());
-        let _ = hasher.write(self.email.as_bytes());
-        let _ = hasher.write(self.license_type.as_bytes());
+        debug_assert!(matches!(SIGN_SH, Some(SHA2_512))); // keep two next lines in sync
+        #[cfg(debug_assertions)] let mut cr = "digest.c:".to_string();
+        let mut hasher = crypto::sha2::Sha512::new();
+        hasher.input_str(self.issued_to.as_str());
+        hasher.input_str(self.email.as_str());
+        hasher.input_str(self.license_type.as_str());
+
         if self.license_type.rfind("_v").is_none() {
             let lv = format!("_v{}", self.version);
-            let _ = hasher.write(lv.as_bytes());
+            hasher.input_str(lv.as_str());
         }
         for c in &self.connects {
-            let _ = hasher.write(&c.valid_until.year().to_be_bytes());
-            let _ = hasher.write(&c.valid_until.num_days_from_ce().to_be_bytes());
+            hasher.input(&c.valid_until.year().to_be_bytes());
+            hasher.input(&c.valid_until.num_days_from_ce().to_be_bytes());
+            #[cfg(debug_assertions)] cr.push_str(c.valid_until.to_string().as_str());
             if c.hosts.len() > 0 || c.db_names.len() > 0 {
                 // evaluation license does not have a key
                 match &public_key {
                     Ok(p) => {
                         for e in &c.encrypt_all(&p)? {
-                            let _ = hasher.write(e.as_ref());
+                            #[cfg(debug_assertions)] crc::a(&mut cr, e.as_ref());
+                            hasher.input(e.as_ref());
                         }
                     }
                     Err(e) => { return Err(e.to_owned()); }
                 }
             }
         }
-        let d = hasher.finish();
-        let d = Sha1::digest(&d).to_vec();
-        Ok(d)
+
+        let mut output = [0; 64]; // An 516 is 64 bytes
+        hasher.result(&mut output);
+
+        #[cfg(debug_assertions)] {
+            cr.push_str("result:");
+            crc::a(&mut cr, output.as_ref());
+            println!("{}", cr);
+        }
+
+        Ok(output.to_vec())
     }
     // License
 
@@ -659,12 +695,16 @@ impl License {
                 #[cfg(debug_assertions)]
                 crc::debug("verify_signd", &d, &sign, &pubk);
                 match pubk.verify(
-                    PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
+                    PKCS1v15Sign { hash: SIGN_SH },
                     &d,
                     &sign,
                 ) {
                     Ok(_) => Ok(()),
-                    Err(e) => Err(format!("license: {}", e)),
+                    Err(e) => {
+                        #[cfg(debug_assertions)]
+                        println!("Verify failed: {:?} sign: {}...", &self.connects, &self.license[..16]);
+                        Err(format!("license: {}", e))
+                    },
                 }
             }
             Err(e) => Err(format!("reading license: {}", e)),
@@ -747,34 +787,52 @@ impl License {
 
     /// opposite to clean
     #[inline]
-    fn patch(&mut self, original: &License, enc: &HashMap<String, String>) {
+    fn patch(mut self, original: &License, enc: &HashMap<String, String>) -> Self {
         self.notice = original.notice.clone();
         self.key = original.key.clone();
-        for c in &mut self.connects {
-            License::patch_set(&mut c.hosts, enc);
-            License::patch_set(&mut c.db_names, enc);
+        #[cfg(debug_assertions)]
+        println!("patching {:?}", &self.connects);
+        for c in self.connects.iter_mut() {
+            let cs = c.db_names.len() + c.hosts.len();
+
+            let mut dest = BTreeSet::new();
+            swap(&mut c.hosts,  &mut dest);
+            patch_set(dest, &mut c.hosts, enc);
+
+            let mut dest = BTreeSet::new();
+            swap(&mut c.db_names,  &mut dest);
+            patch_set(dest, &mut c.db_names, enc);
+
+            // License::patch_set(&mut c.hosts, enc);
+            // License::patch_set(&mut c.db_names, enc);
+
+            debug_assert_eq!(cs, c.db_names.len() + c.hosts.len());
         }
+        #[cfg(debug_assertions)]
+        println!("patched {:?}", &self.connects);
+        self
     }
     // License
-
+/*
     fn patch_set(dest: &mut BTreeSet<String>, enc: &HashMap<String, String>) {
         let original = dest.clone();
         dest.clear();
         let ol = original.len();
         for name in original {
             let decoded = match enc.get(&name) {
-                None => &name,
-                Some(d) => d,
-            }.to_owned();
-            println!("patching[{}/{}:{}] {}->{}", dest.len()+1, ol, enc.len(), name, decoded);
+                None => name,
+                Some(d) => d.to_owned(),
+            };
+            // println!("patching[{}/{}:{}] {}->{}", dest.len()+1, ol, enc.len(), name, decoded);
             dest.insert(decoded);
         }
     }
-
+*/
     #[inline]
     fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String) -> Option<LicenseDate> {
         let user = &env::var("USER").unwrap_or("".into());
         let pg = "postgres".to_string();
+        let star = "*".to_string();
         let is_ip_a = is_ip(host_a);
         let is_ip_b = is_ip(host_b);
         // let mut far = Utc::today().naive_utc() - chrono::Duration::days(3000);
@@ -798,12 +856,12 @@ impl License {
         let e_db_b = self.encrypt_name(db_b, &pubk);
 
         for c in &self.connects {
-            if (c.hosts.contains("*")
+            if (c.hosts.contains(&star)
                 || ((is_ip_a || c.hosts.contains(host_a) || c.hosts.contains(&e_host_a))
                     && (is_ip_b || c.hosts.contains(host_b)) || c.hosts.contains(&e_host_b)))
                 && (((db_a == "" || db_a == user || db_a == &pg)
                      && (db_b == "" || db_b == user || db_b == &pg))
-                    || c.db_names.contains("*")
+                    || c.db_names.contains(&star)
                     || ((c.db_names.contains(db_a) || c.db_names.contains(&e_db_a))
                         && (db_b.len() == 0 || c.db_names.contains(db_b) || c.db_names.contains(&e_db_b))))
             {
@@ -878,11 +936,12 @@ impl License {
             let d = self.header_digest();
             match rsa.sign_blinded(
                 &mut thread_rng(),
-                PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
+                PKCS1v15Sign { hash: HEADER_SH },
+                // PaddingScheme::new_pss::<Sha1, _>(thread_rng()),
                 &d,
             ) {
                 Ok(s) => {
-                    // crc::debug(" _ header", &d, &s,  &rsa.to_public_key());
+                    crc::debug("do_header", &d, &s,  &rsa.to_public_key());
                     Ok(base64::encode(s))
                 },
                 Err(e) => Err(format!("key is not good for sign: {}", e)),
@@ -894,10 +953,15 @@ impl License {
     #[inline]
     #[allow(dead_code)]
     fn header_digest(&self) -> Vec<u8> {
-        let mut hasher = crypto_hash::Hasher::new(Algorithm::SHA256);
-        let _ = hasher.write(self.api_key.as_bytes());
-        let _ = hasher.write(self.email.as_bytes());
-        Sha1::digest(&hasher.finish()).to_vec()
+        debug_assert!(matches!(HEADER_SH, Some(SHA2_256))); // keep two lines in sync
+        let mut hasher = crypto::sha2::Sha256::new();
+        hasher.input_str(self.api_key.as_str());
+        hasher.input_str(self.email.as_str());
+
+        let mut output = [0; 32];
+        hasher.result(&mut output);
+
+        output.to_vec()
     }
 
     /// validate authorization header
@@ -909,28 +973,38 @@ impl License {
             Ok(sign) => {
                 let d = self.header_digest();
                 let pubk = self.pubk()?;
-                // crc::debug("is_header", &d, &sign, &pubk);
-                pubk.verify(PaddingScheme::new_pss::<Sha1, _>(thread_rng()), &d, &sign)
+                crc::debug("is_header", &d, &sign, &pubk);
+                pubk.verify(PKCS1v15Sign { hash: HEADER_SH },
+                    &d, &sign)
                     .map_err(|e| format!("invalid auth header: {}", e))
             }
             Err(e) => Err(format!("reading header [{}]: {}", auth.len(), e)),
         }
     }
     // License
-/*
-    #[inline]
-    #[allow(dead_code)]
-    fn is_about_expire(&self, now: &LicenseDate, pull_ahead_days: u8) -> bool {
-        let about_expire: LicenseDate = (*now + Duration::days(pull_ahead_days as i64)).into();
-        for c in &self.connects {
-            if c.valid_until < about_expire {
-                return true;
-            }
-        }
-        false
-    }
-*/
 }
+
+const HEADER_SH: Option<rsa::hash::Hash> = Some(SHA2_256);
+pub const SIGN_SH: Option<rsa::hash::Hash> = Some(SHA2_512);
+
+fn patch_set(src: BTreeSet<String>, dest: &mut BTreeSet<String>, enc: &HashMap<String, String>) {
+    let ol = src.len();
+    #[cfg(debug_assertions)]
+    println!("patching[{} - {}]", src.len(), enc.len());
+    for name in src {
+        #[cfg(debug_assertions)]
+        let namec = name.clone();
+        let decoded = match enc.get(&name) {
+            None => name,
+            Some(d) => d.clone(),
+        };
+        #[cfg(debug_assertions)]
+        println!("patching[{}/{}] {}~>{}", dest.len() + 1, ol, namec, decoded);
+        dest.insert(decoded);
+    }
+    debug_assert_eq!(ol, dest.len());
+}
+
 
 #[inline]
 fn yaml_as_str(y: &Yaml, field: &str) -> String {
@@ -1293,11 +1367,20 @@ mod tests {
     }
 
     #[test]
-    fn init_lic() -> Result<(), String> {
+    fn test_sign_lic() -> Result<(), String> {
         let lf = "tests/signed_test_rdbm.license";
         if Path::new(lf).is_file() {
             let l = License::load(lf)?;
             l.verify()?;
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_header_lic() -> Result<(), String> {
+        let lf = "tests/signed_test_rdbm.license";
+        if Path::new(lf).is_file() {
+            let l = License::load(lf)?;
             let h = l.header()?;
             assert!(h.len() > 0);
             l.is_header(&h)?;
@@ -1316,13 +1399,101 @@ mod tests {
             hosts: vec!["host".into()],
             db_names: vec!["db".into()]
         };
-        let mut encm = HashMap::new();
-        let cc = cr.clean(&mut encm, &l)?;
+        let mut encm: HashMap<String, String> = HashMap::new();
+        let cc = cr.clean( &l)?;
+        cr.encrypt_all(&mut encm, &l);
         assert_eq!(encm.len(), 2);
         assert_ne!(cc.db_names[0], cr.db_names[0]);
         assert_eq!(encm.get(&cc.db_names[0]).unwrap_or(&"".to_string()), &cr.db_names[0]);
         assert_ne!(cc.hosts[0], cr.hosts[0]);
         assert_eq!(encm.get(&cc.hosts[0]).unwrap_or(&"".to_string()), &cr.hosts[0]);
+        Ok(())
+    }
+
+    #[test]
+    fn patch_lr() -> Result<(), String> {
+        let mut l = License::blank();
+        let now: LicenseDate = Utc::today().naive_utc();
+        l.cpk = Some(PKS[0].into());
+        let cr = CreateUpdateRequest {
+            personal: false,
+            email: "em".to_string(),
+            hosts: vec!["host".into()],
+            db_names: vec!["db".into()]
+        };
+        let mut encm: HashMap<String, String> = HashMap::new();
+        let cc = cr.clean( &l)?;
+        cr.encrypt_all(&mut encm, &l);
+
+        let mut lr = License::blank();
+        lr.connects.push(Connection{
+            valid_until: now,
+            hosts: Default::default(),
+            db_names: Default::default()
+        });
+        lr.connects[0].hosts.insert(cc.hosts[0].clone());
+        lr.connects[0].db_names.insert(cc.db_names[0].clone());
+
+        assert_ne!(&cr.hosts[0], lr.connects[0].hosts.iter().next().unwrap());
+
+        let lr = lr.patch(&l, &encm);
+
+        assert_eq!(&cr.hosts[0], lr.connects[0].hosts.iter().next().unwrap());
+
+        Ok(())
+    }
+
+    #[test]
+    fn encode_test() -> Result<(), String> {
+        let public_key = str2pub(&PKS[0].to_string())?;
+
+        let e = "~T8r4Nh5NxLoi2Q5GBC+bhg==".to_string();
+        assert_eq!(Connection::encode(&"hosts".to_string(), &public_key)?, e);
+        assert_eq!(Connection::encode(&e, &public_key)?, e);
+
+        Ok(())
+    }
+
+    #[test]
+    fn digest_test() -> Result<(), String> {
+        let mut l = License::blank();
+        let now: LicenseDate = Utc::today().naive_utc();
+        l.license_type = "Std".to_string();
+        l.cpk = Some(PKS[0].into());
+        l.connects.push(Connection{
+            valid_until: now,
+            hosts: Default::default(),
+            db_names: Default::default()
+        });
+        l.connects[0].hosts.insert("hosts".to_string());
+        for i in 10..13 {
+            l.connects[0].db_names.insert(format!("db_names_{}_{}", i, i));
+        }
+        let cc = l.cnt();
+        let mut l_original_request = l.clone();
+        let l0 = l.clone();
+        let d0 = l0.digest()?;
+        let encm = l.encrypt_all()?;
+        assert_eq!(encm.len(), cc);
+        let keys: Vec<String> = encm.clone().into_iter().map(|(k, _)| k).collect();
+        // "clean" - заменяем на шифрованное
+        l.connects[0].db_names.clear();
+        l.connects[0].hosts.clear();
+        for k in keys {
+            l.connects[0].hosts.insert(k);
+        }
+        assert_eq!(l.cnt(), cc);
+
+        // let d = l.digest()?;
+        assert_eq!(d0, l.digest()?, "Encoded 1 map test: {:?}\n{:?}\n{:?}", encm, l0, l);
+
+        l.connects[0].db_names.insert("added_on_web".to_string());
+        // let mut d = l.digest()?; // signed on web
+
+        let l_patched_request = l.clone().patch(&l, &encm);
+        assert_eq!(l_patched_request.connects[0].hosts.len() + l_patched_request.connects[0].db_names.len(), cc+1);
+        assert_eq!(l.digest()?, l_patched_request.digest()?, "Encoded map: {:?}\n{:?}\n{:?}", encm, l, l_patched_request);
+
         Ok(())
     }
 
