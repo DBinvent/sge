@@ -69,4 +69,26 @@ mod tests {
 		)
 	}
 
+	// используется для генерации pub ключа после ssh-keygen
+    // #[test]
+    fn pubk() -> Result<(), String> {
+		let rsaf = "tests/new.rsa";
+		let input = fs::read_to_string(rsaf.clone())
+			.map_err(|e| format!("read file {}: {}", rsaf, e))?
+			.lines()
+			.filter(|line| !line.starts_with("-"))
+			.fold(String::new(), |mut data, line| {
+				data.push_str(&line);
+				data
+			});
+
+		let encoded = base64::decode(&input)
+			.map_err(|e| format!("key decode error [{}] {} ", rsaf, e))?;
+		let rsa = RSAPrivateKey::from_pkcs8(&encoded)
+				.map_err(|e| format!("key create error [{}] {:?}", rsaf, e))?;
+
+		println!("{} PUB:[{}]", rsaf, pub2str(&rsa.to_public_key()));
+
+        Ok(())
+    }
 }
