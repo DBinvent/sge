@@ -599,7 +599,7 @@ impl License {
         hasher.result(&mut output);
 
         #[cfg(debug_assertions)] {
-            cr.push_str("result:");
+            cr.push_str(".result");
             crc::a(&mut cr, output.as_ref());
             println!("{}", cr);
         }
@@ -742,6 +742,8 @@ impl License {
             let version = max(1, version);
             let p = License::as_vers(&PKS[version-1 % maxv][..1]) as usize + 1;
             let version = version - 1 + (p % version);
+            #[cfg(debug_assertions)]
+            println!("corp_pub_key: version {}...", version);
             str2pub(&PKS[version % maxv].into())
         }
     }
@@ -809,7 +811,7 @@ impl License {
             debug_assert_eq!(cs, c.db_names.len() + c.hosts.len());
         }
         #[cfg(debug_assertions)]
-        println!("patched {:?}", &self.connects);
+        println!("patched {} {:?} {}(#{})", self.api_key, &self.connects, self.license_type, self.version);
         self
     }
     // License
@@ -1130,6 +1132,7 @@ impl JopLicense {
             is_conn_encrypt = is_conn_encrypt || encr;
             connects.push(con);
         }
+        let (_, version) = License::parse_version(self.license_type.clone());
         License {
             issued_to: self.issued_to,
             email: self.email.unwrap_or("".to_string()),
@@ -1139,7 +1142,7 @@ impl JopLicense {
             api_key_valid_until: self.api_key_valid_until,
             api_key: self.api_key.unwrap_or("".to_string()),
             license_type: self.license_type,
-            version: 0,
+            version,
             license: self.license,
             key: self.key.unwrap_or("".to_string()),
             cpk: None
