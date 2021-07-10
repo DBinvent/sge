@@ -21,7 +21,7 @@ fn main() -> Result<(), String> {
 
 	let mut lic = rdbm::license::License::load(&file_name)?;
 	if lic.license_type.starts_with("Evaluation_v") {
-		lic.connects[0].valid_until = Utc::today().naive_utc() + Duration::days(32);
+		lic.connections[0].valid_until = Utc::today().naive_utc() + Duration::days(32);
 		lic.api_key_valid_until = Utc::now().naive_utc();
 	}
 

@@ -1,0 +1,9 @@
+connections:
+  state1: Личная
+  state2: Новая
+  state3: Пробная
+  state4: Не Оплачено
+  state5: Оплачено
+
+license:
+  invalid: "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details."

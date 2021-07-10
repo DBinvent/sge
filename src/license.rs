@@ -2,6 +2,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::{env, fs};
+use lazy_static::lazy_static;
 
 use crate::ConfigMap;
 use chrono::{DateTime, Utc, NaiveDate, Datelike};
@@ -30,6 +31,10 @@ include_str!("keys/corp7.pub"),
 include_str!("keys/corp8.pub"),
 include_str!("keys/corp9.pub"),
 ];
+
+lazy_static! {
+    pub static ref TR: crate::i18n::Translate = crate::i18n::Translate::new();
+}
 
 const INV_LL: &str =
     "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details.";
@@ -435,7 +440,7 @@ pub struct License {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub email: String,     //"@gmail.com"
     pub notice: String,    //"это поле свободно редактируется"
-    pub connects: Vec<Connection>,
+    pub connections: Vec<Connection>,
     #[serde(skip)]
     pub is_conn_encrypt: bool, // connections содержит хеши имен (len>20 & starts ~)
     #[serde(with = "rfc3339")]
@@ -459,6 +464,8 @@ pub struct License {
 pub struct Connection {
     #[serde(with = "local_date_format")]
     pub valid_until: LicenseDate,
+    /// RdbmState(UCB) + translatable
+    pub state: String,
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub hosts: BTreeSet<String>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
@@ -466,12 +473,15 @@ pub struct Connection {
 }
 
 impl Connection {
+    pub const UNPAID: u8 = 3;
+
     #[allow(unused, dead_code)]
     #[inline]
     /// digest stings (prepare for encryption) and encrypt by public key separately
     pub fn new(input: LicenseDate) -> Self {
         Connection {
             valid_until: input,
+            state: "".to_string(),
             hosts: Default::default(),
             db_names: Default::default(),
         }
@@ -508,6 +518,7 @@ impl Connection {
         }
     }
 
+    #[inline]
     pub fn encode(input: &String, public_key: &RSAPublicKey) -> Result<String, String> {
         if is_encrypted(input) || (input.len() == 1 && input.as_bytes()[0] == b'*') {
             Ok(input.clone())
@@ -518,6 +529,24 @@ impl Connection {
         }
     }
 
+    #[inline]
+    fn state_code(&self) -> u8 {
+        if self.state.len() > 0 {
+            match self.state[..1].parse::<u8>() {
+                Ok(v) => v,
+                Err(_) => 0,
+            }
+        } else {
+            0
+        }
+    }
+
+}
+
+// TODO add translation, keep lang "" as default format for to_sql
+#[inline]
+pub fn translate_state(code: u8, lang: bool) -> String {
+    TR.translate(&"connections".to_string(), &format!("state{}", code), lang)
 }
 
 #[inline]
@@ -542,7 +571,7 @@ impl License {
             issued_to: "".to_string(),
             email: "".to_string(),
             notice: "".to_string(),
-            connects: vec![],
+            connections: vec![],
             is_conn_encrypt: false,
             api_key_valid_until: Utc::now().naive_utc(),
             api_key: "".to_string(),
@@ -577,7 +606,8 @@ impl License {
             let lv = format!("_v{}", self.version);
             hasher.input_str(lv.as_str());
         }
-        for c in &self.connects {
+        for c in &self.connections {
+            hasher.input(&c.state_code().to_be_bytes());
             hasher.input(&c.valid_until.year().to_be_bytes());
             hasher.input(&c.valid_until.num_days_from_ce().to_be_bytes());
             #[cfg(debug_assertions)] cr.push_str(c.valid_until.to_string().as_str());
@@ -624,7 +654,7 @@ impl License {
                     let y = &y[0];
                     let mut is_conn_encrypt = false;
                     let mut connects = Vec::new();
-                    if let Some(cv) = y["connects"].as_vec() {
+                    if let Some(cv) = y["connections"].as_vec() {
                         for c in cv {
                             let (hosts, encr) = to_list(c, "hosts");
                             is_conn_encrypt = is_conn_encrypt || encr;
@@ -632,6 +662,7 @@ impl License {
                             is_conn_encrypt = is_conn_encrypt || encr;
                             connects.push(Connection {
                                 valid_until: to_date(c, "valid_until")?,
+                                state: yaml_as_str(c, "state"),
                                 hosts,
                                 db_names,
                             });
@@ -643,7 +674,7 @@ impl License {
                         issued_to: yaml_as_str(y, "issued_to"),
                         email: yaml_as_str(y, "email"),
                         notice: yaml_as_str(y, "notice"),
-                        connects,
+                        connections: connects,
                         is_conn_encrypt,
                         api_key_valid_until: to_time(y, "api_key_valid_until")?,
                         api_key: yaml_as_str(y, "api_key"),
@@ -679,7 +710,7 @@ impl License {
     /// count total and encrypt connections except: localhost, postgres and $USER set on user_filter
     pub(crate) fn cnt(&self) -> usize {
         let mut count = 0;
-        for c in &self.connects {
+        for c in &self.connections {
             count += c.db_names.len() + c.hosts.len();
         }
         count
@@ -702,7 +733,7 @@ impl License {
                     Ok(_) => Ok(()),
                     Err(e) => {
                         #[cfg(debug_assertions)]
-                        println!("Verify failed: {:?} sign: {}...", &self.connects, &self.license[..16]);
+                        println!("Verify failed: {:?} sign: {}...", &self.connections, &self.license[..16]);
                         Err(format!("license: {}", e))
                     },
                 }
@@ -767,7 +798,7 @@ impl License {
     #[inline]
     #[allow(dead_code)]
     pub fn is_evaluate(&self) -> bool {
-        for c in &self.connects {
+        for c in &self.connections {
             if c.hosts.len() == 0 && c.db_names.len() == 0 {
                 return true;
             }
@@ -778,7 +809,7 @@ impl License {
     #[inline]
     #[allow(dead_code)]
     pub fn is_appendable(&self, valid: &LicenseDate) -> bool {
-        for c in &self.connects {
+        for c in &self.connections {
             if &c.valid_until == valid {
                 return true;
             }
@@ -793,8 +824,8 @@ impl License {
         self.notice = original.notice.clone();
         self.key = original.key.clone();
         #[cfg(debug_assertions)]
-        println!("patching {:?}", &self.connects);
-        for c in self.connects.iter_mut() {
+        println!("patching {:?}", &self.connections);
+        for c in self.connections.iter_mut() {
             let cs = c.db_names.len() + c.hosts.len();
 
             let mut dest = BTreeSet::new();
@@ -805,31 +836,20 @@ impl License {
             swap(&mut c.db_names,  &mut dest);
             patch_set(dest, &mut c.db_names, enc);
 
-            // License::patch_set(&mut c.hosts, enc);
-            // License::patch_set(&mut c.db_names, enc);
-
+            // append [state_code] with readable state (and/or) translation
+            if c.state.len() == 1 {
+                c.state = format!("{}: {}", c.state,
+                    translate_state(c.state_code(), true));
+            }
             debug_assert_eq!(cs, c.db_names.len() + c.hosts.len());
         }
+
         #[cfg(debug_assertions)]
-        println!("patched {} {:?} {}(#{})", self.api_key, &self.connects, self.license_type, self.version);
+        println!("patched {} {:?} {}(#{})", self.api_key, &self.connections, self.license_type, self.version);
         self
     }
     // License
-/*
-    fn patch_set(dest: &mut BTreeSet<String>, enc: &HashMap<String, String>) {
-        let original = dest.clone();
-        dest.clear();
-        let ol = original.len();
-        for name in original {
-            let decoded = match enc.get(&name) {
-                None => name,
-                Some(d) => d.to_owned(),
-            };
-            // println!("patching[{}/{}:{}] {}->{}", dest.len()+1, ol, enc.len(), name, decoded);
-            dest.insert(decoded);
-        }
-    }
-*/
+
     #[inline]
     fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String) -> Option<LicenseDate> {
         let user = &env::var("USER").unwrap_or("".into());
@@ -857,8 +877,8 @@ impl License {
         let e_db_a = self.encrypt_name(db_a, &pubk);
         let e_db_b = self.encrypt_name(db_b, &pubk);
 
-        for c in &self.connects {
-            if (c.hosts.contains(&star)
+        for c in &self.connections {
+            if c.state_code() != Connection::UNPAID && (c.hosts.contains(&star)
                 || ((is_ip_a || c.hosts.contains(host_a) || c.hosts.contains(&e_host_a))
                     && (is_ip_b || c.hosts.contains(host_b)) || c.hosts.contains(&e_host_b)))
                 && (((db_a == "" || db_a == user || db_a == &pg)
@@ -884,7 +904,7 @@ impl License {
     fn encrypt_all(&self) -> Result<HashMap<String, String>, String> {
         let mut encm = HashMap::new();
         let public_key = self.pubk()?;
-        for c in &self.connects {
+        for c in &self.connections {
             for i in &c.hosts { encm.insert(Connection::encode(i, &public_key)?, i.clone()); }
             for i in &c.db_names { encm.insert(Connection::encode(i, &public_key)?, i.clone()); };
         }
@@ -1080,7 +1100,7 @@ pub struct JopLicense {
     pub issued_to: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub email: Option<String>,
-    pub connects: Vec<JopConnection>,
+    pub connections: Vec<JopConnection>,
     #[serde(with = "rfc3339")]
     pub api_key_valid_until: LicenseTime, //"2021-12-12"
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1096,6 +1116,7 @@ pub struct JopLicense {
 pub struct JopConnection {
     #[serde(with = "local_date_format")]
     pub valid_until: LicenseDate,
+    pub state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hosts: Option<BTreeSet<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1117,6 +1138,7 @@ impl JopConnection {
         }
         (Connection {
             valid_until: self.valid_until,
+            state: self.state,
             hosts,
             db_names
         }, is_conn_encrypt)
@@ -1127,7 +1149,7 @@ impl JopLicense {
     fn convert(self) -> License {
         let mut is_conn_encrypt = false;
         let mut connects = Vec::new();
-        for c in self.connects {
+        for c in self.connections {
             let (con, encr) = c.convert(is_conn_encrypt);
             is_conn_encrypt = is_conn_encrypt || encr;
             connects.push(con);
@@ -1137,7 +1159,7 @@ impl JopLicense {
             issued_to: self.issued_to,
             email: self.email.unwrap_or("".to_string()),
             notice: "".to_string(),
-            connects,
+            connections: connects,
             is_conn_encrypt,
             api_key_valid_until: self.api_key_valid_until,
             api_key: self.api_key.unwrap_or("".to_string()),
@@ -1429,19 +1451,23 @@ mod tests {
         cr.encrypt_all(&mut encm, &l);
 
         let mut lr = License::blank();
-        lr.connects.push(Connection{
+        lr.connections.push(Connection{
             valid_until: now,
+            state: "3".to_string(),
             hosts: Default::default(),
             db_names: Default::default()
         });
-        lr.connects[0].hosts.insert(cc.hosts[0].clone());
-        lr.connects[0].db_names.insert(cc.db_names[0].clone());
+        lr.connections[0].hosts.insert(cc.hosts[0].clone());
+        lr.connections[0].db_names.insert(cc.db_names[0].clone());
 
-        assert_ne!(&cr.hosts[0], lr.connects[0].hosts.iter().next().unwrap());
+        assert_ne!(&cr.hosts[0], lr.connections[0].hosts.iter().next().unwrap());
 
         let lr = lr.patch(&l, &encm);
 
-        assert_eq!(&cr.hosts[0], lr.connects[0].hosts.iter().next().unwrap());
+        assert_eq!(&cr.hosts[0], lr.connections[0].hosts.iter().next().unwrap());
+        let ts = translate_state(3, true);
+        let st = lr.connections[0].state.clone();
+        assert!(st.ends_with(ts.as_str()), "{} <?> {}", st, ts);
 
         Ok(())
     }
@@ -1463,14 +1489,15 @@ mod tests {
         let now: LicenseDate = Utc::today().naive_utc();
         l.license_type = "Std".to_string();
         l.cpk = Some(PKS[0].into());
-        l.connects.push(Connection{
+        l.connections.push(Connection{
             valid_until: now,
+            state: "".to_string(),
             hosts: Default::default(),
             db_names: Default::default()
         });
-        l.connects[0].hosts.insert("hosts".to_string());
+        l.connections[0].hosts.insert("hosts".to_string());
         for i in 10..13 {
-            l.connects[0].db_names.insert(format!("db_names_{}_{}", i, i));
+            l.connections[0].db_names.insert(format!("db_names_{}_{}", i, i));
         }
         let cc = l.cnt();
         let mut l_original_request = l.clone();
@@ -1480,21 +1507,21 @@ mod tests {
         assert_eq!(encm.len(), cc);
         let keys: Vec<String> = encm.clone().into_iter().map(|(k, _)| k).collect();
         // "clean" - заменяем на шифрованное
-        l.connects[0].db_names.clear();
-        l.connects[0].hosts.clear();
+        l.connections[0].db_names.clear();
+        l.connections[0].hosts.clear();
         for k in keys {
-            l.connects[0].hosts.insert(k);
+            l.connections[0].hosts.insert(k);
         }
         assert_eq!(l.cnt(), cc);
 
         // let d = l.digest()?;
         assert_eq!(d0, l.digest()?, "Encoded 1 map test: {:?}\n{:?}\n{:?}", encm, l0, l);
 
-        l.connects[0].db_names.insert("added_on_web".to_string());
+        l.connections[0].db_names.insert("added_on_web".to_string());
         // let mut d = l.digest()?; // signed on web
 
         let l_patched_request = l.clone().patch(&l, &encm);
-        assert_eq!(l_patched_request.connects[0].hosts.len() + l_patched_request.connects[0].db_names.len(), cc+1);
+        assert_eq!(l_patched_request.connections[0].hosts.len() + l_patched_request.connections[0].db_names.len(), cc+1);
         assert_eq!(l.digest()?, l_patched_request.digest()?, "Encoded map: {:?}\n{:?}\n{:?}", encm, l, l_patched_request);
 
         Ok(())
@@ -1523,7 +1550,7 @@ mod tests {
     #[test]
     fn test_find() {
         let mut l = License::blank();
-        l.connects.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
         let e = "".to_string();
         let c = Utc::today().naive_utc();
         assert!(l.find(&e, &e, &e,&e).unwrap() > c);
@@ -1539,8 +1566,8 @@ mod tests {
         let sample_host = "aaaa".to_string();
         let sample_user = "bbbb".to_string();
 
-        l.connects[0].hosts.insert(sample_host.clone());
-        l.connects[0].db_names.insert(sample_user.clone());
+        l.connections[0].hosts.insert(sample_host.clone());
+        l.connections[0].db_names.insert(sample_user.clone());
 
         test_find_assert_gt(&l, &c, &sample_host, &sample_user);
         test_find_assert_gt(&l, &c, &sample_host, &user);
@@ -1548,9 +1575,9 @@ mod tests {
         test_find_assert_gt(&l, &c, &h, &sample_user);
         test_find_assert_gt(&l, &c, &i, &sample_user);
 
-        l.connects.push(Connection::new(Utc::today().naive_utc() - chrono::Duration::days(10)));
-        l.connects[1].hosts.insert(sample_host.clone());
-        l.connects[1].db_names.insert(sample_user.clone());
+        l.connections.push(Connection::new(Utc::today().naive_utc() - chrono::Duration::days(10)));
+        l.connections[1].hosts.insert(sample_host.clone());
+        l.connections[1].db_names.insert(sample_user.clone());
 
         test_find_assert_gt(&l, &c, &sample_host, &sample_user);
         test_find_assert_gt(&l, &c, &sample_host, &user);
@@ -1559,7 +1586,7 @@ mod tests {
         test_find_assert_gt(&l, &c, &i, &sample_user);
 
         let c = Utc::today().naive_utc() - chrono::Duration::days(100);
-        l.connects.remove(0);
+        l.connections.remove(0);
 
         test_find_assert_gt(&l, &c, &sample_host, &sample_user);
         test_find_assert_gt(&l, &c, &sample_host, &user);
@@ -1625,8 +1652,8 @@ mod tests {
         let zzz = "zzz".to_string();
 
         let mut l = License::blank();
-        l.connects.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
-        l.connects[0].db_names.insert("*".into());
+        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        l.connections[0].db_names.insert("*".into());
         //only db name
         assert!(l.find(&i, &h, &zzz, &p).is_some());
         assert!(l.find(&i, &h, &user, &zzz).is_some());
@@ -1634,8 +1661,8 @@ mod tests {
         assert!(l.find(&i, &zzz, &p, &zzz).is_none());
 
         // expiring license
-        l.connects[0].valid_until = Utc::today().naive_utc() - chrono::Duration::days(1);
-        l.connects.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        l.connections[0].valid_until = Utc::today().naive_utc() - chrono::Duration::days(1);
+        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
         // expired license
         assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
         assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
@@ -1643,7 +1670,7 @@ mod tests {
         assert!(l.find(&i, &zzz, &p, &zzz).is_none());
         // eval license
         assert!(l.find(&i, &h, &user, &e).unwrap() > Utc::today().naive_utc());
-        l.connects[1].hosts.insert("*".into());
+        l.connections[1].hosts.insert("*".into());
         // new license
         assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
         assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
@@ -1659,6 +1686,11 @@ mod tests {
         assert_eq!(y, 21);
     }
 
+    #[test]
+    fn test_tr() {
+        assert_eq!(translate_state(2, false), "new".to_string());
+        assert_eq!(translate_state(2, true), "New".to_string());
+    }
 
     #[test]
     fn pubk() -> Result<(), String> {
@@ -1690,8 +1722,8 @@ const SAMPLES: [&'static str; 2] = [r###"
 {
   "result": {
     "api_key_valid_until": "2022-07-19T04:03:48.007857+00:00",
-    "connects": [{
-        "valid_until": "2022-07-22"
+    "connections": [{
+        "valid_until": "2022-07-22", "state": ""
       }
     ],
     "issued_to": "Evaluate by 925com",
@@ -1709,18 +1741,18 @@ r###"
   "result": {
     "api_key": "9e04a183-acff-489d-8177-fb13afeade48",
     "api_key_valid_until": "2022-07-19T04:03:48.007857+00:00",
-    "connects": [
+    "connections": [
       {
         "db_names": [
           "~OSKI1KjFT4LZKgmQjIFfiq8Ywsk="
         ],
-        "valid_until": "2022-07-22"
+        "valid_until": "2022-07-22", "state": ""
       },
       {
         "hosts": [
           "~x3nzzDJtyr7C3zP18njCu0Njbww="
         ],
-        "valid_until": "2022-07-22"
+        "valid_until": "2022-07-22", "state": ""
       }
     ],
     "email": "92596725@dbinvent.com",

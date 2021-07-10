@@ -1,0 +1,9 @@
+connections:
+  state1: Personal
+  state2: New
+  state3: Trial
+  state4: Unpaid
+  state5: Paid
+
+license:
+  invalid: "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details."

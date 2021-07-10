@@ -10,6 +10,7 @@ mod dbm_dbc;
 mod dbm_log;
 pub mod dbm_yml;
 pub mod license;
+pub mod i18n;
 
 use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
