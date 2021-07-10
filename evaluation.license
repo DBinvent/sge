@@ -2,7 +2,8 @@
 issued_to: Evaluation
 notice: This is a build-in evaluation license
 connections:
-  - valid_until: 2021-07-06
-api_key_valid_until: "2021-06-04T16:00:47.865382198+00:00"
+  - valid_until: 2021-08-11
+    state: Evaluation
+api_key_valid_until: "2021-07-10T21:36:10.881274891+00:00"
 license_type: Evaluation_v1
-license: d8QKLP8Q9cegIWtDoZetdgJWT4hbFh0Ts+FEwiSRcihqA+yxYzt76dp/KvJry3TM0AL0qpFO4jbGdzfmGT7pGe0qA9WTMSVhtXs68B/k1wACyeGYWV4gNB/SrtiwC3xjnww/XXV8rJfM09mzvCl0XFcaj1/iHBU4y4RFqtG0ecm+SeeDTg8pkATG4BPYMFuNvXflfsfZUDRWHTX6HW0e/drpSx5ZWBD19CZ3fwyagYbuKk+SRSC/0RZk3O6fZmAINxpftiMbeJQ6PIfLXq22J3Y9vbj9pBkGbMzXS28tu/zeSwaTM7Aeo1hlBvETtVNAg+ula2o53GduQnFHp6bOuXwamhCX5/HIRpIU9VkDcuF8pdn0CCEXqyK4PrXXQHbNm3uTmd6ff1vafbJ4ftadImxYewrtQQZPqpNcKlnwi6jckYynGih7iX+F2tgXYhXqR9onMWSkSqDSeZ2MsqJrZ8wZ3x8eHl4zVsKjZNGikGFBKGS6Oni6xpcTi2d2RVoE
+license:

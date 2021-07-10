@@ -4,8 +4,8 @@ use rand::thread_rng;
 
 use chrono::{Utc, Duration};
 use rsa::padding::PaddingScheme::PKCS1v15Sign;
-use rsa::hash::Hash::SHA2_512;
 use rdbm::license;
+use rdbm::license::Connection;
 
 /// ssh-keygen -t rsa -m PKCS8  -f new.rsa
 fn main() -> Result<(), String> {
@@ -20,10 +20,21 @@ fn main() -> Result<(), String> {
 	};
 
 	let mut lic = rdbm::license::License::load(&file_name)?;
-	if lic.license_type.starts_with("Evaluation_v") {
-		lic.connections[0].valid_until = Utc::today().naive_utc() + Duration::days(32);
+	{
+		if lic.connections.len() == 0 {
+			lic.connections.push(Connection::new(Utc::today().naive_utc(), 1));
+		} else {
+			for c in &mut lic.connections {
+				if c.state == "Evaluation" {
+					c.valid_until = Utc::today().naive_utc() + Duration::days(32);
+				}
+			}
+		}
 		lic.api_key_valid_until = Utc::now().naive_utc();
 	}
+
+	println!("signing license: {} {} {}", lic.license_type, lic.issued_to, lic.email);
+	println!("{:?}", lic.connections);
 
 	let input = fs::read_to_string(rsaf.clone())
 		.map_err(|e| format!("read file {}: {}", rsaf, e))?

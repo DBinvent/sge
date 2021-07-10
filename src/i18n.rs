@@ -1,7 +1,5 @@
 use std::collections::HashMap;
-use std::collections::hash_map::RandomState;
 use yaml_rust::{YamlLoader, Yaml};
-use linked_hash_map::LinkedHashMap;
 
 /// loading all files unparsed to bundle structure at compile, will be parsed on constructor at start
 static BUNDLS: [&'static str; 6] = [
@@ -50,6 +48,7 @@ impl Bundle {
 pub struct Translate {
     default_bundle: Bundle,
     translation: Bundle,
+    #[allow(unused)]
     not_translated: bool
 }
 
@@ -79,7 +78,7 @@ impl Translate {
         match bundle.get(scope) {
             None =>  "not found".to_string(),
             Some(t) => match t.get(code) {
-                None => "NA".to_string(),
+                None => "not found".to_string(),
                 Some(v) => v.to_owned()
             }
         }
