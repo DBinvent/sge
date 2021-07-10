@@ -473,15 +473,15 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub const UNPAID: u8 = 3;
+    pub const UNPAID: u8 = 4;
 
     #[allow(unused, dead_code)]
     #[inline]
     /// digest stings (prepare for encryption) and encrypt by public key separately
-    pub fn new(input: LicenseDate) -> Self {
+    pub fn new(input: LicenseDate, code: u8) -> Self {
         Connection {
             valid_until: input,
-            state: "".to_string(),
+            state: code.to_string(),
             hosts: Default::default(),
             db_names: Default::default(),
         }
