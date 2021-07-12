@@ -242,6 +242,8 @@ fn api_host() -> String {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CreateUpdateRequest {
     pub personal: bool,
+    /// use only on create request, on update ignore and will use license DB field
+    pub encrypt: bool,
     pub email: String,
     pub hosts: Vec<String>,
     pub db_names: Vec<String>,
@@ -278,6 +280,7 @@ impl CreateUpdateRequest {
 
         Ok(CreateUpdateRequest {
             personal: email.find("mail").unwrap_or(0) > 0,
+            encrypt: true,
             email: email.clone(),
             hosts,
             db_names,
@@ -314,6 +317,7 @@ impl CreateUpdateRequest {
         let public_key = lic.pubk()?;
         Ok(CreateUpdateRequest {
             personal: self.personal,
+            encrypt: true,
             email: self.email.clone(),
             hosts: clean_list(&self.hosts, &public_key)?,
             db_names: clean_list(&self.db_names, &public_key)?,
@@ -550,7 +554,7 @@ pub fn translate_state(code: u8, lang: bool) -> String {
 }
 
 #[inline]
-fn is_encrypted(input: &String) -> bool {
+pub fn is_encrypted(input: &String) -> bool {
     input.len() > 24 && input.as_bytes()[0] == b'~'
 }
 
@@ -733,7 +737,8 @@ impl License {
                     Ok(_) => Ok(()),
                     Err(e) => {
                         #[cfg(debug_assertions)]
-                        println!("Verify failed: {:?} sign: {}...", &self.connections, &self.license[..16]);
+                        println!("Verify failed: {:?} sign: {}...", &self.connections,
+                            if self.license.len() > 16 {&self.license[..16]} else {&self.license});
                         Err(format!("license: {}", e))
                     },
                 }
@@ -1420,6 +1425,7 @@ mod tests {
         l.cpk = Some(PKS[0].into());
         let cr = CreateUpdateRequest {
             personal: false,
+            encrypt: false,
             email: "em".to_string(),
             hosts: vec!["host".into()],
             db_names: vec!["db".into()]
@@ -1442,6 +1448,7 @@ mod tests {
         l.cpk = Some(PKS[0].into());
         let cr = CreateUpdateRequest {
             personal: false,
+            encrypt: false,
             email: "em".to_string(),
             hosts: vec!["host".into()],
             db_names: vec!["db".into()]
@@ -1550,7 +1557,7 @@ mod tests {
     #[test]
     fn test_find() {
         let mut l = License::blank();
-        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1), 0));
         let e = "".to_string();
         let c = Utc::today().naive_utc();
         assert!(l.find(&e, &e, &e,&e).unwrap() > c);
@@ -1575,7 +1582,7 @@ mod tests {
         test_find_assert_gt(&l, &c, &h, &sample_user);
         test_find_assert_gt(&l, &c, &i, &sample_user);
 
-        l.connections.push(Connection::new(Utc::today().naive_utc() - chrono::Duration::days(10)));
+        l.connections.push(Connection::new(Utc::today().naive_utc() - chrono::Duration::days(10), 0));
         l.connections[1].hosts.insert(sample_host.clone());
         l.connections[1].db_names.insert(sample_user.clone());
 
@@ -1652,7 +1659,7 @@ mod tests {
         let zzz = "zzz".to_string();
 
         let mut l = License::blank();
-        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1), 0));
         l.connections[0].db_names.insert("*".into());
         //only db name
         assert!(l.find(&i, &h, &zzz, &p).is_some());
@@ -1662,7 +1669,7 @@ mod tests {
 
         // expiring license
         l.connections[0].valid_until = Utc::today().naive_utc() - chrono::Duration::days(1);
-        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1)));
+        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1), 0));
         // expired license
         assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
         assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
