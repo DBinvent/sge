@@ -12,7 +12,7 @@ pub const CONFIGS: [&'static str; 4] = [
 
 pub fn cl_config() -> &'static str {
     let l = lang();
-    let mut x = 0;
+    let mut x = 1;
     for i in 0..CONFIGS.len() / 2 {
         if CONFIGS[i * 2] == l {
             x = i * 2 + 1;
