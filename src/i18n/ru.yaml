@@ -5,5 +5,11 @@ connections:
   state4: Не Оплачено
   state5: Оплачено
 
+cl:
+  invalid: "Invalid license"
+  unknown: "Unknown command: "
+
+
 license:
   invalid: "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details."
+  good: "Проверено, Good to use for your connection(s)! Thank you! "

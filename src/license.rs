@@ -2,9 +2,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::{env, fs};
-use lazy_static::lazy_static;
 
-use crate::ConfigMap;
+use crate::{TR, ConfigMap};
 use chrono::{DateTime, Utc, NaiveDate, Datelike};
 use rand::thread_rng;
 use rsa::{BigUint, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
@@ -32,16 +31,8 @@ include_str!("keys/corp8.pub"),
 include_str!("keys/corp9.pub"),
 ];
 
-lazy_static! {
-    pub static ref TR: crate::i18n::Translate = crate::i18n::Translate::new();
-}
-
-const INV_LL: &str =
-    "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details.";
-
 #[allow(dead_code)]
 const API_HOST: &str = "https://dbinvent.com";
-// const ABOUT_EXPIRE: u8 = 17; // days
 const EVALUATION_LICENSE: &str = "evaluation.license";
 const LICENSE_FILE: &str = "license_file";
 
@@ -77,41 +68,35 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
         match License::load(license_file.as_str()) {
             Ok(l) => match l.verify() {
                 Ok(_) => {
-                    info!( log, "License [{}] issued to: {} {}", license_file, l.issued_to, l.email);
+                    info!(log, "{}", TR.t7ea("license", "info", &["{file}", "{to}", "{email}"], &[&license_file, &l.issued_to, &l.email]));
 
                     if l.find(&db_host, &logdb_host, &db_name, &logdb_name).is_some()
                         || (!conn_set && eval_set) {
                         if dry_run || eval_set {
-                            info!(log, "Good to use for your connection(s)! Thank you! ");
+                            info!(log, "{}", TR.t7ea("license", "good", &[], &[]));
                             Ok(())
                         } else {
-                            debug!(log, "Trying to pull license to update ...");
+                            debug!(log, "{}", TR.t7ea("license", "pulling", &[], &[]));
                             ApiRequest::Pull(l).call(&license_file, dry_run, log, test)
                         }
                     } else if email.len() > 0 && do_subscribe {
                         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
                         ApiRequest::Update(l, lc).call(&license_file, dry_run, log, test)
                     } else if conn_set {
-                        Err(format!("The license loaded from file [{}] is valid, but not for configuration set, check your configuration and license file. Also,{}", license_file, INV_LL))
+                        Err(TR.t7ea("license", "err1", &["{file}", "{$invalid}"], &[&license_file]))
                     } else {
-                        Err(format!("The license loaded from file [{}] is valid, but no configuration set to check! {}", license_file, INV_LL))
+                        Err(TR.t7ea("license", "err2", &["{file}", "{$invalid}"], &[&license_file]))
                     }
                 }
-                Err(e) => Err(format!(
-                    "The license loaded from file [{}] is not valid: {}. {}",
-                    license_file, e, INV_LL
-                )),
+                Err(e) => Err(TR.t7ea("license", "err3", &["{file}", "{err}", "{$invalid}"], &[&license_file, &e]))
             },
-            Err(e) => Err(format!(
-                "The license not loaded from file [{}]: {}. {}",
-                license_file, e, INV_LL
-            )),
+            Err(e) => Err(TR.t7ea("license", "err4", &["{file}", "{err}", "{$invalid}"], &[&license_file, &e]))
         }
     } else if email.len() > 0 && do_subscribe {
         let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
         ApiRequest::Create(lc).call(&license_file, dry_run, log, test)
     } else {
-        Err(format!("No '--email' nor '--license_file' set, also might be helpful: --subscribe=* and db connections to set. Please check './rdbm help license' for more details."))
+        Err(TR.t7ea("license", "err5", &[], &[]))
     }
 }
 
@@ -132,12 +117,21 @@ impl ApiRequest {
     }
 
     #[inline]
+    pub fn m_tr(&self) -> String {
+        match &self {
+                ApiRequest::Create(_) => TR.t7ea("license", "call_create", &[], &[]),
+                ApiRequest::Pull(_) => TR.t7ea("license", "call_check", &[], &[]),
+                ApiRequest::Update(_,_) => TR.t7ea("license", "call_update", &[], &[]),
+            }
+    }
+
+    #[inline]
     fn call(&self, file: &String, dry_run: bool, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>
     ) -> Result<(), String> {
         let url = format!("{}/api/license", api_host());
-        let method = &self.method();
+        let method = self.method();
         if dry_run {
-            info!(log, "About to call {} to {} license, but --dry_run set.", url, method);
+            info!(log, "{}", TR.t7ea("license", "call_dry", &["{url}", "{call}"], &[&url, &method.to_string()]));
             return Ok(());
         }
         let auth_header = "Authentication";
@@ -155,28 +149,29 @@ impl ApiRequest {
                 let response = match &self {
                     ApiRequest::Create(lc) => {
                         let request = serde_json::to_string(lc)
-                            .map_err(|e| format!("creating payload of a license create request: {}", e))?;
+                            .map_err(|e| TR.t7ea("license", "err6", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?;
                         ureq::post(url.as_str()) //.set(auth_header, "newbie")
                             .send_string(request.as_str())
-                            .map_err(|e| format!("{} license: {}", method, e))?
+                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?
                     }
                     ApiRequest::Update(l, lu) => {
                         let request = serde_json::to_string(&lu.clean(&l)?)
-                            .map_err(|e| format!("creating payload of a license create request: {}", e))?;
+                            .map_err(|e| TR.t7ea("license", "err6", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?;
                         ureq::put(url.as_str())
                             .set(auth_header, l.header()?.as_str())
                             .send_string(request.as_str())
-                            .map_err(|e| format!("{} license: {}", method, e))?
+                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?
                     }
                     ApiRequest::Pull(l) => {
-                        ureq::get(format!("{}/{}", url, l.api_key).as_str())
+                        ureq::get(format!("{}/{}?lang={}", url, l.api_key, crate::i18n::lang()).as_str())
                             .set(auth_header, l.header()?.as_str())
                             .call()
-                            .map_err(|e| format!("{} license: {}", method, e))?
+                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?
                     }
                 };
                 let st = response.status();
-                let r = response.into_string().map_err(|e| format!("getting response: {}", e))?;
+                let r = response.into_string()
+                    .map_err(|e| TR.t7ea("license", "err8", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?;
                 trace!(log, "response [{}] from {} at {}\n{}", st, method, url, r);
                 r
             }
@@ -206,19 +201,18 @@ impl LicenseResponse {
         encoded_map: HashMap<String, String>
         ) -> Result<(), String> {
         let lr: LicenseResponse = serde_json::from_str(response.as_str())
-            .map_err(|e| format!("converting response on save from api response: {}, with error: {}", response, e))?;
+            .map_err(|e| TR.t7ea("license", "save_err1", &["{call}", "{err}"], &[&response, &e.to_string()]))?;
         match lr.result {
             None => Err(as_err(&lr.errors, &lr.messages)),
             Some(lr) => {
-                // let mut lr = lr.convert();
                 let lr = lr.convert().patch(license, &encoded_map);
                 let (file, resp) = match lr.verify() {
                     Ok(_) => (file.clone(), Ok(())),
                     Err(e) => (format!("{}.err", file), Err(e))
                 };
                 fs::write(&file, serde_yaml::to_string(&lr)
-                    .map_err(|e| format!("creating license: {}", e))?)
-                    .map_err(|e| format!("writing to [{}] {}", file, e))?;
+                    .map_err(|e| TR.t7ea("license", "save_err2", &["{err}"], &[&e.to_string()]))?)
+                    .map_err(|e| TR.t7ea("license", "save_err3", &["{file}", "{err}"], &[&file, &e.to_string()]))?;
                 resp
             }
         }
@@ -247,6 +241,8 @@ pub struct CreateUpdateRequest {
     pub email: String,
     pub hosts: Vec<String>,
     pub db_names: Vec<String>,
+    /// optional user lang
+    pub lang: String,
 }
 
 #[inline]
@@ -284,6 +280,7 @@ impl CreateUpdateRequest {
             email: email.clone(),
             hosts,
             db_names,
+            lang: crate::i18n::lang()
         })
     }
 
@@ -321,6 +318,7 @@ impl CreateUpdateRequest {
             email: self.email.clone(),
             hosts: clean_list(&self.hosts, &public_key)?,
             db_names: clean_list(&self.db_names, &public_key)?,
+            lang: "".to_string()
         })
     }
 
@@ -549,8 +547,13 @@ impl Connection {
 
 // TODO add translation, keep lang "" as default format for to_sql
 #[inline]
-pub fn translate_state(code: u8, lang: bool) -> String {
-    TR.translate(&"connections".to_string(), &format!("state{}", code), lang)
+fn translate_state(code: u8) -> String {
+    TR.t7e(&"connections".to_string(), &format!("state{}", code))
+}
+
+#[inline]
+pub fn translate_state_sys(code: u8) -> String {
+    TR.sys_code(&"connections".to_string(), &format!("state{}", code))
 }
 
 #[inline]
@@ -843,8 +846,7 @@ impl License {
 
             // append [state_code] with readable state (and/or) translation
             if c.state.len() == 1 {
-                c.state = format!("{}: {}", c.state,
-                    translate_state(c.state_code(), true));
+                c.state = format!("{}: {}", c.state, translate_state(c.state_code()));
             }
             debug_assert_eq!(cs, c.db_names.len() + c.hosts.len());
         }
@@ -1428,7 +1430,8 @@ mod tests {
             encrypt: false,
             email: "em".to_string(),
             hosts: vec!["host".into()],
-            db_names: vec!["db".into()]
+            db_names: vec!["db".into()],
+            lang: "".to_string()
         };
         let mut encm: HashMap<String, String> = HashMap::new();
         let cc = cr.clean( &l)?;
@@ -1451,7 +1454,8 @@ mod tests {
             encrypt: false,
             email: "em".to_string(),
             hosts: vec!["host".into()],
-            db_names: vec!["db".into()]
+            db_names: vec!["db".into()],
+            lang: "".to_string()
         };
         let mut encm: HashMap<String, String> = HashMap::new();
         let cc = cr.clean( &l)?;
@@ -1472,7 +1476,7 @@ mod tests {
         let lr = lr.patch(&l, &encm);
 
         assert_eq!(&cr.hosts[0], lr.connections[0].hosts.iter().next().unwrap());
-        let ts = translate_state(3, true);
+        let ts = translate_state(3);
         let st = lr.connections[0].state.clone();
         assert!(st.ends_with(ts.as_str()), "{} <?> {}", st, ts);
 
@@ -1695,8 +1699,8 @@ mod tests {
 
     #[test]
     fn test_tr() {
-        assert_eq!(translate_state(2, false), "new".to_string());
-        assert_eq!(translate_state(2, true), "New".to_string());
+        // assert_eq!(TR.translate(&"connections".to_string(), &format!("state{}", code), lang)translate_state(2, false), "new".to_string());
+        assert_eq!(translate_state(2), "New".to_string());
     }
 
     #[test]

@@ -1,4 +1,3 @@
-// # [macro_use]
 extern crate slog;
 
 use clap::App;
@@ -25,7 +24,7 @@ pub fn logger(debug: bool) -> Logger {
 }
 
 fn main() {
-    let yaml = clap::YamlLoader::load_from_str(rdbm::CONFIG_DEF_YML).unwrap();
+    let yaml = clap::YamlLoader::load_from_str(rdbm::i18n::cl_config()).unwrap();
     let app = App::from_yaml(&yaml[0]).get_matches();
     let cmd = match app.subcommand_name() {
         Some(cmd) => cmd.to_owned(),
@@ -64,14 +63,14 @@ fn act(cmd: &str, cfg: ConfigMap, ) -> Result<(), String> {
             if rdbm::license::is_ok(&cfg, &log)? {
                 rdbm::migrate(cfg, false, &log)
             } else {
-                Err(format!("Invalid license"))
+                Err(rdbm::TR.t7ea("cl", "invalid", &[], &[]))
             }
         }
         "prepare" => rdbm::migrate(cfg, true, &log),
         "snapshot" => rdbm::load(true, cfg, &log),
         "info" => rdbm::load(false, cfg, &log),
         "license" => rdbm::license::license(&cfg, &log, None),
-        c @ _ => Err(format!("Unknown command: {}", c)),
+        c @ _ => Err(rdbm::TR.t7ea("cl", "unknown", &["{cmd}"], &[&c.to_string()])),
     }
 }
 
@@ -88,7 +87,7 @@ mod tests {
 
     #[test]
     fn config_test() {
-        match clap::YamlLoader::load_from_str(rdbm::CONFIG_DEF_YML) {
+        match clap::YamlLoader::load_from_str(rdbm::i18n::cl_config()) {
             Ok(y) => {
                 assert_eq!(y.len(), 1);
                 let m = App::from_yaml(&y[0]);
@@ -99,4 +98,5 @@ mod tests {
             }
         }
     }
+
 }

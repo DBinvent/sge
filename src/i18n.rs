@@ -1,9 +1,30 @@
 use std::collections::HashMap;
 use yaml_rust::{YamlLoader, Yaml};
 
+/// TODO: --schema_transaction:
+//     - (column-TBD): perform all changes on a table per transaction. \\n \
+//     - (repeat-TBD): try to obtain a lock perform changes repetally - suitable on high load systems \\n \
+
+pub const CONFIGS: [&'static str; 4] = [
+"en", include_str!("i18n/en_clc.yaml"),
+"ru", include_str!("i18n/ru_clc.yaml"),
+];
+
+pub fn cl_config() -> &'static str {
+    let l = lang();
+    let mut x = 0;
+    for i in 0..CONFIGS.len() / 2 {
+        if CONFIGS[i * 2] == l {
+            x = i * 2 + 1;
+            break;
+        }
+    }
+    CONFIGS[x]
+}
+
 /// loading all files unparsed to bundle structure at compile, will be parsed on constructor at start
 static BUNDLS: [&'static str; 6] = [
-"default", include_str!("i18n/default.yaml"),
+"system", include_str!("i18n/system.yaml"),
 "en", include_str!("i18n/en.yaml"),
 "ru", include_str!("i18n/ru.yaml"),
 ];
@@ -38,18 +59,21 @@ impl Bundle {
                 }
             }
         }
-        println!("{:?}", text);
         Bundle {
             text
         }
     }
+
+    #[inline]
+    fn msg(&self, scope: &String, code: &String) -> Option<&String> {
+        self.text.get(scope).and_then(|m| m.get(code))
+    }
 }
 
 pub struct Translate {
-    default_bundle: Bundle,
+    system_bundle: Bundle,
     translation: Bundle,
-    #[allow(unused)]
-    not_translated: bool
+    default_bundle: Option<Bundle>,
 }
 
 impl Translate {
@@ -63,25 +87,40 @@ impl Translate {
             }
         }
         Translate {
-            default_bundle: Bundle::new(&YamlLoader::load_from_str(BUNDLS[1]).unwrap()[0]),
+            system_bundle: Bundle::new(&YamlLoader::load_from_str(BUNDLS[1]).unwrap()[0]),
             translation: Bundle::new(&YamlLoader::load_from_str(BUNDLS[x]).unwrap()[0]),
-            not_translated: x == 0 && l.as_str() != "en",
+            default_bundle: if x>0 {Some(Bundle::new(&YamlLoader::load_from_str(BUNDLS[3]).unwrap()[0])) } else {None}
         }
     }
 
-    pub fn translate(&self, scope: &String, code: &String, do_it: bool) -> String {
-        let bundle = if do_it {
-            &self.translation.text
-        } else {
-            &self.default_bundle.text
-        };
-        match bundle.get(scope) {
-            None =>  "not found".to_string(),
-            Some(t) => match t.get(code) {
-                None => "not found".to_string(),
-                Some(v) => v.to_owned()
-            }
+    #[inline]
+    pub fn sys_code(&self, scope: &String, code: &String) -> String {
+        self.system_bundle.msg(scope, code).unwrap_or(&"not found".to_string()).to_owned()
+    }
+
+    #[inline]
+    pub fn t7e(&self, scope: &String, code: &String) -> String {
+        match self.translation.msg(&scope.to_string(), &code.to_string()) {
+            None => if let Some(b) = &self.default_bundle {
+                b.msg(&scope.to_string(), &code.to_string())
+                    .unwrap_or(&"not found".to_string()).to_owned()
+            } else { "not found".to_string() },
+            Some(t) => t.to_owned()
         }
+    }
+
+    #[inline]
+    pub fn t7ea(&self, scope: &str, code: &str, args: &[&str], msgs: &[&String]) -> String {
+        let mut msg = self.t7e(&scope.to_string(), &code.to_string());
+        let mut i = 0;
+        for a in args {
+            let new = if a.as_bytes()[0] == b'$' {
+                self.t7e(&scope.to_string(), &a[1..].to_string())
+            } else { msgs[i].to_owned() };
+            msg = msg.replace(*a, new.as_str());
+            i += 1;
+        }
+        msg
     }
 }
 
@@ -102,9 +141,14 @@ mod tests {
     #[test]
     fn test_load() {
         let tr = Translate::new();
-        assert!(tr.default_bundle.text.len()>0);
+        assert!(tr.system_bundle.text.len()>0);
         assert!(tr.translation.text.len()>0);
+
+        let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
+
+        println!("{}\n {}", msg, tr.t7ea("license", "good", &[], &[]));
     }
+
 
 }
 

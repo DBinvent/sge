@@ -50,8 +50,10 @@ steps:
     displayName: cargo test
   - bash: |
       source $HOME/.cargo/env
-      sed -i 's/local_build/$(Build.BuildId)/' src/cl_config.yaml
-      head src/cl_config.yaml
+      v=$(grep -m 1 version Cargo.toml)
+      IFS='.' read -r -a va <<< "${v:11:10}"
+      vv="${va[0]}.${va[1]}"
+      sed -i "0,/local_build/s/local_build/$vv.$(Build.BuildId)/" src/i18n/*_clc.yaml
       ./ul.sh
       cargo build --release
     displayName: cargo build --release

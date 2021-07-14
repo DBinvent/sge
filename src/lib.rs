@@ -29,12 +29,6 @@ use postgres::error::SqlState;
 use std::collections::HashMap;
 use std::fmt::Write;
 
-/// TODO: --schema_transaction:
-//     - (column-TBD): perform all changes on a table per transaction. \\n \
-//     - (repeat-TBD): try to obtain a lock perform changes repetally - suitable on high load systems \\n \
-
-pub const CONFIG_DEF_YML: &'static str = include_str!("cl_config.yaml");
-
 const STATEMENT_LOG_TABLE_YML: &'static str = include_str!("hl_table.yaml");
 
 static YAML_SCHEMA: &'static str = include_str!("schema.yaml");
@@ -65,7 +59,7 @@ lazy_static! {
             }
         };
     pub static ref CONFIG_APP: HashMap<String, Option<String>> =
-        match YamlLoader::load_from_str(crate::CONFIG_DEF_YML) {
+        match YamlLoader::load_from_str(crate::i18n::cl_config()) {
             Ok(yaml) => {
                 let mut defs = HashMap::new();
                 for args in yaml[0]["args"].as_vec().unwrap() {
@@ -92,23 +86,8 @@ lazy_static! {
 
     pub static ref SCHEMA_YAML: Vec<yaml_rust::Yaml> = YamlLoader::load_from_str(crate::YAML_SCHEMA).expect("wrong schema");
 
-    // static ref EPOC_2020: i64 = Utc::ymd(2020, 2, 2).and_hms(0, 0, 0).timestamp();
-    // static ref EPOC_2020H: u64 = EPOC_2020.clone() as u64 >> 12;
+    pub static ref TR: crate::i18n::Translate = crate::i18n::Translate::new();
 }
-
-
-/* // pseudo hours (real hours + 14% as divided to 4096 (>> 12) instead of 3600)
-/ // science 2020
-#[inline]
-pub(crate) fn _hp() -> u32 {
-    let r = if let Ok(n) = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
-        (n.as_secs() >> 12) - *EPOC_2020H
-    } else {
-        EPOC_2020.clone() as u64 >> 12
-    };
-    r as u32
-}
-*/
 
 /// Main entry point
 /// Relation (PostgreSQL) DB Migration Management tool (inspired by flyway while it was free)

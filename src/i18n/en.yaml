@@ -5,5 +5,36 @@ connections:
   state4: Unpaid
   state5: Paid
 
+cl:
+  invalid: "Invalid license"
+  unknown: "Unknown command: {cmd}"
+
 license:
+  call_create: creating request
+  call_update: updating request
+  call_check: checking request
+
   invalid: "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details."
+  info: "License [{file}] issued to: {to}  {email}"
+  good: "Good to use for your connection(s)! Thank you! "
+  pulling: "Trying to pull license to update ..."
+
+  call_dry: "About to call {url} to {call} license, but --dry_run set."
+
+  invalid_email: "invalid email"
+  invalid_hosts: "invalid hosts"
+  invalid_db_names: "invalid db names"
+
+  err1: "The license loaded from file [{file}] is valid, but not for configuration set, check your configuration and license file. Also, {$invalid} "
+  err2: "The license loaded from file [{file}] is valid, but no configuration set to check! {$invalid}"
+  err3: "The license loaded from file [{file}] is not valid: {err}"
+  err4: "The license not loaded from file [{file}] {err} {$invalid}"
+  err5: "No '--email' nor '--license_file' set, also might be helpful: --subscribe=* and db connections to set. Also, {$invalid}"
+  err6: "Creating payload of a license {call} {err}"
+  err7: "License {call} {err}"
+  err8: "License getting response on {call}: {err}"
+
+  save_err1: "reading response: {msg} with error {err}"
+  save_err2: "create license from response: {msg} with error {err}"
+  save_err3: "writing to [{file}] {err}"
+

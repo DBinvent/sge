@@ -67,10 +67,10 @@ fn main() -> Result<(), String> {
 
 
 #[cfg(test)]
+#[allow(dead_code)]
 mod tests {
     use super::*;
 	use rsa::{RSAPublicKey, PublicKeyParts};
-	use std::path::Path;
 
 	pub fn pub2str(input: &RSAPublicKey) -> String {
 		format!(

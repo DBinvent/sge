@@ -1,5 +1,5 @@
 name: rdbm
-version: "1.0.local_build"
+version: "local_build"
 author: DBInvent LLC
 about: 'The SQL script tracker and DB deployment tool by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
 usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'

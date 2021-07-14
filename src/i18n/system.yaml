@@ -1,0 +1,6 @@
+connections:
+  state1: pers
+  state2: new
+  state3: trial
+  state4: unpaid
+  state5: paid

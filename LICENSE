@@ -1,4 +1,4 @@
-Copyright notice for the Rumba:rdbm:
+Copyright notice for the Rumba:rdbm
 
  (C) 2021 DBinvent LLC
 
@@ -7,15 +7,14 @@ Copyright notice for the Rumba:rdbm:
   arising from the use of this software.
 
   Permission is granted to anyone to use this software for evaluation
-  OR solely to the person or company for any purpose,
+  OR solely to the person OR company for any purpose,
   including commercial applications, subject to the following restrictions:
 
-  1. The origin of this software must not be misrepresented; you must not
+  1. The software must not be altered. Please contact us if you do need any changes.
+  2. The origin of this software must not be misrepresented; you must not
      claim that you wrote the original software. If you use this software
      in a product, an acknowledgment in the product documentation would be
      appreciated but is not required.
-  2. Check license agreement at https://dbinvent.com/rdbm-license.html.
-  3. This notice may not be removed or altered from any source distribution.
 
 
 Libraries used in this software been licensed under list of licenses collected in libs-licenses.txt.
