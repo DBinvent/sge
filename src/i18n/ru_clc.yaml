@@ -1,12 +1,12 @@
 name: rdbm
 version: "local_build"
 author: DBInvent LLC
-about: 'The SQL script tracker and DB deployment tool by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
-usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
+about: 'Программа контроля SQL файлов выполненных на базе данных PostgreSQL, а так-же изменение схемы по определению в YAML формате. Пожалуйста используйте: ./rdbm help migrate, для более подробной инструкции.'
+usage: 'Пожалуйста начните знакомство с ./rdbm help license и ./rdbm help migrate'
 
 subcommands:
     - migrate:
-        about: Perform a DB migration to a specified version of all possible and suitable scripts
+        about: Осуществление миграции схемы базы PostgreSQL до определенной версии или выполнение всех подходящих скриптов
         help: |
           Perform a DB migration to a version set in '--target' OR,
           in the argument for a particular phase: '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy'
@@ -36,10 +36,10 @@ subcommands:
           Check https://dbinvent.com/rdbm.html for more information and best practices.
 
     - prepare:
-        about: Create a history log table to track scripts executions
+        about: Создание таблицы для отслеживания выполнения скриптов
         help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'.  '--dry_run' to avoid DB change."
     - snapshot:
-        about: Perform a schema dump into snapshot_to file in yaml or json format.
+        about: Создание снимка схемы базы в --snapshot_to файл в yaml или json формате.
         help: |
           Perform a DB schema dump into a '--snapshot_to' file in yaml or json format.
           Notice: There is a limited amount of column information that will be converted from pg_catalog and information_schema

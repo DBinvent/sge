@@ -29,22 +29,24 @@ subcommands:
           The (R) script will check a file hashsum and run it if the file was changed and was not run yet on DB.
           The 'after.sql' and 'after_each.sql' (names are configurable) and will try always to execute, but won't record in the history.
           The '--config_file' or '-c' is used to put all params by name (without -- prefix) into a text file. The arguments passed in the command line will override those from the config file.
-          See more options in './rdbm help' command.
           Use --dry_run to avoid DB change.
+
+          See more options in './rdbm help' command.
 
           A valid license is required to run (use './rdbm help license' for more information).
           Check https://dbinvent.com/rdbm.html for more information and best practices.
 
     - prepare:
         about: Create a history log table to track scripts executions
-        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'.  '--dry_run' to avoid DB change."
+        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'.  '--dry_run' to avoid DB change. See more options in './rdbm help' command."
     - snapshot:
-        about: Perform a schema dump into snapshot_to file in yaml or json format.
+        about: Perform a schema dump into '--snapshot_to' file in yaml or json format.
         help: |
           Perform a DB schema dump into a '--snapshot_to' file in yaml or json format.
           Notice: There is a limited amount of column information that will be converted from pg_catalog and information_schema
           to fully match an input format of the manual yaml schema created.
           Therefore, the dump schema snapshot and yaml input file may differ.
+          See more options in './rdbm help' command.
     - info:
         about: Return the deployment status and tag a version in JSON format. See '--info_format'.
         help: Return the deployment status and tag a version in JSON format. See '--info_format'.
@@ -57,6 +59,7 @@ subcommands:
           Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections).
           This is the only command of ./rdbm which makes a connection to the https://dbinvent.com and it will require a valid 'api_key' to perform an upgrade or subscribe.
           Use '--dry_run' to avoid calling remote host, but check the license.
+          See more options in './rdbm help' command.
           Check https://dbinvent.com/rdbm-license.html for more information about licensing.
 
 args:

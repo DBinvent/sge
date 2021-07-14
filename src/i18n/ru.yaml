@@ -6,10 +6,36 @@ connections:
   state5: Оплачено
 
 cl:
-  invalid: "Invalid license"
-  unknown: "Unknown command: "
-
+  invalid: "Лицензия не действительная"
+  unknown: "Не известная команда: {cmd}"
 
 license:
-  invalid: "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details."
-  good: "Проверено, Good to use for your connection(s)! Thank you! "
+  call_create: "создания"
+  call_update: "изменения"
+  call_check: "проверки"
+
+  invalid: "Пожалуйста ознакомтесь с https://dbinvent.com/rdbm-license.html , а также './rdbm help license' для более подробной информации."
+  info: "Лицензия [{file}] выданна: {to} {email}"
+  good: "Лицензия годная для использования с указанными соединениям(и)! Спасибо! "
+  pulling: "Попытка доступа к данным лицензии для обновления ..."
+
+  call_dry: "Попытка запроса {url} для {call} лицензии заблокированна установленным параметром --dry_run "
+
+  invalid_email: "не подходящий адрес почты"
+  invalid_hosts: "не подходящий адрес сервера"
+  invalid_db_names: "не подходящее имя базы"
+
+  err1: "Лицензия загруженная из файла [{file}] действительная, но не для параметров используеммых при запуске. Пожалуйста проверьте настройки и лицензию. А так-же, {$invalid} "
+  err2: "Лицензия загруженная из файла [{file}] действительная, но отсутствует параметры для проверки! {$invalid}"
+  err3: "Лицензия загруженная из файла [{file}] не действительная: {err}"
+  err4: "Лицензия не может быть загруженная из файла [{file}] {err} {$invalid}"
+  err5: "Отсутствует '--email' И '--license_file', так-же может быть полезно: --subscribe=* {$invalid}"
+
+  err6: "Ошибка создания запроса для {call} лицензии {err}"
+  err7: "Ошибка {call} лицензии: {err}"
+  err8: "Ошибка запроса {call} лицензии: {err}"
+
+  save_err1: "Чтение ответа: {msg}, с ошибкой: {err}"
+  save_err2: "Создания лицензии из ответа: {msg}, с ошибкой {err}"
+  save_err3: "Запись в файл [{file}] {err}"
+
