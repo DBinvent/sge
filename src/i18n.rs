@@ -79,7 +79,7 @@ pub struct Translate {
 impl Translate {
     pub fn new() -> Self {
         let l = lang();
-        let mut x = 1;
+        let mut x = 3;
         for i in 0..BUNDLS.len()/2 {
             if BUNDLS[i*2] == l {
                 x = i*2+1;

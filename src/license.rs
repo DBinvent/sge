@@ -1698,8 +1698,8 @@ mod tests {
 
     #[test]
     fn test_tr() {
-        // assert_eq!(TR.translate(&"connections".to_string(), &format!("state{}", code), lang)translate_state(2, false), "new".to_string());
         assert_eq!(translate_state(2), "New".to_string());
+        assert_eq!(translate_state_sys(2), "new".to_string());
     }
 
     #[test]
