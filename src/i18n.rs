@@ -79,7 +79,7 @@ pub struct Translate {
 impl Translate {
     pub fn new() -> Self {
         let l = lang();
-        let mut x = 0;
+        let mut x = 1;
         for i in 0..BUNDLS.len()/2 {
             if BUNDLS[i*2] == l {
                 x = i*2+1;
@@ -147,6 +147,32 @@ mod tests {
         let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
 
         println!("{}\n {}", msg, tr.t7ea("license", "good", &[], &[]));
+    }
+
+    #[test]
+    fn test_load_nol() {
+        std::env::set_var("LANG", "");
+
+        let tr = Translate::new();
+        assert!(tr.system_bundle.text.len()>0);
+        assert!(tr.translation.text.len()>0);
+
+        let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
+        assert!(cl_config().len() > 20);
+
+    }
+
+    #[test]
+    fn test_load_en() {
+        std::env::set_var("LANG", "en");
+
+        let tr = Translate::new();
+        assert!(tr.system_bundle.text.len()>0);
+        assert!(tr.translation.text.len()>0);
+
+        let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
+        assert!(cl_config().len() > 20);
+
     }
 
 

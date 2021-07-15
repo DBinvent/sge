@@ -449,7 +449,7 @@ pub struct License {
     pub api_key_valid_until: LicenseTime, //"2021-12-12"
     #[serde(skip_serializing_if = "String::is_empty")]
     pub api_key: String, // "<jwt token 300-500char>"
-    /// package name TODO add license key version suffix
+    /// package name
     pub license_type: String,
     #[serde(skip)]
     pub version: u8,
@@ -545,7 +545,6 @@ impl Connection {
 
 }
 
-// TODO add translation, keep lang "" as default format for to_sql
 #[inline]
 fn translate_state(code: u8) -> String {
     TR.t7e(&"connections".to_string(), &format!("state{}", code))

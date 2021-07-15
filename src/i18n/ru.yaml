@@ -14,7 +14,7 @@ license:
   call_update: "изменения"
   call_check: "проверки"
 
-  invalid: "Пожалуйста ознакомтесь с https://dbinvent.com/rdbm-license.html , а также './rdbm help license' для более подробной информации."
+  invalid: "Пожалуйста ознакомтесь с https://dbinvent.com/rdbm.html , а также './rdbm help license' для более подробной информации."
   info: "Лицензия [{file}] выданна: {to} {email}"
   good: "Лицензия годная для использования с указанными соединениям(и)! Спасибо! "
   pulling: "Попытка доступа к данным лицензии для обновления ..."

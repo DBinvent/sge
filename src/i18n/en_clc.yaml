@@ -34,7 +34,7 @@ subcommands:
           See more options in './rdbm help' command.
 
           A valid license is required to run (use './rdbm help license' for more information).
-          Check https://dbinvent.com/rdbm.html for more information and best practices.
+          Check https://dbinvent.com/rdbm-best.html for more information and best practices.
 
     - prepare:
         about: Create a history log table to track scripts executions
@@ -60,7 +60,7 @@ subcommands:
           This is the only command of ./rdbm which makes a connection to the https://dbinvent.com and it will require a valid 'api_key' to perform an upgrade or subscribe.
           Use '--dry_run' to avoid calling remote host, but check the license.
           See more options in './rdbm help' command.
-          Check https://dbinvent.com/rdbm-license.html for more information about licensing.
+          Check https://dbinvent.com/rdbm.html for more information about licensing.
 
 args:
     - db_url:

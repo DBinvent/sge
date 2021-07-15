@@ -14,7 +14,7 @@ license:
   call_update: updating request
   call_check: checking request
 
-  invalid: "Please check https://dbinvent.com/rdbm-license.html See './rdbm help license' for more details."
+  invalid: "Please check https://dbinvent.com/rdbm.html See './rdbm help license' for more details."
   info: "License [{file}] issued to: {to}  {email}"
   good: "Good to use for your connection(s)! Thank you! "
   pulling: "Trying to pull license to update ..."
