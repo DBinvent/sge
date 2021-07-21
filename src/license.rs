@@ -80,7 +80,7 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
                             ApiRequest::Pull(l).call(&license_file, dry_run, log, test)
                         }
                     } else if email.len() > 0 && do_subscribe {
-                        let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
+                        let lc = CreateUpdateRequest::new(&cfg, &db_host, &logdb_host, &db_name, &logdb_name)?;
                         ApiRequest::Update(l, lc).call(&license_file, dry_run, log, test)
                     } else if conn_set {
                         Err(TR.t7ea("license", "err1", &["{file}", "{$invalid}"], &[&license_file]))
@@ -93,7 +93,7 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
             Err(e) => Err(TR.t7ea("license", "err4", &["{file}", "{err}", "{$invalid}"], &[&license_file, &e]))
         }
     } else if email.len() > 0 && do_subscribe {
-        let lc = CreateUpdateRequest::new(&email, &db_host, &logdb_host, &db_name, &logdb_name)?;
+        let lc = CreateUpdateRequest::new(&cfg, &db_host, &logdb_host, &db_name, &logdb_name)?;
         ApiRequest::Create(lc).call(&license_file, dry_run, log, test)
     } else {
         Err(TR.t7ea("license", "err5", &[], &[]))
@@ -261,12 +261,14 @@ impl CreateUpdateRequest {
     #[inline]
     #[allow(dead_code)]
     fn new(
-        email: &String,
+        cfg: &ConfigMap,
         db_host: &String,
         logdb_host: &String,
         db_name: &String,
         logdb_name: &String,
     ) -> Result<Self, String> {
+        let email = cfg.get("email");
+        let encrypt = cfg.get_bool("encrypt", true);
         let mut hosts = Vec::new();
         append_name(db_host, true, &mut hosts);
         append_name(logdb_host, true, &mut hosts);
@@ -276,7 +278,7 @@ impl CreateUpdateRequest {
 
         Ok(CreateUpdateRequest {
             personal: email.find("mail").unwrap_or(0) > 0,
-            encrypt: true,
+            encrypt,
             email: email.clone(),
             hosts,
             db_names,
@@ -1051,7 +1053,7 @@ fn is_ip(host: &String) -> bool {
         }
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, unused, warnings)]
 pub mod crc {
     use std::fmt::Write;
     use rsa::{RSAPublicKey, PublicKeyParts};
@@ -1081,6 +1083,7 @@ pub mod crc {
     }
 
     #[cfg(not(debug_assertions))]
+    #[allow(unused, warnings)]
     #[inline]
     pub fn debug(method: &str, d: &[u8],  ds: &[u8], pubk: &RSAPublicKey) { }
 

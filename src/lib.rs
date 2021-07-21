@@ -92,11 +92,23 @@ lazy_static! {
 /// Main entry point
 /// Relation (PostgreSQL) DB Migration Management tool (inspired by flyway while it was free)
 pub fn migrate(cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
-    let mut client = connect("logdb_", &cfg, None, log)?;
-    let result = { migrate_db(&mut client, &cfg, prepare_only, log) };
+    trace!(log, "migrate prepare_only {}, with logdb {}, is_logdb: {}, is_primary: {}", prepare_only, cfg.get("logdb"), cfg.is_logdb(), cfg.is_primary());
+    let mut client = connect(if cfg.is_primary() {"logdb_"} else {"db_"}, &cfg, None, "logdata", log)?;
+    let mut copy_log = if !cfg.is_primary() && cfg.is_logdb() {
+        trace!(log, "migrate connecting COPYLOG ...");
+        Some(connect("logdb_", &cfg, None, "copylog", log)?)
+    } else { None};
+
+    let result = { migrate_db(&mut client, &mut copy_log, &cfg, prepare_only, log) };
     match client.close() {
         Ok(_) => {}
         Err(_) => {}
+    }
+    if let Some(c) = copy_log {
+        match c.close() {
+            Ok(_) => {}
+            Err(_) => {}
+        }
     }
     result
 }
@@ -117,6 +129,7 @@ pub fn migrate(cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), S
 #[inline]
 fn migrate_db(
     log_client: &mut Client,
+    copy_log_client: &mut Option<Client>,
     cfg: &ConfigMap,
     prepare_only: bool,
     log: &Logger,
@@ -124,30 +137,29 @@ fn migrate_db(
     // prepare schema
     let schema = cfg.schema();
 
-    let db_name = cfg.get_opt("logdb_name").unwrap_or(cfg.get("db_name"));
-
-    let mut dbc = crate::dbm_dbc::load_info_schema(db_name.as_str(),log_client)?;
+    let log_db_name = if cfg.is_primary() {
+        cfg.get_opt("logdb_name").unwrap_or(cfg.get("db_name"))
+    } else {
+        cfg.get("db_name")
+    };
+    let mut dbc = crate::dbm_dbc::load_info_schema(log_db_name.as_str(), log_client)?;
     let files = crate::dbm_yml::load_all(cfg, log)?;
     let mut t = log_client.transaction().unwrap(); // begin self install if not exists
-    let err = {
-        debug!(log, "starting with self deploy for: {}", BASELINE);
-        match STATEMENT_LOG_TBL.deploy(&mut dbc, &mut t, &schema, cfg, BASELINE, log) {
-            Ok(exec) => {
-                if exec {
-                    debug!(log, "self deploy of: {} complete", BASELINE);
-                    if let Err(e) = StatementLog::new(cfg)
-                        .instance('S', &BASELINE.into(), &"".into(), &BASELINE.into())
-                        .persist(None, Some(&mut t))
-                    {
-                        Some(e)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+    let mut err = YTable::baseline_deploy(&mut dbc, &mut t, &schema, cfg, "primary", log);
+
+    let mut ct = match copy_log_client {
+        None => {None}
+        Some(lc) => {
+            if err.is_none() {
+                // debug!(log, "begin self install if not exists on log copy instance");
+                // TODO reuse loaded?
+                let mut dbc = crate::dbm_dbc::load_info_schema(cfg.get("logdb_name").as_str(), lc)?;
+                let mut t = lc.transaction().unwrap();
+                if !cfg.is_primary() {
+                    err = YTable::baseline_deploy(&mut dbc, &mut t, &schema, cfg, "copy", log);
                 }
-            }
-            Err(e) => Some(e),
+                Some(t)
+            } else { None }
         }
     };
     if let Some(e) = err {
@@ -164,14 +176,25 @@ fn migrate_db(
         // select table for update -- row level lock, revert changes
         let logs = { StatementLog::load_all(&mut t, cfg.get_bool("dry_run", true), cfg)? };
 
-        let mut dbc = if let None = cfg.get_opt("logdb_name") {
-            let mut client = connect("db_", &cfg, None, log)?;
-            let dbc = crate::dbm_dbc::load_info_schema(cfg.get("db_name").as_str(),&mut client)?;
+        let db_name = cfg.get("db_name");
+        let mut dbc = if log_db_name != db_name {
+            let mut client = connect("db_", &cfg, None, "loading info schema",log)?;
+            let dbc = crate::dbm_dbc::load_info_schema(db_name.as_str(),&mut client)?;
             let _ = client.close();
+            debug!(log, "loading info schema disconnected");
             dbc
         } else { dbc };
-        let mut client = connect("db_", &cfg, None, log)?;
-        let r = migrate_all_versions(&mut client, &mut dbc, &logs, &files, pgsrv.as_str(), cfg, &mut t, log);
+        let mut client = connect("db_", &cfg, None, "migrate",log)?;
+        let r = migrate_all_versions(
+            &mut client, // main target db client
+            &mut dbc, // loaded info schema
+            &logs, // loaded log history
+            &files, // list of parsed files
+            pgsrv.as_str(), // name of psql config file
+            cfg,  // config
+            &mut t, // log client transaction
+            &mut ct, // copy_log_client
+            log); // console logging
         let _ = client.close();
         r
     };
@@ -190,6 +213,25 @@ fn migrate_db(
             }
         }
     };
+    // copy_log_client
+    if let Some(t) = ct {
+        match ret {
+            // log it
+            Ok(_) => {
+                match t.commit() {
+                    Ok(_) => {}
+                    Err(_) => {}
+                }
+            }
+            Err(_) => {
+                match t.rollback() {
+                    Ok(_) => {}
+                    Err(_) => {}
+                }
+            }
+        }
+    }
+
     if let Ok(ids) = res {
         StatementLog::new(cfg).after("after_end", &files, &HashMap::new(),
             pgsrv.as_str(), cfg, None, ids, log)?;
@@ -209,14 +251,15 @@ fn migrate_all_versions(
     pgsrv: &str,
     cfg: &ConfigMap,
     t: &mut Transaction,
+    clog_t: &mut Option<Transaction>, // copy_log_client
     log: &Logger,
 ) -> Result<Vec<i32>, String> {
     let mut res = Vec::new();
     for ver in files.all_versions() {
         info!(log, "Deploying version: {}", ver);
-        res.push(deploy_pre_files(&logs, &ver, &files, pgsrv, &cfg, t, log)?);
-        res.push(deploy_all_schemas(client, &ver, &files, dbc, &cfg, t, log)?);
-        res.push(deploy_all_files(&logs, &ver, &files, pgsrv, &cfg, t, log)?);
+        res.push(deploy_pre_files(&logs, &ver, &files, pgsrv, &cfg, t, clog_t, log)?);
+        res.push(deploy_all_schemas(client, &ver, &files, dbc, &cfg, t, clog_t, log)?);
+        res.push(deploy_all_files(&logs, &ver, &files, pgsrv, &cfg, t, clog_t, log)?);
     }
     Ok(res)
 }
@@ -230,6 +273,7 @@ fn deploy_pre_files(
     pgsrv: &str,
     cfg: &ConfigMap,
     t: &mut Transaction,
+    clog_t: &mut Option<Transaction>, // copy_log_client
     log: &Logger,
 ) -> Result<i32, String> {
     if cfg.is_pgsrv() {
@@ -257,7 +301,7 @@ fn deploy_pre_files(
         if let Some(file) = files.pre.get(ver) {
             let id = draft
                 .instance('P', &ver.s, &cfg.get("source_dir"), file)
-                .deploy(&logs, pgsrv, cfg, Some(t), vec![], log)?;
+                .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], log)?;
             draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
             id
         } else { 0 }
@@ -273,6 +317,7 @@ fn deploy_all_files(
     pgsrv: &str,
     cfg: &ConfigMap,
     t: &mut Transaction,
+    clog_t: &mut Option<Transaction>, // copy_log_client
     log: &Logger,
 ) -> Result<i32, String> {
     let mut id = 0;
@@ -281,14 +326,14 @@ fn deploy_all_files(
     if let Some(file) = &files.versions.get(ver) {
         id = draft
             .instance('V', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, pgsrv, cfg, Some(t), vec![], log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], log)?;
         draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
     }
     // deploy re-runable
     if let Some(file) = &files.re_runnable.get(ver) {
         id = draft
             .instance('R', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, pgsrv, cfg, Some(t), vec![], log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], log)?;
         draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![], log)?;
     }
     draft.after("after", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
@@ -304,6 +349,7 @@ fn deploy_all_schemas(
     dbc: &mut InfoSchemaType,
     cfg: &ConfigMap,
     lt: &mut Transaction,
+    clog_t: &mut Option<Transaction>, // copy_log_client
     log: &Logger,
 ) -> Result<i32, String> {
     let mut id = 0;
@@ -401,7 +447,7 @@ fn deploy_all_schemas(
             }
             if do_persist {
                 match stl.instance('S', &ver.s, &cfg.get("source_dir"), file)
-                    .persist(err.clone(), Some(lt)) {
+                    .persist(err.clone(), Some(lt), clog_t) {
                     Ok(i) => {
                         id = i;
                     }
@@ -424,6 +470,7 @@ fn connect(
     prefix: &str,
     cfg: &ConfigMap,
     create: Option<bool>,
+    module: &str,
     log: &Logger,
 ) -> Result<Client, String> {
     let mut override_prefix = false;
@@ -474,7 +521,7 @@ fn connect(
                 let _ = write!(log_url, "&password={}", screen(&pwd));
             }
         }
-        debug!(log, "create db connect: {}", log_url);
+        debug!(log, "{}: create db connect: {}", module, log_url);
         ("postgres".to_string(), log_url)
     } else {
         cfg.get_pow(&mut url, prefix, "user", "&");
@@ -489,7 +536,7 @@ fn connect(
         }
     };
     let db = format!("postgresql:///{}?{}", dbname, url);
-    debug!(log, "connecting: {} {}", log_url, dbname);
+    debug!(log, "{}: connecting: {} {}", module, log_url, dbname);
     match if cfg.is_ssl() {
         let connector = match make_tls_connector(&cfg.get(prefix)) {
             Ok(c) => c,
@@ -515,13 +562,14 @@ fn connect(
                                 dbname.as_str(),
                                 prefix,
                                 cfg,
+                                module,
                                 log,
                             );
                         } else {
                             error!(log, "NO DB: {}, create or use --createdb=y", dbname);
                         }
                     } else {
-                        debug!(log, "connection error code: {:?}", code);
+                        debug!(log, "{}: connection error code: {:?}", module, code);
                     }
                 }
             }
@@ -551,13 +599,14 @@ fn create_connect(
     dbname: &str,
     prefix: &str,
     cfg: &ConfigMap,
+    module: &str,
     log: &Logger,
 ) -> Result<Client, String> {
     info!(
         log,
         "NO DB name [{}] or user found, trying to connect as super user ...", dbname
     );
-    let mut client = connect(prefix, cfg, Some(true), log)?;
+    let mut client = connect(prefix, cfg, Some(true), module, log)?;
     let owner = match cfg.get_opt(format!("{}user", prefix).as_str()) {
         None => "".to_string(),
         Some(user) => {
@@ -574,7 +623,7 @@ fn create_connect(
     }
     let _ = client.close();
     info!(log, "DB/user [{}] created, reconnecting", dbname);
-    connect(prefix, cfg, Some(false), log)
+    connect(prefix, cfg, Some(false), module, log)
 }
 
 fn create_role(
@@ -615,8 +664,8 @@ fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
 #[inline]
 pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     let snapshot_to = cfg.get_opt("snapshot_to");
-    let mut log_client = connect("logdb_", &cfg, None, log)?;
-    let mut db_client = connect("db_", &cfg, None, log)?;
+    let mut log_client = connect("logdb_", &cfg, None, "loading logs",log)?;
+    let mut db_client = connect("db_", &cfg, None, "loading data",log)?;
     let result = { load_impl(dump, &mut db_client, &mut log_client, &cfg) };
     let _ = db_client.close();
     let _ = log_client.close();
@@ -657,7 +706,7 @@ mod tests {
         assert!(STATEMENT_LOG_TBL.description.len() > 15);
         assert!(STATEMENT_LOG_TBL.columns.len() > 15);
         let last = STATEMENT_LOG_TBL.columns.len()-1;
-        let times = STATEMENT_LOG_TBL.columns.list[last].clone();
+        let times = STATEMENT_LOG_TBL.columns.list[last - 1].clone();
         assert_eq!(times.name, "times".to_string());
         assert_eq!(times.default_value.clone()
             .unwrap_or("".to_string()), "1".to_string());

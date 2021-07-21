@@ -23,6 +23,7 @@ use std::fmt::Display;
 use serde::ser::SerializeSeq;
 use std::convert::TryFrom;
 use yaml_validator::Validate;
+use crate::BASELINE;
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -895,6 +896,35 @@ impl YTable {
         })
     }
 
+    pub(crate) fn baseline_deploy(
+        dbc: &mut InfoSchemaType,
+        t: &mut Transaction,
+        schema: &String,
+        cfg: &ConfigMap,
+        cause: &str,
+        log: &Logger,
+    ) -> Option<String> {
+        debug!(log, "starting with self deploy {} for {}", BASELINE, cause);
+        match crate::STATEMENT_LOG_TBL.deploy(dbc, t, &schema, cfg, BASELINE, log) {
+            Ok(exec) => {
+                if exec {
+                    debug!(log, "self deploy of: {} complete", BASELINE);
+                    if let Err(e) = StatementLog::new(cfg)
+                        .instance('S', &BASELINE.into(), &"".into(), &BASELINE.into())
+                        .persist(None, Some(t), &mut None)
+                    {
+                        Some(e)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Err(e) => Some(e),
+        }
+    }
+
     /// build a create or alter sql
     #[allow(unused_mut)]
     pub(crate) fn deploy(
@@ -1147,6 +1177,7 @@ fn deploy_log(msg: &String, log: &Logger) {
 }
 
 #[cfg(not(debug_assertions))]
+#[allow(unused, warnings)]
 #[inline]
 fn deploy_log(msg: &String, log: &Logger) { }
 

@@ -1,7 +1,9 @@
 name: rdbm
 version: "local_build"
 author: DBInvent LLC
-about: 'The SQL script tracker and DB deployment tool by YAML schema definition for PostgreSQL. Please use: ./rdbm help migrate, for more information.'
+about: |
+ The SQL script tracker and DB deployment tool by YAML schema definition for PostgreSQL.
+ Please use: ./rdbm help migrate, for more information.
 usage: 'Please start with ./rdbm help license and ./rdbm help migrate.'
 
 subcommands:
@@ -11,7 +13,7 @@ subcommands:
           Perform a DB migration to a version set in '--target' OR,
           in the argument for a particular phase: '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy'
           of scripts located in '--source' (without a sub-folder scan if '--source_recur' is disabled)
-          into the DB name set in '--db_name', with execution log saved into '--logdb_name' or '--db_name' if '--logdb_name' not set.
+          into the DB name set in '--db_name', with execution log saved into '--logdb_name' and/or '--db_name' if '--logdb_name' not set and '--logdb' configured.
           The DB and DB user will be created if needed, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'.
           The migration executor will be logged by '--executed_by' value
           Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. These values are useful in a microservice architecture (see dbinvent.com/rdbm-best.html for more information) and environment orchestration.
@@ -38,7 +40,7 @@ subcommands:
 
     - prepare:
         about: Create a history log table to track scripts executions
-        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'.  '--dry_run' to avoid DB change. See more options in './rdbm help' command."
+        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'. Use '--dry_run' to avoid DB change. See more options in './rdbm help' command."
     - snapshot:
         about: Perform a schema dump into '--snapshot_to' file in yaml or json format.
         help: |
@@ -54,12 +56,14 @@ subcommands:
         about: Create apply, upgrade, subscribe or check a license is valid to use this software.
         help: |
           Create apply, upgrade, subscribe or check a license is valid.
-          Use '--email' and '--license' to request a license file if the file is not found in '--license_file' OR Evaluation is expired.
+          Use '--email' to request a license file if the file is not found in '--license_file' OR Evaluation is expired.
           If the file exists, then perform a check and upgrade the licenses 'valid_until' date.
           Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections).
           This is the only command of ./rdbm which makes a connection to the https://dbinvent.com and it will require a valid 'api_key' to perform an upgrade or subscribe.
           Use '--dry_run' to avoid calling remote host, but check the license.
+          Use '--encrypt=false' to register a new license with unencrypted connection names.
           See more options in './rdbm help' command.
+          Options to use only with 'license' command: '--email', '--subscribe' '--encrypt'.
           Check https://dbinvent.com/rdbm.html for more information about licensing.
 
 args:
@@ -105,6 +109,11 @@ args:
         long: db_sslkey
         takes_value: true
         help: /path/to/client.key
+    - logdb:
+        long: logdb
+        default_value: "copy"
+        possible_values: [primary, copy]
+        help: The define the logDB use as primary OR copy. If primary set, than log table wont create on main target DB and log DB be used instead.
     - logdb_url:
         long: logdb_url
         takes_value: true
@@ -304,14 +313,18 @@ args:
     - email:
         long: email
         takes_value: true
-        help: The person's email to send a license file.
+        help: The person's email to send a license file. Use only with 'license' command. Use only with 'license' command.
     - subscribe:
         long: subscribe
         takes_value: true
-        help: 'Use to append license with connections: <db_name> or <host>. possible values: * OR <name>.'
+        help: 'Use to append license with connections: <db_name> or <host>. possible values: * OR <name>. Use only with license command.'
     - license_file:
         long: license_file
         default_value: rdbm.license
-        help: The argument is the license file. Use './rdbm --email=your@email license' OR check 'https://dbinvent.com/rdbm.html' to get one.
-
+        help: The argument is the license file. Use './rdbm --email=your@email license' OR check 'https://dbinvent.com/rdbm.html' to get one. Use only with 'license' command.
+    - encrypt:
+        long: encrypt
+        default_value: "true"
+        help: Encrypt new connection name, on new license register. Ignore on register new connections on existing license. Use only with 'license' command.
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
 

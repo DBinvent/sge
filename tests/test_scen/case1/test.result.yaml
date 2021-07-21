@@ -91,6 +91,12 @@ database:
                 defaultValue: "1"
                 constraint:
                   nullable: false
+            - column:
+                name: size
+                type: int8
+                defaultValue: "0"
+                constraint:
+                  nullable: false
   - schemaName: test_schema
     owner: vk
     tables:

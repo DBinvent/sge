@@ -46,6 +46,7 @@ pub(crate) struct StatementLog {
     pub ok: bool,
     pub msg: String,
     pub took_sec: i64,
+    pub size: i64,
 }
 
 /// source_type||version: file, checksum
@@ -218,6 +219,7 @@ impl StatementLog {
             ok: false,
             msg: "".to_string(),
             took_sec: 0,
+            size: 0
         }
     }
 
@@ -234,10 +236,14 @@ impl StatementLog {
                 format!("{}{}{}", dir, if dir.as_bytes()[dir.len()-1] == b'/' {""} else {"/"}, file)
             } else { file.into() };
             match fs::File::open(file) {
-                Ok(mut file) => hash_md5(&mut file),
+                Ok(mut file) => {
+                    if let Ok(meta) = file.metadata() {
+                        insta.size = meta.len() as i64;
+                    }
+                    hash_md5(&mut file)
+                },
                 Err(e) => e.to_string(),
             }
-
         };
         insta.started = Instant::now();
         insta
@@ -259,7 +265,7 @@ impl StatementLog {
         if let Some((va, afile)) = files.after.get_key_value(key) {
             if afile.ends_with(format!("/{}", cfg.get(key)).as_str()) {
                 let _ = self.instance(' ', va, &"".into(), afile)
-                    .deploy(&logs, pgsrv, cfg, t, ids, log)?;
+                    .deploy(&logs, pgsrv, cfg, t, &mut None, ids, log)?;
             }
         }
         Ok(())
@@ -273,6 +279,7 @@ impl StatementLog {
         pgsrv: &str,
         cfg: &ConfigMap,
         t: Option<&mut Transaction>,
+        clog_t: &mut Option<Transaction>, // copy_log_client
         _id: Vec<i32>,
         log: &Logger,
     ) -> Result<i32, String> {
@@ -345,7 +352,7 @@ impl StatementLog {
                         if emsg.len() > 0 {
                             error!(log, "{}", emsg);
                         }
-                        self.persist(None, t)
+                        self.persist(None, t, clog_t)
                     } else {
                         let msg = format!(
                             "{} : {} {}",
@@ -354,12 +361,12 @@ impl StatementLog {
                             trim_output(&output.stderr)
                         );
                         error!(log, "{}", msg);
-                        self.persist(Some(msg), t)
+                        self.persist(Some(msg), t, clog_t)
                     }
                 }
                 Err(e) => {
                     error!(log, "psql {}", e);
-                    self.persist(Some(e.to_string()), t)
+                    self.persist(Some(e.to_string()), t, clog_t)
                 }
             }
         }
@@ -367,6 +374,17 @@ impl StatementLog {
 
     #[inline]
     pub(crate) fn persist(&self, err: Option<String>,
+        t: Option<&mut Transaction>,
+        c: &mut Option<Transaction>, // copy
+    ) -> Result<i32, String> {
+        if let Some(x) = c {
+            let _ = self.persist_into(err.clone(), Some(x));
+        }
+        self.persist_into(err, t)
+    }
+
+    #[inline]
+    pub(crate) fn persist_into(&self, err: Option<String>,
         t: Option<&mut Transaction>,
     ) -> Result<i32, String> {
         let t = match t {
@@ -399,17 +417,21 @@ impl StatementLog {
         ).map_err(|e| format!("{}", e))?;
         let id = if rows.len() > 0 {
             let id: i32 = rows[0].get(0);
-            let _ = t.execute(format!("update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
-                checksum = $5, script_tag = $6, catalog = $7, source = $8, executed_on=current_timestamp, times = times+1 where id = $9",
+            let _ = t.execute(format!(
+"update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
+ checksum = $5, script_tag = $6, catalog = $7, source = $8, size = $9, \
+ executed_on=current_timestamp, times = times+1 where id = $10",
                 self.table).as_str(), &[
-                    &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source,
+                    &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source, &self.size,
                     &id]).map_err(|e| format!("{}", e))?;
             id
         } else {
-            let r = t.query_one(format!("insert into {} (target, source_type, source, version, ok, msg, took_sec, executed_by, \
-                checksum, script_tag, catalog, executed_on, created_on) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11, current_timestamp, current_timestamp) returning id",
+            let r = t.query_one(format!(
+"insert into {} (target, source_type, source, version, ok, msg, took_sec, executed_by, \
+ checksum, script_tag, catalog, size, executed_on, created_on) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, \
+ current_timestamp, current_timestamp) returning id",
                 self.table).as_str(), &[&self.target, &self.source_type.to_string(), &self.source, &self.version,
-                    &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog,
+                    &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.size,
                 ]).map_err(|e| format!("{}", e))?;
             let id: i32 = r.get(0);
             id
@@ -566,7 +588,7 @@ pub(crate) fn load_impl(
     log_client: &mut Client,
     cfg: &ConfigMap,
 ) -> Result<String, String> {
-    if dump {
+    if dump { // i.e. snapshot vs. info only from log
         let db_name = cfg.get("db_name");
         let dbc = crate::dbm_dbc::load_info_schema(db_name.as_str(), db_client)?;
         let dbco = crate::dbm_dbc::load_info_schema_owner(db_name.as_str(),db_client)?;

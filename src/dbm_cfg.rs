@@ -10,6 +10,7 @@ use std::result::Result;
 use std::env;
 
 use crate::dbm_yml::{safe_sql, str2bool};
+#[allow(unused, warnings)]
 use chrono::{Utc, Duration};
 use crate::license::LicenseDate;
 
@@ -231,6 +232,19 @@ impl ConfigMap {
                 }
             },
         }
+    }
+
+/// The define the logDB use as primary OR copy.
+/// If primary set, than log table wont create on main target DB and log DB be used instead.
+    #[inline]
+    pub(crate) fn is_primary(&self) -> bool {
+        self.get("logdb").as_str() == "primary"
+    }
+
+/// Is logDB set
+    #[inline]
+    pub(crate) fn is_logdb(&self) -> bool {
+        self.get_opt("logdb_name").is_some()
     }
 
 }

@@ -31,7 +31,7 @@ Test plan:
 */
 
 #[test]
-fn migration_ver_tests() -> Result<(), String> {
+fn migration_ver_tests1() -> Result<(), String> {
     match init::prepare_db("/tmp/tests", "test") {
         Ok(pg) => {
             let res = run_all(&pg);

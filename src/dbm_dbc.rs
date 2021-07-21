@@ -61,6 +61,7 @@ impl SColumnDfn {
     }
 }
 
+// TODO change to consume transaction
 pub(crate) fn load_info_schema(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String> {
     let mut data = load_info_cc(db_name, db)?;
     let _ = load_info_fk(db_name, db, &mut data)?;

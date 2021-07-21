@@ -23,12 +23,13 @@ Test plan:
 */
 
 #[test]
-fn migration_log_db_tests() -> Result<(), String> {
+fn migration_log_db_tests3() -> Result<(), String> {
     match init::prepare_db("/tmp/tests", "test") {
         Ok(pg) => {
             match init::prepare_db("/tmp/tests", "test") {
                 Ok(logpg) => {
                     let mut pg = pg.clone();
+                    pg.cfg.insert(&"logdb".to_string(), "primary");
                     pg.cfg.insert(&"logdb_host".to_string(), "localhost");
                     pg.cfg.insert(&"logdb_port".to_string(), logpg.port.to_string().as_str());
                     pg.cfg.insert(&"logdb_name".to_string(), logpg.db_name.as_str());

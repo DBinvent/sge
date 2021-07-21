@@ -16,7 +16,8 @@ CREATE TABLE public.rdbm_history (
     ok boolean DEFAULT false NOT NULL,
     msg character varying(250),
     took_sec bigint DEFAULT 0 NOT NULL,
-    times integer DEFAULT 1 NOT NULL
+    times integer DEFAULT 1 NOT NULL,
+    size bigint DEFAULT 0 NOT NULL
 );
 ALTER TABLE public.rdbm_history OWNER TO vk;
 CREATE SEQUENCE public.rdbm_history_id_seq

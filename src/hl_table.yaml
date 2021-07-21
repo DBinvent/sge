@@ -72,3 +72,9 @@ columns:
         defaultValue: '1'
         constraint:
           nullable: false
+    - column:
+        name: size
+        type: bigint
+        constraint:
+          nullable: false
+        defaultValue: "0"
