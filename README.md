@@ -1,14 +1,14 @@
-# rdbm
-The Relation DB Management system.
+# Rumba[rdbm]
+The Relation DB Management tool.
 
-## SQL script tracker and DB deployment by schema definition for Postgres
+## SQL script tracker and DB deployment tool by schema definition for Postgres
 
 Combines two ways:
 
-1. Declarative (liquibase inspired)
+1. Declarative for rapid development,
     with schema definition, comparison and versioning
     
-2. Imperative (flyway inspired)
+2. Imperative for full review and control,
     with script execution tracking by various of filter includes versions and tags
 
 
@@ -21,54 +21,50 @@ The app intend to be a microservice ready with multi-database (microservice conf
  - create database if absent
  - ability to connect by certs
  - use both: schema/table definition and script execution tracking
- - support separate db connection for history table
+ - support separate db connection for history table as a remote copy or primary one
  - use psql client for script execution, include native psql script support
  - no JVM nor Python required to run
- - lightweight (just about 10MB) and therefore fast
+ - lightweight (just about 10MB)
  - transactional changes with rollback OR use configurable non-transactional mode
- - dry run and diff in evaluation license
+ - dry run and diff with existing DB
+ - free personal license
 
 
 #### Limitations
 
- - Postgres DB only
+ - Postgres DB only, psql client required
  - see 'Schema deploy restriction'
 
 
-### Schema/Table deploy restriction notice
+### Schema/Table deploy by definition restriction notice
 
- - Schemas and tables definition allowed only in YAML format (JSON comming soon) 
+ - Schemas and tables definition allowed only in YAML format (JSON file format comming soon) 
  - Adding sql & constraint on existing column won't produce an ALTER TABLE SQL (except FK)
  - The composite primary key (multi columns) will fail, as well as FK to those column. 
- - The columns use by some ORM framework might be sensitive to column order. So, because Postgres does not support inserting column, list column of used in such ORM must append. 
+ - The columns use by some ORM framework might be sensitive to the column order.
+   So, because Postgres does not support inserting column, list column of used in such ORM must append. 
+ 
 
 ### Schema snapshot restriction notice
 
- - only column name and type, pk, not null and fk constraint 
- - no indexes, constraint, special sql on table or column definition
+ - Only column name and type, pk, will be created, but not null and fk constraint 
+ - No indexes, constraint, special sql on table or column definition
 
 
 ### TODO
 
+- Add APT repository for continuous upgrade and delivery
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
-- Add full support of https://www.postgresql.org/docs/current/libpq-envars.html
-- Add changing/extending datatype: "ALTER TABLE ... SET DATA TYPE"
-- Add --schema_transaction: column | retry_table | retry_column
-- Add JSON format for schema definition, yaml to json converter, and schema validation https://docs.rs/jsonschema/0.9.0/jsonschema/index.html
-- Add schema features: view, foreign tables, partitioned tables, indexes, constraint
+- Add support of changing and extending datatype: "ALTER TABLE ... SET DATA TYPE"
+- Add --schema_transaction: 'retry' to support non-blocking changes on highload 
+- Add JSON format for schema definition
+- Add schema(table) definition features: view, foreign tables, partitioned tables, indexes, constraint
 - Add data snapshot (use pg_dump) full for featuring reverse eng.
-- Add data ELT migrations for dictionary tables 
-- Add git as a source for scripts and license (pull/push)
-- Add key-vault's cloud integration for DB connection and license store
-- Add UI / api to work as a service (php-admin inspired)
-- Add scheduled deploy
-- Add translations (i18n)
+- Add data ELT migrations for small dictionary tables 
+- Add key-vault's cloud integration for DB connection
+- Add UI / api to work as a service (php-admin inspired) and allow scheduled deploy
 
 ### License
 
 This software distributed as commercially licensed and free for personal use
 
-### Used licenses
-
-cargo metadata --format-version=1 | jq | grep \"license\" | sort | uniq
-cargo metadata --format-version=1 | jq | grep '"license": null' -B1 | grep id | grep -v rdbm

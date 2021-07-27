@@ -51,9 +51,9 @@ subcommands:
         about: Return the deployment status and tag a version in JSON format. See '--info_format'.
         help: Return the deployment status and tag a version in JSON format. See '--info_format'.
     - license:
-        about: Create apply, upgrade, subscribe or check a license is valid to use this software.
+        about: Create, upgrade, subscribe or check a license is valid to use this software.
         help: |
-          Create apply, upgrade, subscribe or check a license is valid.
+          Create, upgrade, subscribe or check a license is valid to use this software.
           Use '--email' to request a license file if the file is not found in '--license_file' OR Evaluation is expired.
           If the file exists, then perform a check and upgrade the licenses 'valid_until' date.
           Use '--subscribe=*' to add a connection name (DB name & host to the list of licensed connections).
