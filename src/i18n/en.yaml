@@ -19,7 +19,7 @@ license:
   good: "Good to use for your connection(s)! Thank you! "
   pulling: "Trying to pull license to update ..."
 
-  call_dry: "About to call {url} to {call} license, but --dry_run set."
+  call_dry: "About to call {url} to license {call}, but --dry_run set."
 
   invalid_email: "invalid email"
   invalid_hosts: "invalid hosts"
