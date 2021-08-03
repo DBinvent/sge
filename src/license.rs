@@ -655,7 +655,7 @@ impl License {
     }
 
     #[inline]
-    pub(crate) fn new(input: String, file: &str) -> Result<Self, String> {
+    pub fn new(input: String, file: &str) -> Result<Self, String> {
         match YamlLoader::load_from_str(input.as_str()) {
             Ok(y) => {
                 if y.len() > 0 {
