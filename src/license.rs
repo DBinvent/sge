@@ -726,7 +726,7 @@ impl License {
 
     #[inline]
     /// validate license integrity
-    fn verify(&self) -> Result<(), String> {
+    pub fn verify(&self) -> Result<(), String> {
         match base64::decode(&self.license) {
             Ok(sign) => {
                 let pubk = self.corp_pub_key(self.version as usize)?;
