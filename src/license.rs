@@ -241,8 +241,8 @@ pub struct CreateUpdateRequest {
     pub email: String,
     pub hosts: Vec<String>,
     pub db_names: Vec<String>,
-    /// optional user lang
-    pub lang: String,
+    /// optional user lang <- Там скорее всего язык будет передаваться в заголовке и обрабатываться Request Guard-ом
+    pub lang: Option<String>,
 }
 
 #[inline]
@@ -282,7 +282,7 @@ impl CreateUpdateRequest {
             email: email.clone(),
             hosts,
             db_names,
-            lang: crate::i18n::lang()
+            lang: Some(crate::i18n::lang())
         })
     }
 
@@ -320,7 +320,7 @@ impl CreateUpdateRequest {
             email: self.email.clone(),
             hosts: clean_list(&self.hosts, &public_key)?,
             db_names: clean_list(&self.db_names, &public_key)?,
-            lang: "".to_string()
+            lang: None
         })
     }
 
