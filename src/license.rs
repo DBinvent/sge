@@ -1433,7 +1433,7 @@ mod tests {
             email: "em".to_string(),
             hosts: vec!["host".into()],
             db_names: vec!["db".into()],
-            lang: "".to_string()
+            lang: None
         };
         let mut encm: HashMap<String, String> = HashMap::new();
         let cc = cr.clean( &l)?;
@@ -1457,7 +1457,7 @@ mod tests {
             email: "em".to_string(),
             hosts: vec!["host".into()],
             db_names: vec!["db".into()],
-            lang: "".to_string()
+            lang: None
         };
         let mut encm: HashMap<String, String> = HashMap::new();
         let cc = cr.clean( &l)?;

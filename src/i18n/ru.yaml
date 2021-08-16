@@ -7,7 +7,7 @@ connections:
 
 cl:
   invalid: "Лицензия не действительная"
-  unknown: "Не известная команда: {cmd}"
+  unknown: "Неизвестная команда: {cmd}"
 
 license:
   call_create: "создания"

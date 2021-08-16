@@ -114,8 +114,8 @@ impl Translate {
         let mut msg = self.t7e(&scope.to_string(), &code.to_string());
         let mut i = 0;
         for a in args {
-            let new = if a.as_bytes()[0] == b'$' {
-                self.t7e(&scope.to_string(), &a[1..].to_string())
+            let new = if a.as_bytes()[1] == b'$' {
+                self.t7e(&scope.to_string(), &a[2..a.len()-1].to_string())
             } else { msgs[i].to_owned() };
             msg = msg.replace(*a, new.as_str());
             i += 1;
@@ -173,6 +173,30 @@ mod tests {
         let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
         assert!(cl_config().len() > 20);
 
+    }
+
+    #[test]
+    fn test_load_en1() {
+        std::env::set_var("LANG", "en");
+
+        let tr = Translate::new();
+        assert!(tr.system_bundle.text.len()>0);
+        assert!(tr.translation.text.len()>0);
+
+        let msg = tr.t7ea("license", "err1", &["{file}", "{$invalid}"], &[&".".to_string(), &",".to_string()]);
+        assert!(matches!(msg.find("{$invalid}"), None), "{}", msg);
+    }
+
+    #[test]
+    fn test_load_en7() {
+        std::env::set_var("LANG", "en");
+
+        let tr = Translate::new();
+        assert!(tr.system_bundle.text.len()>0);
+        assert!(tr.translation.text.len()>0);
+
+        let msg = tr.t7ea("license", "err7", &["{call}", "{err}"], &[&".".to_string(), &",".to_string()]);
+        assert!(matches!(msg.find("{call}"), None), "{}", msg);
     }
 
 
