@@ -4,7 +4,7 @@ dist=/opt/www/rumba/dist
 
 unzip -l $dist/rdbm-latest.zip
 echo "Upgrade: $dist with `wc -l evaluation.license`"
-zip -m evaluation.license $dist/rdbm-latest.zip
+zip -m $dist/rdbm-latest.zip evaluation.license
 unzip -t $dist/rdbm-latest.zip
 
 echo "Upgrading TAR..."
