@@ -2,7 +2,6 @@
 dist=/opt/www/rumba/
 echo "Upgrade RDBM artifacts at: $dist"
 
-set -x
 
 # update zip
 zip -m evaluation.license $dist/rdbm-latest.zip
