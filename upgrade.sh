@@ -1,6 +1,6 @@
 #!/bin/bash
-
 dist=/opt/www/rumba/
+set -x
 
 # update zip
 zip -m evaluation.license $dist/rdbm-latest.zip
