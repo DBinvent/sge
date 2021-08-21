@@ -273,7 +273,7 @@ args:
         long: after
         default_value: "after.sql"
         takes_value: true
-        help: Try to find and run the script after the successful migration execution. The program will not fail if the script is not not found. This script execution will not log into the history table.
+        help: Try to find and run the script after the successful migration execution. The program will not fail if the script is not found. This script execution will not log into the history table.
     - after_each:
         long: after_each
         default_value: "after_each.sql"

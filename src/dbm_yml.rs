@@ -1335,4 +1335,13 @@ BEGIN
    END IF;
 END
 $do$;
+
+
+позволяет повесить ограничение not null, но не валидировать существующие записи сразу, а сделать это следующим шагом и без блокировок:
+
+ALTER TABLE my_table ADD CONSTRAINT field_ecnrypted_not_null
+    CHECK (field_encrypted IS NOT NULL) NOT VALID;
+
+ALTER TABLE my_table VALIDATE CONSTRAINT field_ecnrypted_not_null;
+
 */

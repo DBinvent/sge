@@ -29,6 +29,7 @@ path = "src/sl.rs"
 
 [dependencies]
 #std = {default-features=false, features=["panic_immediate_abort"]}
+# cargo-deb
 
 slog = "^2.7.0"
 slog-async = "^2.6.0"

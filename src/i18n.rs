@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use yaml_rust::{YamlLoader, Yaml};
 
 /// TODO: --schema_transaction:
-//     - (column-TBD): perform all changes on a table per transaction. \\n \
-//     - (repeat-TBD): try to obtain a lock perform changes repetally - suitable on high load systems \\n \
+//     - (column-TBD): perform all changes on a column per transaction.
+//     - (retry-TBD): try to obtain a lock perform changes repeatably - suitable on high load systems src/dbm_yml.rs:1308
 
 pub const CONFIGS: [&'static str; 4] = [
 "en", include_str!("i18n/en_clc.yaml"),
@@ -144,7 +144,7 @@ mod tests {
         assert!(tr.system_bundle.text.len()>0);
         assert!(tr.translation.text.len()>0);
 
-        let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
+        let msg = tr.t7ea("license", "err7", &["{call}"], &[&".".to_string()]);
 
         println!("{}\n {}", msg, tr.t7ea("license", "good", &[], &[]));
     }
@@ -157,7 +157,7 @@ mod tests {
         assert!(tr.system_bundle.text.len()>0);
         assert!(tr.translation.text.len()>0);
 
-        let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
+        let msg = tr.t7ea("license", "err7", &["{call}"], &[&".".to_string()]);
         assert!(cl_config().len() > 20);
 
     }
@@ -170,7 +170,7 @@ mod tests {
         assert!(tr.system_bundle.text.len()>0);
         assert!(tr.translation.text.len()>0);
 
-        let msg = tr.t7ea("license", "err7", &["call"], &[&".".to_string()]);
+        let msg = tr.t7ea("license", "err7", &["{call}"], &[&".".to_string()]);
         assert!(cl_config().len() > 20);
 
     }

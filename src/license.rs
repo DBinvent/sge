@@ -35,6 +35,8 @@ include_str!("keys/corp9.pub"),
 const API_HOST: &str = "https://dbinvent.com";
 const EVALUATION_LICENSE: &str = "evaluation.license";
 const LICENSE_FILE: &str = "license_file";
+// minimal allowed version (key compromised)
+const MIN_VER: usize = 1usize;
 
 /// on license action
 pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
@@ -485,7 +487,7 @@ impl Connection {
     pub fn new(input: LicenseDate, code: u8) -> Self {
         Connection {
             valid_until: input,
-            state: code.to_string(),
+            state: format!("{}: {}", code, translate_state(code)),
             hosts: Default::default(),
             db_names: Default::default(),
         }
@@ -536,7 +538,9 @@ impl Connection {
     #[inline]
     fn state_code(&self) -> u8 {
         if self.state.len() > 0 {
-            match self.state[..1].parse::<u8>() {
+            let first =self.state.as_bytes()[0];
+            let from = if first == b'"' || first == b'\'' { 1 } else {0};
+            match self.state[from..1].parse::<u8>() {
                 Ok(v) => v,
                 Err(_) => 0,
             }
@@ -779,7 +783,7 @@ impl License {
         } else {
             // небольшая проверка по коду версии :)
             let maxv = PKS.len();
-            let version = max(1, version);
+            let version = max(MIN_VER, version);
             let p = License::as_vers(&PKS[version-1 % maxv][..1]) as usize + 1;
             let version = version - 1 + (p % version);
             #[cfg(debug_assertions)]
@@ -846,8 +850,9 @@ impl License {
             patch_set(dest, &mut c.db_names, enc);
 
             // append [state_code] with readable state (and/or) translation
-            if c.state.len() == 1 {
-                c.state = format!("{}: {}", c.state, translate_state(c.state_code()));
+            let code =  c.state_code();
+            if code > 0 {
+                c.state = format!("{}: {}", code, translate_state(code));
             }
             debug_assert_eq!(cs, c.db_names.len() + c.hosts.len());
         }
