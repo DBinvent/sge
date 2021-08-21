@@ -73,6 +73,7 @@ steps:
         evaluation.license
         LICENSE
         lib-licenses.txt
+        deploy.sh
       TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
       CleanTargetFolder: false
       OverWrite: true
