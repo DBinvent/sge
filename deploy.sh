@@ -1,11 +1,15 @@
 #!/bin/bash
 echo "Deploy RDBM: prepare archives"
-set -x
+pwd && ls -lah
 
-pwd
-ls -lah
+list="rdbm evaluation.license LICENSE lib-licenses.txt"
 
-zip rdbm-latest.zip rdbm evaluation.license LICENSE lib-licenses.txt
-tar -czf rdbm-latest.tar.gz rdbm evaluation.license LICENSE lib-licenses.txt
+rm -f rdbm-latest.*
 
-rm rdbm evaluation.license LICENSE lib-licenses.txt
+zip rdbm-latest.zip $list
+unzip -l rdbm-latest.zip
+
+tar -czf rdbm-latest.tar.gz $list
+tar -ztvf rdbm-latest.tar.gz
+
+rm $list
