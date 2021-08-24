@@ -1,6 +1,6 @@
 [package]
 name = "rdbm"
-version = "1.1.0"
+version = "1.2.0"
 authors = ["vk <vk@dbinvent.com>"]
 edition = "2018"
 

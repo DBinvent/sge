@@ -440,6 +440,14 @@ mod tests {
     }
 
     #[test]
+    fn cfg_testb() -> Result<(), String> {
+        let a = ConfigMap::load("tests/test.cfg")?;
+        assert!(a.get_bool("encrypt", true));
+        assert!(!a.get_bool("encrypt", false));
+        Ok(())
+    }
+
+    #[test]
     fn url_test_all()  {
 
         for url in URLS.iter() {

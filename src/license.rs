@@ -32,7 +32,7 @@ include_str!("keys/corp9.pub"),
 ];
 
 #[allow(dead_code)]
-const API_HOST: &str = "https://dbinvent.com";
+const API_HOST: &str = "https://dash.dbinvent.com";
 const EVALUATION_LICENSE: &str = "evaluation.license";
 const LICENSE_FILE: &str = "license_file";
 // minimal allowed version (key compromised)
@@ -64,26 +64,36 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
         || (db_name.len() > 0 && subsr.contains(&db_name))
         || (logdb_name.len() > 0 && subsr.contains(&logdb_name));
     let conn_set = db_host.len() + logdb_host.len() + db_name.len() + logdb_name.len() > 0;
-    let eval_set = license_file.as_str() == EVALUATION_LICENSE;
+    let eval_file = license_file.as_str() == EVALUATION_LICENSE;
 
     if Path::new(license_file.as_str()).is_file() {
         match License::load(license_file.as_str()) {
             Ok(l) => match l.verify() {
                 Ok(_) => {
                     info!(log, "{}", TR.t7ea("license", "info", &["{file}", "{to}", "{email}"], &[&license_file, &l.issued_to, &l.email]));
-
-                    if l.find(&db_host, &logdb_host, &db_name, &logdb_name).is_some()
-                        || (!conn_set && eval_set) {
-                        if dry_run || eval_set {
+                    let found = l.find(&db_host, &logdb_host, &db_name, &logdb_name);
+                    if found.is_some() {
+                        if dry_run || eval_file {
                             info!(log, "{}", TR.t7ea("license", "good", &[], &[]));
                             Ok(())
                         } else {
-                            debug!(log, "{}", TR.t7ea("license", "pulling", &[], &[]));
+                            info!(log, "{}", TR.t7ea("license", "pulling", &["{license}"], &[&l.api_key]));
                             ApiRequest::Pull(l).call(&license_file, dry_run, log, test)
                         }
-                    } else if email.len() > 0 && do_subscribe {
-                        let lc = CreateUpdateRequest::new(&cfg, &db_host, &logdb_host, &db_name, &logdb_name)?;
-                        ApiRequest::Update(l, lc).call(&license_file, dry_run, log, test)
+                    } else if found.is_none() && do_subscribe {
+                        let lc = CreateUpdateRequest::new(
+                            if l.email.len() == 0 {
+                                email.clone()
+                            } else {
+                                l.email.clone()
+                            }, &cfg, &db_host, &logdb_host, &db_name, &logdb_name)?;
+                        if eval_file && email.len() > 0   {
+                            info!(log, "{}", TR.t7ea("license", "creating", &[], &[]));
+                            ApiRequest::Create(lc).call(&license_file, dry_run, log, test)
+                        } else {
+                            info!(log, "{}", TR.t7ea("license", "updating", &["{license}"], &[&l.api_key]));
+                            ApiRequest::Update(l, lc).call(&license_file, dry_run, log, test)
+                        }
                     } else if conn_set {
                         Err(TR.t7ea("license", "err1", &["{file}", "{$invalid}"], &[&license_file]))
                     } else {
@@ -94,11 +104,15 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
             },
             Err(e) => Err(TR.t7ea("license", "err4", &["{file}", "{err}", "{$invalid}"], &[&license_file, &e]))
         }
-    } else if email.len() > 0 && do_subscribe {
-        let lc = CreateUpdateRequest::new(&cfg, &db_host, &logdb_host, &db_name, &logdb_name)?;
-        ApiRequest::Create(lc).call(&license_file, dry_run, log, test)
     } else {
-        Err(TR.t7ea("license", "err5", &[], &[]))
+        // файла нет, но есть: емаил, подписка, коннекты
+        if do_subscribe && email.len() > 0 && !dry_run && conn_set {
+            info!(log, "{}", TR.t7ea("license", "creating", &[], &[]));
+            ApiRequest::Create( CreateUpdateRequest::new(email, &cfg, &db_host, &logdb_host, &db_name, &logdb_name)?)
+                .call(&license_file, dry_run, log, test)
+        } else {
+            Err(TR.t7ea("license", "err5", &[], &[]))
+        }
     }
 }
 
@@ -130,7 +144,7 @@ impl ApiRequest {
     #[inline]
     fn call(&self, file: &String, dry_run: bool, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>
     ) -> Result<(), String> {
-        let url = format!("{}/api/license", api_host());
+        let url = format!("{}/api/license/", api_host());
         let method = self.method();
         if dry_run {
             info!(log, "{}", TR.t7ea("license", "call_dry", &["{url}", "{call}"], &[&url, &method.to_string()]));
@@ -146,34 +160,35 @@ impl ApiRequest {
             ApiRequest::Pull(l) => l.encrypt_all()?,
             ApiRequest::Create(_) => HashMap::new()
         };
+        let mn = self.m_tr(); // method name
         let response = match test {
             None => {
                 let response = match &self {
                     ApiRequest::Create(lc) => {
                         let request = serde_json::to_string(lc)
-                            .map_err(|e| TR.t7ea("license", "err6", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?;
-                        ureq::post(url.as_str()) //.set(auth_header, "newbie")
+                            .map_err(|e| TR.t7ea("license", "err6", &["{call}", "{err}"], &[&mn, &e.to_string()]))?;
+                        ureq::post(url.as_str())
                             .send_string(request.as_str())
-                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?
+                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&mn, &e.to_string()]))?
                     }
                     ApiRequest::Update(l, lu) => {
-                        let request = serde_json::to_string(&lu.clean(&l)?)
-                            .map_err(|e| TR.t7ea("license", "err6", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?;
-                        ureq::put(url.as_str())
+                        let request = serde_json::to_string(&lu) //.clean(&l)?)
+                            .map_err(|e| TR.t7ea("license", "err6", &["{call}", "{err}"], &[&mn, &e.to_string()]))?;
+                        ureq::put(format!("{}{}", url, l.api_key).as_str())
                             .set(auth_header, l.header()?.as_str())
                             .send_string(request.as_str())
-                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?
+                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&mn, &e.to_string()]))?
                     }
                     ApiRequest::Pull(l) => {
-                        ureq::get(format!("{}/{}?lang={}", url, l.api_key, crate::i18n::lang()).as_str())
+                        ureq::get(format!("{}{}?lang={}", url, l.api_key, crate::i18n::lang()).as_str())
                             .set(auth_header, l.header()?.as_str())
                             .call()
-                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?
+                            .map_err(|e| TR.t7ea("license", "err7", &["{call}", "{err}"], &[&mn, &e.to_string()]))?
                     }
                 };
                 let st = response.status();
                 let r = response.into_string()
-                    .map_err(|e| TR.t7ea("license", "err8", &["{call}", "{err}"], &[&self.m_tr(), &e.to_string()]))?;
+                    .map_err(|e| TR.t7ea("license", "err8", &["{call}", "{err}"], &[&mn, &e.to_string()]))?;
                 trace!(log, "response [{}] from {} at {}\n{}", st, method, url, r);
                 r
             }
@@ -184,15 +199,17 @@ impl ApiRequest {
 
         match self {
             ApiRequest::Create(_l) => {
-                let response: ApiResponse = serde_json::from_str(response.as_str())
-                    .map_err(|e| format!("converting response on create: {} from {}", e, response))?;
-                if response.success {
-                    // println!("{}", response.result);
+                let acr: ApiResponse = serde_json::from_str(response.as_str())
+                    .map_err(|e| TR.t7ea("license", "err8", &["{call}", "{err}"], &[&mn, &e.to_string()]))?;
+                if acr.success {
+                    let lcr: LicenseCreateResponse = serde_json::from_str(response.as_str())
+                        .map_err(|e| TR.t7ea("license", "err8", &["{call}", "{err}"], &[&mn, &e.to_string()]))?;
+                    info!(log, "{}", lcr.result);
                     Ok(())
-                } else { Err(as_err(&response.errors, &response.messages)) }
+                } else { Err(as_err(&acr.errors, &acr.messages)) }
             }
-            ApiRequest::Update(l, _) => LicenseResponse::save(file, response, l, encm),
-            ApiRequest::Pull(l) => LicenseResponse::save(file, response, l, encm),
+            ApiRequest::Update(l, _) => LicenseResponse::save(file, response, l, encm, log),
+            ApiRequest::Pull(l) => LicenseResponse::save(file, response, l, encm, log),
         }
     }
 }
@@ -200,7 +217,7 @@ impl ApiRequest {
 impl LicenseResponse {
     #[inline]
     fn save(file: &String, response: String, license: &License,
-        encoded_map: HashMap<String, String>
+        encoded_map: HashMap<String, String>, log: &Logger
         ) -> Result<(), String> {
         let lr: LicenseResponse = serde_json::from_str(response.as_str())
             .map_err(|e| TR.t7ea("license", "save_err1", &["{call}", "{err}"], &[&response, &e.to_string()]))?;
@@ -215,6 +232,7 @@ impl LicenseResponse {
                 fs::write(&file, serde_yaml::to_string(&lr)
                     .map_err(|e| TR.t7ea("license", "save_err2", &["{err}"], &[&e.to_string()]))?)
                     .map_err(|e| TR.t7ea("license", "save_err3", &["{file}", "{err}"], &[&file, &e.to_string()]))?;
+                info!(log, "{}", TR.t7ea("license", match &resp { Ok(_) => "call_ok", Err(_) => "call_notok"}, &["{file}"], &[&file]));
                 resp
             }
         }
@@ -263,14 +281,14 @@ impl CreateUpdateRequest {
     #[inline]
     #[allow(dead_code)]
     fn new(
+        email: String,
         cfg: &ConfigMap,
         db_host: &String,
         logdb_host: &String,
         db_name: &String,
         logdb_name: &String,
     ) -> Result<Self, String> {
-        let email = cfg.get("email");
-        let encrypt = cfg.get_bool("encrypt", true);
+        let encrypt = cfg.get_bool("encrypt", false);
         let mut hosts = Vec::new();
         append_name(db_host, true, &mut hosts);
         append_name(logdb_host, true, &mut hosts);
@@ -281,7 +299,7 @@ impl CreateUpdateRequest {
         Ok(CreateUpdateRequest {
             personal: email.find("mail").unwrap_or(0) > 0,
             encrypt,
-            email: email.clone(),
+            email,
             hosts,
             db_names,
             lang: Some(crate::i18n::lang())
@@ -313,16 +331,17 @@ impl CreateUpdateRequest {
         }
     }
 
+    /// not use - test only
     #[inline]
-    fn clean(&self, lic: &License) -> Result<Self, String> {
+    fn _clean(&self, lic: &License) -> Result<Self, String> {
         let public_key = lic.pubk()?;
         Ok(CreateUpdateRequest {
             personal: self.personal,
-            encrypt: true,
+            encrypt: self.encrypt,
             email: self.email.clone(),
             hosts: clean_list(&self.hosts, &public_key)?,
             db_names: clean_list(&self.db_names, &public_key)?,
-            lang: None
+            lang: self.lang.clone()
         })
     }
 
@@ -341,6 +360,7 @@ impl CreateUpdateRequest {
 }
 
 #[inline]
+#[allow(dead_code)]
 fn clean_list(list: &Vec<String>, public_key: &RSAPublicKey) -> Result<Vec<String>, String> {
     let mut res = Vec::new();
     for item in list {
@@ -381,6 +401,12 @@ struct ApiResponse {
     success: bool,
     errors: Vec<ApiMessage>,
     messages: Vec<ApiMessage>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)]
+struct LicenseCreateResponse {
+    result: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1441,7 +1467,7 @@ mod tests {
             lang: None
         };
         let mut encm: HashMap<String, String> = HashMap::new();
-        let cc = cr.clean( &l)?;
+        let cc = cr._clean( &l)?;
         cr.encrypt_all(&mut encm, &l);
         assert_eq!(encm.len(), 2);
         assert_ne!(cc.db_names[0], cr.db_names[0]);
@@ -1465,7 +1491,7 @@ mod tests {
             lang: None
         };
         let mut encm: HashMap<String, String> = HashMap::new();
-        let cc = cr.clean( &l)?;
+        let cc = cr._clean( &l)?;
         cr.encrypt_all(&mut encm, &l);
 
         let mut lr = License::blank();

@@ -17,7 +17,12 @@ license:
   invalid: "Please check https://dbinvent.com/rdbm.html See './rdbm help license' for more details."
   info: "License [{file}] issued to: {to}  {email}"
   good: "Good to use for your connection(s)! Thank you! "
-  pulling: "Trying to pull license to update ..."
+  pulling: "Trying to pull a license: {license} ..."
+  issued: "License [{file}] issued, check your email: {email}"
+  updating: "Trying to update the license: {license} ..."
+  creating: "Trying to call to register and create a license ..."
+  call_ok: "Call successfully completed, check your updated license: {file}"
+  call_notok: "Call failed, license stored to {file}"
 
   call_dry: "About to call {url} to license {call}, but --dry_run set."
 

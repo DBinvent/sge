@@ -17,7 +17,12 @@ license:
   invalid: "Пожалуйста ознакомтесь с https://dbinvent.com/rdbm.html , а также './rdbm help license' для более подробной информации."
   info: "Лицензия [{file}] выданна: {to} {email}"
   good: "Лицензия годная для использования с указанными соединениям(и)! Спасибо! "
-  pulling: "Попытка доступа к данным лицензии для обновления ..."
+  pulling: "Попытка доступа к данным лицензии {license} ..."
+  issued: "License [{file}] issued, check your email: {email}"
+  updating: "Попытка изменения лицензии {license} ..."
+  creating: "Запрос регистрации и создания лицензии ..."
+  call_ok: "Call successfully completed, check your updated license: {file}"
+  call_notok: "Call failed, license stored to {file}"
 
   call_dry: "Попытка запроса {url} для {call} лицензии заблокированна установленным параметром --dry_run "
 

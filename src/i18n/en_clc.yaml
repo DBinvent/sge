@@ -317,7 +317,8 @@ args:
     - subscribe:
         long: subscribe
         takes_value: true
-        help: 'Use to append license with connections: <db_name> or <host>. possible values: * OR <name>. Use only with license command.'
+        help: |
+          Use to append license with connections: <db_name> or <host>. possible values: * OR <name>. If set, than '--dry_run' will be ignored. Use only with 'license' command.
     - license_file:
         long: license_file
         default_value: rdbm.license
