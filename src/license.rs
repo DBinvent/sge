@@ -10,7 +10,7 @@ use rsa::{BigUint, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use serde::{Deserialize, Serialize};
 use slog::Logger;
 use yaml_rust::{Yaml, YamlLoader};
-use std::cmp::{max, min};
+use std::cmp::max;
 use std::time::{UNIX_EPOCH, SystemTime};
 use std::mem::swap;
 use crypto::digest::Digest;
@@ -1015,16 +1015,14 @@ pub const SIGN_SH: Option<rsa::hash::Hash> = Some(SHA2_512);
 
 fn patch_set(src: BTreeSet<String>, dest: &mut BTreeSet<String>, key: &RSAPrivateKey)->Result<(), String> {
     let ol = src.len();
-    #[cfg(debug_assertions)]
     for name in src {
-        #[cfg(debug_assertions)]
         let decoded = if name.len()> u8::MAX as usize {
             Connection::decrypt(&name, &key)?
         } else {
             name.clone()
         };
         #[cfg(debug_assertions)]
-        println!("patching[{}/{}] {}~>{}", dest.len() + 1, ol, name[..min(8, name.len())].to_string(), decoded);
+        println!("patching[{}/{}] {}~>{}", dest.len() + 1, ol, name[..std::cmp::min(8, name.len())].to_string(), decoded);
         dest.insert(decoded);
     }
     debug_assert_eq!(ol, dest.len());
