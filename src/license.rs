@@ -414,10 +414,15 @@ pub type LicenseTime = chrono::NaiveDateTime; //DateTime<FixedOffset>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct License {
-    pub issued_to: String, //"Evaluate by"
+    /// license name OR Created by {email}
+    pub issued_to: String,
+    /// email empty in evaluation.license
     #[serde(skip_serializing_if = "String::is_empty")]
     pub email: String,     //"@gmail.com"
     pub notice: String,    //"это поле свободно редактируется"
+    /// set only in UI
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
     pub connections: Vec<Connection>,
     #[serde(skip)]
     pub is_conn_encrypt: bool, // connections содержит хеши имен (len>20 & starts ~)
@@ -584,6 +589,7 @@ impl License {
             issued_to: "".to_string(),
             email: "".to_string(),
             notice: "".to_string(),
+            description: "".to_string(),
             connections: vec![],
             is_conn_encrypt: false,
             api_key_valid_until: Utc::now().naive_utc(),
@@ -688,6 +694,7 @@ impl License {
                         issued_to: yaml_as_str(y, "issued_to"),
                         email: yaml_as_str(y, "email"),
                         notice: yaml_as_str(y, "notice"),
+                        description: yaml_as_str(y, "description"),
                         connections: connects,
                         is_conn_encrypt,
                         api_key_valid_until: to_time(y, "api_key_valid_until")?,
@@ -1107,6 +1114,8 @@ pub struct JopLicense {
     pub issued_to: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub email: Option<String>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
     pub connections: Vec<JopConnection>,
     #[serde(with = "rfc3339")]
     pub api_key_valid_until: LicenseTime, //"2021-12-12"
@@ -1166,6 +1175,7 @@ impl JopLicense {
             issued_to: self.issued_to,
             email: self.email.unwrap_or("".to_string()),
             notice: "".to_string(),
+            description: self.description,
             connections: connects,
             is_conn_encrypt,
             api_key_valid_until: self.api_key_valid_until,
