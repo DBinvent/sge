@@ -872,6 +872,13 @@ impl License {
     }
     // License
 
+    // #[inline]
+    // fn is_free(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String) -> Option<LicenseDate> {
+    //
+    //     is_free_host(host_a)
+    //     is_free_db(db_a)
+    // }
+
     #[inline]
     fn find(&self, host_a: &String, host_b: &String, db_a: &String, db_b: &String) -> Option<LicenseDate> {
         let mut fnd: Option<LicenseDate> = None;
@@ -1115,7 +1122,7 @@ pub struct JopLicense {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub email: Option<String>,
     #[serde(skip_serializing_if = "String::is_empty")]
-    pub description: String,
+    pub description: Option<String>,
     pub connections: Vec<JopConnection>,
     #[serde(with = "rfc3339")]
     pub api_key_valid_until: LicenseTime, //"2021-12-12"
@@ -1175,7 +1182,7 @@ impl JopLicense {
             issued_to: self.issued_to,
             email: self.email.unwrap_or("".to_string()),
             notice: "".to_string(),
-            description: self.description,
+            description: self.description.unwrap_or("".to_string()),
             connections: connects,
             is_conn_encrypt,
             api_key_valid_until: self.api_key_valid_until,
