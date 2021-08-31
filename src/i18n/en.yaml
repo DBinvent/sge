@@ -30,6 +30,7 @@ license:
   invalid_hosts: "invalid hosts"
   invalid_db_names: "invalid db names"
 
+  err0: "The license loaded from file [{file}] is valid, but Unpaid. {$invalid}"
   err1: "The license loaded from file [{file}] is valid, but not for configuration set, check your configuration and license file. Also, {$invalid} "
   err2: "The license loaded from file [{file}] is valid, but no configuration set to check! {$invalid}"
   err3: "The license loaded from file [{file}] is not valid: {err}"

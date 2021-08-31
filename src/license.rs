@@ -97,7 +97,12 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
                             ApiRequest::Update(l, lc).call(&license_file, dry_run, log, test)
                         }
                     } else if conn_set {
-                        Err(TR.t7ea("license", "err1", &["{file}", "{$invalid}"], &[&license_file]))
+                        let code = if l.connections.len() > 0 && l.connections[l.connections.len()-1].state_code() == Connection::UNPAID {
+                            "err0"
+                        } else {
+                            "err1"
+                        };
+                        Err(TR.t7ea("license", code, &["{file}", "{$invalid}"], &[&license_file]))
                     } else {
                         Err(TR.t7ea("license", "err2", &["{file}", "{$invalid}"], &[&license_file]))
                     }
@@ -255,7 +260,7 @@ impl CreateUpdateRequest {
         db_name: &String,
         logdb_name: &String,
     ) -> Result<Self, String> {
-        let encrypt = cfg.get_bool("encrypt", false);
+        let encrypt = cfg.get_bool("encrypt", true);
         let mut hosts = Vec::new();
         append_name(db_host, true, &mut hosts);
         append_name(logdb_host, true, &mut hosts);

@@ -441,8 +441,14 @@ mod tests {
 
     #[test]
     fn cfg_testb() -> Result<(), String> {
-        let a = ConfigMap::load("tests/test.cfg")?;
+        let mut a = ConfigMap::load("tests/test.cfg")?;
         assert!(a.get_bool("encrypt", true));
+        assert!(!a.get_bool("encrypt", false));
+        a.map.insert("encrypt".to_string(), "1".to_string());
+        assert!(a.get_bool("encrypt", true));
+        assert!(a.get_bool("encrypt", false));
+        a.map.insert("encrypt".to_string(), "false".to_string());
+        assert!(!a.get_bool("encrypt", true));
         assert!(!a.get_bool("encrypt", false));
         Ok(())
     }
