@@ -6,6 +6,7 @@ use chrono::{Utc, Duration};
 use rsa::padding::PaddingScheme::PKCS1v15Sign;
 use rdbm::license;
 use rdbm::license::Connection;
+use std::process::Command;
 
 /// ssh-keygen -t rsa -m PKCS8  -f new.rsa
 fn main() -> Result<(), String> {
@@ -16,9 +17,9 @@ fn main() -> Result<(), String> {
 		(files[1].to_owned(), files[2].to_owned())
 	} else {
         println!("sign the license by: ./sl corp0.rsa evaluation.license\n using default... ");
-		("corp0.rsa".to_string(), "evaluation.license".to_string())
+		("keys/corp0.rsa".to_string(), "evaluation.license".to_string())
 	};
-
+	let mut eval = false;
 	let mut lic = rdbm::license::License::load(&file_name)?;
 	{
 		if lic.connections.len() == 0 {
@@ -27,12 +28,15 @@ fn main() -> Result<(), String> {
 			for c in &mut lic.connections {
 				if c.state == "Evaluation" {
 					c.valid_until = Utc::today().naive_utc() + Duration::days(32);
+					eval = true;
 				}
 			}
 		}
 		lic.api_key_valid_until = Utc::now().naive_utc();
 	}
-
+	if eval {
+		lic.key = openssl_genrsa()?;
+	}
 	println!("signing license: {} {} {}", lic.license_type, lic.issued_to, lic.email);
 	println!("{:?}", lic.connections);
 
@@ -60,11 +64,34 @@ fn main() -> Result<(), String> {
 	rdbm::license::crc::debug("signed", &digest, &sgn, &rsa.to_public_key());
 
     lic.license = base64::encode(sgn);
-
+	if eval {
+		lic.key = "".to_string();
+	}
 	fs::write(&file_name, serde_yaml::to_string(&lic).unwrap())
 		.map_err(|e| format!("write [{}] {}", file_name, e))
 }
 
+fn openssl_genrsa() -> Result<String, String> {
+    match Command::new("openssl").arg("genrsa").output()
+    {
+        Ok(output) => {
+            if output.status.success() {
+				let der_encoded = String::from_utf8_lossy(&output.stdout).to_string()
+					.lines()
+					.filter(|line| !line.starts_with("-"))
+					.fold(String::new(), |mut data, line| {
+						data.push_str(&line);
+						data
+					});
+
+                Ok(der_encoded)
+            } else {
+                Err(format!("openssl> {}{}", String::from_utf8_lossy(&output.stderr), String::from_utf8_lossy(&output.stdout)))
+            }
+        }
+        Err(e) => Err(format!("openssl> {}", e)),
+    }
+}
 
 #[cfg(test)]
 #[allow(dead_code)]

@@ -664,7 +664,7 @@ impl License {
 
     #[inline]
     pub fn digest(&self) -> Result<Vec<u8>, String> {
-        let public_key = self.pubk()?;
+        let public_key = self.pubk(); // evaluation license does not have a key
         debug_assert!(matches!(SIGN_SH, Some(SHA2_512))); // keep two next lines in sync
         #[cfg(debug_assertions)] let mut cr = "digest.c:".to_string();
         let mut hasher = crypto::sha2::Sha512::new();
@@ -682,10 +682,15 @@ impl License {
             hasher.input(&c.valid_until.num_days_from_ce().to_be_bytes());
             #[cfg(debug_assertions)] cr.push_str(c.valid_until.to_string().as_str());
             if c.hosts.len() > 0 || c.db_names.len() > 0 {
-                // evaluation license does not have a key
-                for e in &c.encrypt_all(&public_key)? {
-                    #[cfg(debug_assertions)] crc::a(&mut cr, e.as_ref());
-                    hasher.input(e.as_ref());
+                match &public_key {
+                    Ok(p) => {
+                      // evaluation license does not have a key
+                        for e in &c.encrypt_all(p)? {
+                            #[cfg(debug_assertions)] crc::a(&mut cr, e.as_ref());
+                            hasher.input(e.as_ref());
+                        }
+                    }
+                    Err(e) => { return Err(e.to_owned()); }
                 }
             }
         }
@@ -841,8 +846,8 @@ impl License {
             let version = max(MIN_VER, version);
             let p = License::as_vers(&PKS[version-1 % maxv][..1]) as usize + 1;
             let version = version - 1 + (p % version);
-            #[cfg(debug_assertions)]
-            println!("corp_pub_key: version {}...", version);
+            // #[cfg(debug_assertions)]
+            // println!("corp_pub_key: version {}...", version);
             str2pub(&PKS[version % maxv].into())
         }
     }
