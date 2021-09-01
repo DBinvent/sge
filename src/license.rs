@@ -39,6 +39,7 @@ const MIN_VER: usize = 1usize;
 const PG: &str = "postgres";
 const LH: &str = "localhost";
 const STAR: &str = "*";
+pub const ENCRYPT: &str = "encrypt";
 
 /// on license action
 pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
@@ -260,7 +261,7 @@ impl CreateUpdateRequest {
         db_name: &String,
         logdb_name: &String,
     ) -> Result<Self, String> {
-        let encrypt = cfg.get_bool("encrypt", true);
+        let encrypt = cfg.get_bool(ENCRYPT, true);
         let mut hosts = Vec::new();
         append_name(db_host, true, &mut hosts);
         append_name(logdb_host, true, &mut hosts);
@@ -450,8 +451,14 @@ pub struct Connection {
     pub state: String,
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub hosts: BTreeSet<String>,
+    #[serde(skip)]
+    /// hashes, если hosts шированные, то хеши должны быть здесь
+    pub hosts_h: BTreeSet<String>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub db_names: BTreeSet<String>,
+    #[serde(skip)]
+    /// hashes, если db_names шированные, то хеши должны быть здесь
+    pub db_names_h: BTreeSet<String>,
 }
 
 impl Connection {
@@ -465,7 +472,9 @@ impl Connection {
             valid_until: input,
             state: format!("{}: {}", code, translate_state(code)),
             hosts: Default::default(),
+            hosts_h: Default::default(),
             db_names: Default::default(),
+            db_names_h: Default::default()
         }
     }
 
@@ -473,14 +482,42 @@ impl Connection {
     /// digest stings (prepare for encryption) and encrypt by public key separately
     pub(crate) fn encrypt_all(&self, public_key: &RSAPublicKey) -> Result<Vec<Vec<u8>>, String> {
         let mut encoded = Vec::new();
-        for d in &self.db_names {
-            encoded.push(Connection::hash_md5(d, public_key)?);
+        #[cfg(debug_assertions)] println!("encrypt_all hosts:{}:{}, dbs:{}:{}", self.hosts.len(), self.hosts_h.len(), self.db_names.len(), self.db_names_h.len());
+        for h in &self.hosts_h {
+            encoded.push(Connection::dencode(h, public_key)?);
         }
-        for h in &self.hosts {
-            encoded.push(Connection::hash_md5(h, public_key)?);
+        for d in &self.db_names_h {
+            encoded.push(Connection::dencode(d, public_key)?);
+        }
+        #[cfg(debug_assertions)] println!("encrypt_all_pre_hash: {:?}", encoded);
+        if encoded.len() == 0 {
+            // хешев нет - значит у нас консоль или не шифровано
+            for d in &self.db_names {
+                if d.len() > u8::MAX as usize {
+                    return Err(format!("Wront access flow for license: {} {}", self.state, self.valid_until));
+                }
+                encoded.push(Connection::hash_md5(d, public_key)?);
+            }
+            for h in &self.hosts {
+                if h.len() > u8::MAX as usize {
+                    return Err(format!("Wront access flow for license: {} {}", self.state, self.valid_until));
+                }
+                encoded.push(Connection::hash_md5(h, public_key)?);
+            }
+            #[cfg(debug_assertions)] println!("encrypt_all: {:?}", encoded);
         }
         encoded.sort();
         Ok(encoded)
+    }
+
+    /// Base64 MD5 HASH
+    #[inline]
+    pub fn dencode(input: &String, public_key: &RSAPublicKey) -> Result<Vec<u8>, String> {
+        if input.len() == 1 && input.as_bytes()[0] == b'*' {
+            Connection::hash_md5(input, public_key)
+        } else {
+            base64::decode(&input[1..]).map_err(|e| format!("base64_decode {} {}", input, e))
+        }
     }
 
     #[inline]
@@ -495,7 +532,12 @@ impl Connection {
             // let mut output = [0; 32]; // 256 is 2 bytes
             let mut output = [0; 16]; // 256 is 2 bytes
             hasher.result(&mut output);
-
+            #[cfg(debug_assertions)] {
+                let mut cr = format!("hash_md5[{}] crc", input);
+                crc::a(&mut cr, &output);
+                crc::a(&mut cr, public_key.n().to_bytes_be().as_ref());
+                println!("{}, {} {:?}", cr, base64::encode(&output.to_vec()), output);
+            }
             Ok(output.to_vec())
         }
     }
@@ -604,8 +646,14 @@ impl License {
     #[inline]
     pub fn pubk(&self) -> Result<RSAPublicKey, String> {
         Ok(if self.key.len() > 1024 {
-                str2rsa(&self.key)?.to_public_key()
+                let key = str2rsa(&self.key)?.to_public_key();
+                #[cfg(debug_assertions)] {
+                    let key = pub2str(&key);
+                    println!("pub: {}..{}", key[..8].to_string(), key[key.len() - 8..].to_string());
+                }
+                key
             } else {
+                #[cfg(debug_assertions)] println!("pub: {}..{}", self.key[..8].to_string(), self.key[self.key.len()-8..].to_string());
                 str2pub(&self.key)?
             }
         )
@@ -614,7 +662,7 @@ impl License {
 
     #[inline]
     pub fn digest(&self) -> Result<Vec<u8>, String> {
-        let public_key = self.pubk();
+        let public_key = self.pubk()?;
         debug_assert!(matches!(SIGN_SH, Some(SHA2_512))); // keep two next lines in sync
         #[cfg(debug_assertions)] let mut cr = "digest.c:".to_string();
         let mut hasher = crypto::sha2::Sha512::new();
@@ -633,14 +681,9 @@ impl License {
             #[cfg(debug_assertions)] cr.push_str(c.valid_until.to_string().as_str());
             if c.hosts.len() > 0 || c.db_names.len() > 0 {
                 // evaluation license does not have a key
-                match &public_key {
-                    Ok(p) => {
-                        for e in &c.encrypt_all(&p)? {
-                            #[cfg(debug_assertions)] crc::a(&mut cr, e.as_ref());
-                            hasher.input(e.as_ref());
-                        }
-                    }
-                    Err(e) => { return Err(e.to_owned()); }
+                for e in &c.encrypt_all(&public_key)? {
+                    #[cfg(debug_assertions)] crc::a(&mut cr, e.as_ref());
+                    hasher.input(e.as_ref());
                 }
             }
         }
@@ -684,7 +727,9 @@ impl License {
                                 valid_until: to_date(c, "valid_until")?,
                                 state: yaml_as_str(c, "state"),
                                 hosts,
+                                hosts_h: Default::default(),
                                 db_names,
+                                db_names_h: Default::default()
                             });
                         }
                     }
@@ -1163,7 +1208,9 @@ impl JopConnection {
             valid_until: self.valid_until,
             state: self.state,
             hosts,
-            db_names
+            hosts_h: Default::default(),
+            db_names,
+            db_names_h: Default::default()
         }, is_conn_encrypt)
     }
 }
@@ -1463,7 +1510,9 @@ mod tests {
             valid_until: now,
             state: "3".to_string(),
             hosts: Default::default(),
-            db_names: Default::default()
+            hosts_h: Default::default(),
+            db_names: Default::default(),
+            db_names_h: Default::default()
         });
         for x in &cr.hosts {
             lr.connections[0].hosts.insert(Connection::encrypt(x, &pk.to_public_key())?);
@@ -1506,7 +1555,9 @@ mod tests {
             valid_until: now,
             state: "".to_string(),
             hosts: Default::default(),
-            db_names: Default::default()
+            hosts_h: Default::default(),
+            db_names: Default::default(),
+            db_names_h: Default::default()
         };
         l.connections.push(c.clone());
         l.connections.push(c);
