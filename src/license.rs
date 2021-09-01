@@ -653,7 +653,9 @@ impl License {
                 }
                 key
             } else {
-                #[cfg(debug_assertions)] println!("pub: {}..{}", self.key[..8].to_string(), self.key[self.key.len()-8..].to_string());
+                if self.key.len() > 0 { // exclude no key evaluation license
+                    #[cfg(debug_assertions)] println!("pub: {}..{}", self.key[..8].to_string(), self.key[self.key.len() - 8..].to_string());
+                }
                 str2pub(&self.key)?
             }
         )
