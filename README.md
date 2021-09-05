@@ -53,7 +53,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 ### TODO
 
-- Add APT repository for continuous upgrade and delivery (cargo-deb)
+- Add APT & RPM repository for continuous upgrade and delivery (cargo-deb, cargo-generate-rpm)
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
 - Add support of changing and extending datatype: "ALTER TABLE ... SET DATA TYPE"
 - Add --schema_transaction: 'retry' to support non-blocking changes on highload 

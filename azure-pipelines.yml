@@ -33,6 +33,7 @@ steps:
       cargo install cargo2junit
     displayName: Install cargo2junit (if updating the cache anyway)
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+    # cargo-generate-rpm cargo-rpm cargo-deb
   - bash: |
       source $HOME/.cargo/env
       cargo install cargo-make
@@ -46,7 +47,8 @@ steps:
     displayName: sign
   - bash: |
       source $HOME/.cargo/env
-      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
+#      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
+      cargo test
     displayName: cargo test
   - bash: |
       source $HOME/.cargo/env
@@ -55,7 +57,7 @@ steps:
       vv="${va[0]}.${va[1]}"
       sed -i "0,/local_build/s/local_build/$vv.$(Build.BuildId)/" src/i18n/*_clc.yaml
       ./ul.sh
-      cargo build --release
+      cargo build --release && strip -s target/release/rdbm
     displayName: cargo build --release
 
   - task: CopyFiles@2
