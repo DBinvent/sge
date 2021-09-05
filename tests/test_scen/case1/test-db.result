@@ -1,10 +1,10 @@
 CREATE SCHEMA test_schema;
-ALTER SCHEMA test_schema OWNER TO vk;
+ALTER SCHEMA test_schema OWNER TO $USER;
 CREATE TABLE test_schema.test_table (
     id integer NOT NULL,
     test character varying(250)
 );
-ALTER TABLE test_schema.test_table OWNER TO vk;
+ALTER TABLE test_schema.test_table OWNER TO $USER;
 CREATE SEQUENCE test_schema.test_table_id_seq
     AS integer
     START WITH 1
@@ -12,7 +12,7 @@ CREATE SEQUENCE test_schema.test_table_id_seq
     NO MINVALUE
     NO MAXVALUE
     CACHE 1;
-ALTER TABLE test_schema.test_table_id_seq OWNER TO vk;
+ALTER TABLE test_schema.test_table_id_seq OWNER TO $USER;
 ALTER SEQUENCE test_schema.test_table_id_seq OWNED BY test_schema.test_table.id;
 ALTER TABLE ONLY test_schema.test_table ALTER COLUMN id SET DEFAULT nextval('test_schema.test_table_id_seq'::regclass);
 ALTER TABLE ONLY test_schema.test_table

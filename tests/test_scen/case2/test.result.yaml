@@ -1,7 +1,7 @@
 ---
 database:
   - schemaName: public
-    owner: vk
+    owner: $USER
     tables:
       - table:
           tableName: rdbm_history
@@ -98,7 +98,7 @@ database:
                 constraint:
                   nullable: false
   - schemaName: test_schema
-    owner: vk
+    owner: $USER
     tables:
       - table:
           tableName: test_ref_table

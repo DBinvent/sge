@@ -204,14 +204,15 @@ pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
 
 
 pub fn compare_with(d: String, dump: &str, b: String) -> Result<(), String> {
+    let u = env::var("USER").unwrap();
     let a = fs::read_to_string(format!("{}/{}", d, dump).as_str())
             .map_err(|e| format!("reading [{}/{}] {}", d, dump, e))?;
     fs::write(format!("{}/{}.out", d, dump), &b); // dump the dump
-    let a:Vec<&str> = a.split("\n").collect();
+    let a:Vec<String> = a.split("\n").map(|l| l.replace("$USER", u.as_str())).collect();
     let b:Vec<&str> = b.split("\n").collect();
     let mut i = 0usize;
     loop {
-        let x = if a.len() == 0 {""} else { a[min(a.len() - 1, i)] };
+        let x = if a.len() == 0 {""} else { a[min(a.len() - 1, i)].as_str() };
         let y = if b.len() == 0 {""} else { b[min(b.len() - 1, i)] };
         if x != y
         {
