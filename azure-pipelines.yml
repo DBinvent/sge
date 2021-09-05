@@ -47,9 +47,9 @@ steps:
     displayName: sign
   - bash: |
       source $HOME/.cargo/env
-#      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
-      cargo test
+      cargo test --release
     displayName: cargo test
+#      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
   - bash: |
       source $HOME/.cargo/env
       v=$(grep -m 1 version Cargo.toml)
