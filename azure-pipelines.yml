@@ -47,13 +47,13 @@ steps:
       source $HOME/.cargo/env
       cargo build --bin sl && target/debug/sl /etc/corp0.rsa evaluation.license
     displayName: sign
-    failOnStderr: true
+#    failOnStderr: true
 
   - bash: |
       source $HOME/.cargo/env
       cargo test --release
     displayName: Test
-    failOnStderr: true
+#    failOnStderr: true
 #      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
 
   - bash: |
@@ -65,7 +65,7 @@ steps:
       ./ul.sh
       cargo build --release
     displayName: Release
-    failOnStderr: true
+#    failOnStderr: true
 
   - bash: |
       source $HOME/.cargo/env
@@ -85,7 +85,7 @@ steps:
       cargo generate-rpm
       rpm -qip target/generate-rpm/*.rpm
     displayName: Pack
-    failOnStderr: true
+#    failOnStderr: true
 
   - task: CopyFiles@2
     inputs:
