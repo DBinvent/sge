@@ -208,7 +208,7 @@ impl ApiRequest {
                         .map_err(|e| TR.t7ea("license", "err8", &["{call}", "{err}"], &[&mn, &e.to_string()]))?;
                     info!(log, "{}", lcr.result);
                     Ok(())
-                } else { Err(as_err(&acr.errors, &acr.messages)) }
+                } else { Err(as_err(&acr.errors)) }
             }
             ApiRequest::Update(l, _) => l.save(file, response, log),
             ApiRequest::Pull(l) => l.save(file, response, log),
@@ -364,17 +364,10 @@ pub struct ApiMessage {
     pub message: String
 }
 
-fn as_err(errors: &Vec<ApiMessage>, messages: &Vec<ApiMessage>) -> String {
-    let mut res = String::new();
-    for e in errors {
-        if res.len() > 0 {res.push_str(", ");}
-        res.push_str(e.message.as_str());
-    }
-    for e in messages {
-        if res.len() > 0 {res.push_str(", ");}
-        res.push_str(e.message.as_str());
-    }
-    res
+fn as_err(errors: &Vec<ApiMessage>) -> String {
+    if errors.len() > 0 {
+        errors[errors.len()-1].message.clone()
+    } else { "".to_string() }
 }
 
 #[cfg(debug_assertions)]
@@ -1053,7 +1046,7 @@ impl License {
         let lr: LicenseResponse = serde_json::from_str(response.as_str())
             .map_err(|e| TR.t7ea("license", "save_err1", &["{call}", "{err}"], &[&response, &e.to_string()]))?;
         match lr.result {
-            None => Err(as_err(&lr.errors, &lr.messages)),
+            None => Err(as_err(&lr.errors)),
             Some(lr) => {
                 let lr = lr.convert().patch(self)?;
                 let (file, resp) = match lr.verify() {
