@@ -22,32 +22,38 @@ steps:
       which rustup && rustup -V
     displayName: Enusure rustup is installed
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+    failOnStderr: true
   - bash: |
       source $HOME/.cargo/env
       rustup update
       which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
     displayName: Select toolchain for tools (if updating the cache anyway)
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+    failOnStderr: true
   - bash: |
       source $HOME/.cargo/env
       cargo install cargo2junit
     displayName: Install cargo2junit (if updating the cache anyway)
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+    failOnStderr: true
   - bash: |
       source $HOME/.cargo/env
       cargo install cargo-make cargo-deb cargo-generate-rpm
     displayName: Prepare make
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
+    failOnStderr: true
 
   - bash: |
       source $HOME/.cargo/env
       cargo build --bin sl && target/debug/sl /etc/corp0.rsa evaluation.license
     displayName: sign
+    failOnStderr: true
 
   - bash: |
       source $HOME/.cargo/env
       cargo test --release
     displayName: Test
+    failOnStderr: true
 #      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
 
   - bash: |
@@ -59,13 +65,14 @@ steps:
       ./ul.sh
       cargo build --release
     displayName: Release
+    failOnStderr: true
 
   - bash: |
       source $HOME/.cargo/env
       v=$(grep -m 1 version Cargo.toml)
       IFS='.' read -r -a va <<< "${v:11:10}"
       vv="${va[0]}.${va[1]}"
-      sed -i "s/version.*/version = \"$vv.$(Build.BuildId)\"/" Cargo.toml
+      sed -i "0,/version.*/s//version = \"$vv.$(Build.BuildId)\"/" Cargo.toml
       grep version Cargo.toml
       strip -s target/release/rdbm
       rm -rf target/debian
@@ -78,6 +85,7 @@ steps:
       cargo generate-rpm
       rpm -qip target/generate-rpm/*.rpm
     displayName: Pack
+    failOnStderr: true
 
   - task: CopyFiles@2
     inputs:
