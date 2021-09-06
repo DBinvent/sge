@@ -35,7 +35,7 @@ steps:
       cargo install cargo2junit
     displayName: Install cargo2junit (if updating the cache anyway)
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-    failOnStderr: true
+#    failOnStderr: true
   - bash: |
       source $HOME/.cargo/env
       cargo install cargo-make cargo-deb cargo-generate-rpm
