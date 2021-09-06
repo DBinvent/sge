@@ -65,13 +65,15 @@ steps:
       v=$(grep -m 1 version Cargo.toml)
       IFS='.' read -r -a va <<< "${v:11:10}"
       vv="${va[0]}.${va[1]}"
-      sed -i "s/version.*/version = \"$vv.$(Build.BuildId)\"/" ct
+      sed -i "s/version.*/version = \"$vv.$(Build.BuildId)\"/" Cargo.toml
       grep version Cargo.toml
       strip -s target/release/rdbm
       rm -rf target/debian
+      echo "Building DEB..."
       cargo deb
       dpkg -I target/debian/*.deb
       dpkg --contents  target/debian/*.deb
+      echo "Building RPM..."
       rm -rf target/generate-rpm
       cargo generate-rpm
       rpm -qip target/generate-rpm/*.rpm
