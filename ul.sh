@@ -1,7 +1,7 @@
 #!/bin/bash
 
 cargo metadata --format-version=1 | jq > license.json
-echo "RDBM powered by libraries tagged with those license:" > llic
+echo "Rumba[rdbm] powered by libraries tagged with those license:" > llic
 grep \"license\" license.json | sort | uniq | grep -v null  >> llic
 sed -i 's/"license": /-/g' llic
 sed -i 's/  //g' llic

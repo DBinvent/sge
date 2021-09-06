@@ -32,6 +32,7 @@ include_str!("keys/corp9.pub"),
 
 #[allow(dead_code)]
 const API_HOST: &str = "https://dash.dbinvent.com";
+const ETC: &str = "/etc/rdbm";
 const EVALUATION_LICENSE: &str = "evaluation.license";
 const LICENSE_FILE: &str = "license_file";
 // minimal allowed version (key compromised)
@@ -45,12 +46,13 @@ pub const ENCRYPT: &str = "encrypt";
 pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
     let email = cfg.get("email");
     let dry_run = cfg.get_bool("dry_run", false);
-    let license_file = match cfg.get_opt(LICENSE_FILE) {
-        None => EVALUATION_LICENSE.to_string(),
-        Some(f) => if Path::new(f.as_str()).is_file() { f } else {
-            EVALUATION_LICENSE.to_string()
-        }
-    };
+    let license_file = cfg.get_def(LICENSE_FILE, if Path::new(EVALUATION_LICENSE).is_file() {
+        EVALUATION_LICENSE.to_string()
+    } else if Path::new(ETC).is_dir() {
+        format!("{}/{}", ETC, EVALUATION_LICENSE)
+    } else {
+        EVALUATION_LICENSE.to_string()
+    });
 
     let mut subsr: BTreeSet<String> = BTreeSet::new();
     cfg.get("subscribe").split(",").for_each(|s| {
@@ -67,7 +69,7 @@ pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) 
         || (db_name.len() > 0 && subsr.contains(&db_name))
         || (logdb_name.len() > 0 && subsr.contains(&logdb_name));
     let conn_set = db_host.len() + logdb_host.len() + db_name.len() + logdb_name.len() > 0;
-    let eval_file = license_file.as_str() == EVALUATION_LICENSE;
+    let eval_file = license_file.ends_with(EVALUATION_LICENSE);
 
     if Path::new(license_file.as_str()).is_file() {
         match License::load(license_file.as_str()) {
@@ -672,6 +674,7 @@ impl License {
         hasher.input_str(self.email.as_str());
         hasher.input_str(self.license_type.as_str());
 
+        // TODO FIXME remove this if
         if self.license_type.rfind("_v").is_none() {
             let lv = format!("_v{}", self.version);
             hasher.input_str(lv.as_str());

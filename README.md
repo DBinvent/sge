@@ -33,16 +33,14 @@ The app intend to be a microservice ready with multi-database (microservice conf
 #### Limitations
 
  - Postgres DB only, psql client required
- - see 'Schema deploy restriction'
+ - see 'Schema deploy restriction' bellow
 
 
 ### Schema/Table deploy by definition restriction notice
 
- - Schemas and tables definition allowed only in YAML format (JSON file format comming soon) 
+ - Schemas and tables definition allowed only in YAML format (JSON file format coming soon) 
  - Adding sql & constraint on existing column won't produce an ALTER TABLE SQL (except FK)
- - The composite primary key (multi columns) will fail, as well as FK to those column. 
- - The columns use by some ORM framework might be sensitive to the column order.
-   So, because Postgres does not support inserting column, list column of used in such ORM must append. 
+ - The composite primary key (multi columns) will fail, as well as FK to those columns. 
  
 
 ### Schema snapshot restriction notice
@@ -53,7 +51,6 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 ### TODO
 
-- Add APT & RPM repository for continuous upgrade and delivery (cargo-deb, cargo-generate-rpm)
 - Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
 - Add support of changing and extending datatype: "ALTER TABLE ... SET DATA TYPE"
 - Add --schema_transaction: 'retry' to support non-blocking changes on highload 

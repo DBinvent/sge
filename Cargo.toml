@@ -3,6 +3,10 @@ name = "rdbm"
 version = "1.4.1"
 authors = ["vk <vk@dbinvent.com>"]
 edition = "2018"
+license-file = "LICENSE"
+description = "Rumba[rdbm]: Relation DataBase (Schema) Management tool"
+homepage = "https://dbinvent.com/rdbm.html"
+readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -66,3 +70,24 @@ ureq = "^2.1.1"
 
 smallvec = "1.6.1"
 yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", features = []}
+
+[package.metadata.deb]
+depends = "postgresql-client"
+maintainer = "DBinvent <support@dbinvent.com>"
+assets= [
+    ["target/release/rdbm", "usr/bin/", "755"],
+    ["evaluation.license", "etc/rdbm/", "664"],
+    ["lib-licenses.txt", "usr/share/doc/rdbm/lib-licenses.txt", "644"],
+    ["COPYRIGHT", "usr/share/doc/rdbm/copyright", "644"],
+    ["LICENSE", "usr/share/doc/rdbm/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+license = "LICENSE"
+assets= [
+    {source = "target/release/rdbm", dest = "/usr/bin/rdbm", mode ="755"},
+    {source = "evaluation.license", dest = "/etc/rdbm/", mode ="664", config = true},
+    {source = "lib-licenses.txt", dest = "/usr/share/doc/rdbm/lib-licenses.txt", mode = "644", doc = true},
+    {source = "COPYRIGHT", dest = "/usr/share/doc/rdbm/copyright", mode = "644", doc = true},
+    {source = "LICENSE", dest = "/usr/share/doc/rdbm/LICENSE", mode = "644", doc = true},
+]
