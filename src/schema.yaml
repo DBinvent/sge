@@ -64,6 +64,8 @@ schema:
           type: string
         sql:
           type: string
+        transaction:
+          type: string
         columns:
           type: array
           items:

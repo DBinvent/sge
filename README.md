@@ -39,7 +39,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 ### Schema/Table deploy by definition restriction notice
 
  - Schemas and tables definition allowed only in YAML format (JSON file format coming soon) 
- - Adding sql & constraint on existing column won't produce an ALTER TABLE SQL (except FK)
+ - Adding sql & constraint on existing column/tables won't produce an ALTER TABLE SQL (except FK but sql)
  - The composite primary key (multi columns) will fail, as well as FK to those columns. 
  
 
@@ -48,18 +48,6 @@ The app intend to be a microservice ready with multi-database (microservice conf
  - Only column name and type, pk, will be created, but not null and fk constraint 
  - No indexes, constraint, special sql on table or column definition
 
-
-### TODO
-
-- Lift column restrictions for Schema snapshot and deploy for multi-primary keys, etc
-- Add support of changing and extending datatype: "ALTER TABLE ... SET DATA TYPE"
-- Add --schema_transaction: 'retry' to support non-blocking changes on highload 
-- Add JSON format for schema definition
-- Add schema(table) definition features: view, foreign tables, partitioned tables, indexes, constraint
-- Add data snapshot (use pg_dump) full for featuring reverse eng.
-- Add data ELT migrations for small dictionary tables 
-- Add key-vault's cloud integration for DB connection
-- Add UI / api to work as a service (php-admin inspired) and allow scheduled deploy
 
 ### License
 
