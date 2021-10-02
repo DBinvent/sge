@@ -195,7 +195,7 @@ args:
           The value to override (S)chema file database.schema.table.transaction option
           - file: (default) execute the (S)chema file in a single transaction. This is a guarantee to be sure all or no changes applied by the file marked as OK.
           - table: perform all changes for each table per transaction. 
-          The value pass in parameter will override a value set in (S)chema file on a migration execution.        
+          The value pass in parameter will override a value set in (S)chema file on a migration execution.
     - version_transaction:
         long: version_transaction
         takes_value: true

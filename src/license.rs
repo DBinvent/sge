@@ -284,21 +284,30 @@ impl CreateUpdateRequest {
     #[inline]
     #[allow(dead_code)]
     pub fn validate(&self) -> Option<String> {
-        if self.email.len() < 2 {
-            Some("invalid email".into())
+        if self.email.len() < 5 {
+            Some("invalid email address".into())
         } else {
             match self.email.find("@") {
                 None => Some("invalid email".into()),
                 Some(i) => {
-                    if i == 0 || i == self.email.len() - 1 {
-                        Some("invalid email".into())
+                    if i < 1 || i >= self.email.len() - 3 {
+                        Some("invalid email name".into())
                     } else {
-                        if let Some(m) = valid_name(&self.hosts) {
-                            Some(format!("invalid hosts: {}", m))
-                        } else if let Some(m) = valid_name(&self.db_names) {
-                            Some(format!("invalid db names: {}", m))
-                        } else {
-                            None
+                        match self.email.rfind(".") {
+                            None => Some("invalid email host".into()),
+                            Some(j) => {
+                                if i + 1 > j || j >= self.email.len() - 2 {
+                                    Some("invalid email host domain".into())
+                                } else {
+                                    if let Some(m) = valid_name(&self.hosts) {
+                                        Some(format!("invalid hosts: {}", m))
+                                    } else if let Some(m) = valid_name(&self.db_names) {
+                                        Some(format!("invalid db names: {}", m))
+                                    } else {
+                                        None
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1596,6 +1605,36 @@ mod tests {
         append_name(&"aaa".to_string(), true, &mut v);
         append_name(&"ooo".to_string(), false, &mut v);
         assert_eq!(v.len(), 2);
+    }
+
+    #[test]
+    fn test_email_valid() {
+        let mut r = CreateUpdateRequest {
+            personal: false,
+            encrypt: false,
+            email: "".to_string(),
+            hosts: vec![],
+            db_names: vec![],
+            lang: None
+        };
+        let v = r.validate();
+        assert!(matches!(v, Some(_)), "{:?}", v);
+
+        r.email = "your@email".to_string();
+        let v = r.validate();
+        assert!(matches!(v, Some(_)), "{:?}", v);
+
+        r.email = "your@".to_string();
+        let v = r.validate();
+        assert!(matches!(v, Some(_)), "{:?}", v);
+
+        r.email = "@email".to_string();
+        let v = r.validate();
+        assert!(matches!(v, Some(_)), "{:?}", v);
+
+        r.email = "a@b.co".to_string();
+        let v = r.validate();
+        assert!(matches!(v, None), "{:?}", v);
     }
 
     #[test]
