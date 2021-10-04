@@ -42,17 +42,21 @@ const LH: &str = "localhost";
 const STAR: &str = "*";
 pub const ENCRYPT: &str = "encrypt";
 
-/// on license action
-pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
-    let email = cfg.get("email");
-    let dry_run = cfg.get_bool("dry_run", false);
-    let license_file = cfg.get_def(LICENSE_FILE, if Path::new(EVALUATION_LICENSE).is_file() {
+fn get_license_file(cfg: &ConfigMap) -> String {
+    cfg.get_def(LICENSE_FILE, if Path::new(EVALUATION_LICENSE).is_file() {
         EVALUATION_LICENSE.to_string()
     } else if Path::new(ETC).is_dir() {
         format!("{}/{}", ETC, EVALUATION_LICENSE)
     } else {
         EVALUATION_LICENSE.to_string()
-    });
+    })
+}
+
+/// on license action
+pub fn license(cfg: &ConfigMap, log: &Logger, test: Option<&dyn Fn(&ApiRequest) -> String>) -> Result<(), String> {
+    let email = cfg.get("email");
+    let dry_run = cfg.get_bool("dry_run", false);
+    let license_file = get_license_file(cfg);
 
     let mut subsr: BTreeSet<String> = BTreeSet::new();
     cfg.get("subscribe").split(",").for_each(|s| {
@@ -396,22 +400,17 @@ pub fn is_ok(cfg: &ConfigMap, log: &Logger) -> Result<bool, String> {
 }
 
 pub fn do_check(cfg: &ConfigMap, _log: &Logger) -> Result<i64, String> {
-    match cfg.get_opt("license_file") {
-        None => Err("--license_file is not set".into()),
-        Some(lf) => {
-            let l = License::load(lf.as_str())?;
-            l.verify()?;
-            Ok(match l.find(
-                &cfg.get("db_host"),
-                &cfg.get("logdb_host"),
-                &cfg.get("db_name"),
-                &cfg.get("logdb_name")
-            ) {
-                None => -1,
-                Some(until) => (until - cfg.now()).num_days()
-            })
-        }
-    }
+    let l = License::load(get_license_file(cfg).as_str())?;
+    l.verify()?;
+    Ok(match l.find(
+        &cfg.get("db_host"),
+        &cfg.get("logdb_host"),
+        &cfg.get("db_name"),
+        &cfg.get("logdb_name")
+    ) {
+        None => -1,
+        Some(until) => (until - cfg.now()).num_days()
+    })
 }
 
 pub type LicenseDate = chrono::NaiveDate; //DateTime<FixedOffset>;
