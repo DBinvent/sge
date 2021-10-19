@@ -14,7 +14,7 @@
 latest=rdbm-unix-latest
 
 function md5line() {
-  cm=$(md5 $latest.$2)
+  cm=$(md5sum $latest.$2)
   m=${cm:0:32}
   echo "rdbm|unix|$1|$2|$latest.$2|$m" >> rdbm.version
 }
