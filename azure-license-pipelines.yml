@@ -46,7 +46,7 @@ steps:
       SourceFolder: '$(System.DefaultWorkingDirectory)'
       Contents: |
         evaluation.license
-        upgrade.sh
+        upgrade-latest.sh
       TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
       CleanTargetFolder: false
       OverWrite: true

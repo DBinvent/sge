@@ -29,63 +29,47 @@ steps:
       which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
     displayName: Select toolchain for tools (if updating the cache anyway)
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-#    failOnStderr: true
+
   - bash: |
       source $HOME/.cargo/env
       cargo install cargo2junit
     displayName: Install cargo2junit (if updating the cache anyway)
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-#    failOnStderr: true
-  - bash: |
-      source $HOME/.cargo/env
-      cargo install cargo-make cargo-deb cargo-generate-rpm
+
+  - bash: $HOME/.cargo/bin/cargo install cargo-make cargo-deb cargo-generate-rpm
     displayName: Prepare make
     condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-#    failOnStderr: true
 
-  - bash: |
-      source $HOME/.cargo/env
-      cargo build --bin sl && target/debug/sl /etc/corp0.rsa evaluation.license
+  - bash: $HOME/.cargo/bin/cargo build --bin sl && target/debug/sl /etc/corp0.rsa evaluation.license
     displayName: sign
-#    failOnStderr: true
 
-  - bash: |
-      source $HOME/.cargo/env
-      cargo test --release
+  - bash: $HOME/.cargo/bin/cargo test --release
     displayName: Test
-#    failOnStderr: true
 #      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
 
   - bash: |
-      source $HOME/.cargo/env
       v=$(grep -m 1 version Cargo.toml)
       IFS='.' read -r -a va <<< "${v:11:10}"
       vv="${va[0]}.${va[1]}"
+      echo $vv > rdbm.version
       sed -i "0,/local_build/s/local_build/$vv.$(Build.BuildId)/" src/i18n/*_clc.yaml
       ./ul.sh
-      cargo build --release
-    displayName: Release
-#    failOnStderr: true
+      $HOME/.cargo/bin/cargo build --release
+    displayName: Release build
 
   - bash: |
-      source $HOME/.cargo/env
-      v=$(grep -m 1 version Cargo.toml)
-      IFS='.' read -r -a va <<< "${v:11:10}"
-      vv="${va[0]}.${va[1]}"
-      sed -i "0,/version.*/s//version = \"$vv.$(Build.BuildId)\"/" Cargo.toml
-      grep version Cargo.toml
       strip -s target/release/rdbm
-      rm -rf target/debian
       echo "Building DEB..."
-      cargo deb
+      rm -rf target/debian
+      $HOME/.cargo/bin/cargo deb
       dpkg -I target/debian/*.deb
       dpkg --contents  target/debian/*.deb
+
       echo "Building RPM..."
       rm -rf target/generate-rpm
-      cargo generate-rpm
-      rpm -qip target/generate-rpm/*.rpm
-    displayName: Pack
-#    failOnStderr: true
+      $HOME/.cargo/bin/cargo  generate-rpm
+      rpm -qiRp target/generate-rpm/*.rpm
+    displayName: Pack releases
 
   - task: CopyFiles@2
     inputs:
@@ -115,6 +99,8 @@ steps:
         LICENSE
         lib-licenses.txt
         deploy.sh
+        repo.sh
+        rdbm.version
       TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
       CleanTargetFolder: false
       OverWrite: true

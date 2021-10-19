@@ -71,9 +71,12 @@ ureq = "^2.1.1"
 smallvec = "1.6.1"
 yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", features = []}
 
+#https://www.maxoberberger.net/blog/2013/05/creating-your-own-apt-repository.html
+
 [package.metadata.deb]
-depends = "postgresql-client"
+depends = "postgresql-client, curl"
 maintainer = "DBinvent <support@dbinvent.com>"
+maintainer-scripts = "deb-scripts"
 assets= [
     ["target/release/rdbm", "usr/bin/", "755"],
     ["evaluation.license", "etc/rdbm/", "664"],
@@ -84,6 +87,7 @@ assets= [
 
 [package.metadata.generate-rpm]
 license = "LICENSE"
+post_install_script = "curl -o /etc/rdbm/evaluation.license https://dbinvent.com/rdbm/evaluation.license"
 assets= [
     {source = "target/release/rdbm", dest = "/usr/bin/rdbm", mode ="755"},
     {source = "evaluation.license", dest = "/etc/rdbm/", mode ="664", config = true},
@@ -91,3 +95,7 @@ assets= [
     {source = "COPYRIGHT", dest = "/usr/share/doc/rdbm/copyright", mode = "644", doc = true},
     {source = "LICENSE", dest = "/usr/share/doc/rdbm/LICENSE", mode = "644", doc = true},
 ]
+
+[package.metadata.generate-rpm.requires]
+postgresql-client = "*"
+curl = "*"

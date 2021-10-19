@@ -1,0 +1,8 @@
+Origin: dbinvent.com
+    Label: apt repository
+    Codename: rumba
+    Architectures: amd64
+    Components: main
+    Description: DBinvent repo
+    SignWith: yes
+    Pull: rumba

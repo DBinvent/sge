@@ -1,0 +1,3 @@
+#!/bin/bash
+
+curl -o /etc/rdbm/evaluation.license https://dbinvent.com/rdbm/evaluation.license
