@@ -103,6 +103,7 @@ steps:
         deploy.sh
         repo.sh
         rdbm.version
+        distributions
       TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
       CleanTargetFolder: false
       OverWrite: true

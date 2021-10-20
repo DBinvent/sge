@@ -3,6 +3,6 @@ Origin: dbinvent.com
     Codename: rumba
     Architectures: amd64
     Components: main
-    Description: DBinvent repo
+    Description: DBinventLLC repo
     SignWith: yes
     Pull: rumba
