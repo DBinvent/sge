@@ -1,27 +1,23 @@
 #!/bin/bash
 
 dist=/opt/www/rumba/dist
-
 latest=rdbm-unix-latest
 
-unzip -l $dist/$latest.zip
-echo "Upgrade: $dist with `wc -l evaluation.license`"
+cp -f evaluation.license $dist/
+echo "Upgrading: $dist $(unzip -l $dist/$latest.zip | grep evaluation.license) with (lines) $(wc -l evaluation.license) in $(pwd) "
 zip -m $dist/$latest.zip evaluation.license
 unzip -t $dist/$latest.zip
 
-mv -f evaluation.license $dist/
-rm -rf latest
-
 echo "Upgrading TAR..."
+rm -rf latest
 mkdir latest
 cd latest
 unzip $dist/$latest.zip
 rm $dist/$latest.tar.gz
 tar -cvzf $dist/$latest.tar.gz *
 
-echo "checking $dist/$latest.tar.gz ..."
+echo "Checking upgraded $dist/$latest.tar.gz ..."
 tar -ztvf $dist/$latest.tar.gz
-
 
 cat rdbm.version | while read line
 do
@@ -33,4 +29,3 @@ do
   sed -i "s/${va[5]}/${newmd5:0:32}/" rdbm.version
  fi
 done
-
