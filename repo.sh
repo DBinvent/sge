@@ -5,10 +5,10 @@
 vv=$(cat rdbm.version)
 
 echo "Deploy RDBM v$vv: to repositories at $1" #https://www.maxoberberger.net/blog/2013/05/creating-your-own-apt-repository.html
-deb=rdbm-$vv.deb
+deb=rdbm_${vv}_amd64.deb
 dpkg-sig --sign builder $deb
 
 reprepro -Vb $1 includedeb rumba $(dirname $deb)/$deb
 
-
+echo rm $deb
 

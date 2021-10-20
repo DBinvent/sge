@@ -29,6 +29,7 @@ list="rdbm evaluation.license LICENSE lib-licenses.txt"
 rm -f $latest.*
 
 # VERSION
+cat rdbm.version
 vv=$(cat rdbm.version)
 rm rdbm.version
 
@@ -37,9 +38,10 @@ zip $latest.zip $list && echo "checking $latest.zip ..." && unzip -l $latest.zip
 md5line $vv zip
 
 # TAR
-tar -cvzf rdbm-latest.tar.gz $list && echo "checking $latest.tar.gz ..." && tar -ztvf $latest.tar.gz
+tar -cvzf $latest.tar.gz $list && echo "checking $latest.tar.gz ..." && tar -ztvf $latest.tar.gz
 md5line $vv tar.gz
 
 echo "checking content ..."  && cat rdbm.version
 
-rm -rf ./deploy.sh rdbm lib-licenses.txt
+rm -rf *.sh rdbm lib-licenses.txt
+# *.deb *.rpm
