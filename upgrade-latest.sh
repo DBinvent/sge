@@ -19,6 +19,8 @@ tar -cvzf $dist/$latest.tar.gz *
 echo "Checking upgraded $dist/$latest.tar.gz ..."
 tar -ztvf $dist/$latest.tar.gz
 
+cd $dist
+echo "Upgrading rdbm.version..." && cat rdbm.version
 cat rdbm.version | while read line
 do
  IFS='|' read -r -a va <<< "$line"
