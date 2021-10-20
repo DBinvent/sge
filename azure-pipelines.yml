@@ -53,6 +53,8 @@ steps:
       vv="${va[0]}.${va[1]}"
       echo $vv > rdbm.version
       sed -i "0,/local_build/s/local_build/$vv.$(Build.BuildId)/" src/i18n/*_clc.yaml
+      sed -i "0,/version.*/s//version = \"$vv.$(Build.BuildId)\"/" Cargo.toml
+      grep version Cargo.toml
       ./ul.sh
       $HOME/.cargo/bin/cargo build --release
     displayName: Release build
