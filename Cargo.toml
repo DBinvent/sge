@@ -5,7 +5,7 @@ authors = ["vk <vk@dbinvent.com>"]
 edition = "2018"
 license-file = "LICENSE"
 description = "Rumba[rdbm]: Relation DataBase (Schema) Management tool"
-homepage = "https://dbinvent.com/rdbm.html"
+homepage = "https://www.dbinvent.com/rdbm/"
 readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -87,7 +87,7 @@ assets= [
 
 [package.metadata.generate-rpm]
 license = "LICENSE"
-post_install_script = "curl -o /etc/rdbm/evaluation.license https://dbinvent.com/rdbm/evaluation.license"
+post_install_script = "curl -s -o /etc/rdbm/evaluation.license https://www.dbinvent.com/dist/evaluation.license"
 assets= [
     {source = "target/release/rdbm", dest = "/usr/bin/rdbm", mode ="755"},
     {source = "evaluation.license", dest = "/etc/rdbm/", mode ="664", config = true},

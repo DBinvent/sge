@@ -1,8 +1,7 @@
-Origin: dbinvent.com
-    Label: apt repository
-    Codename: rumba
-    Architectures: amd64
-    Components: main
-    Description: DBinventLLC repo
-    SignWith: yes
-    Pull: rumba
+Origin: apt.dbinvent.com
+Label: apt repository
+Codename: focal
+Architectures: amd64
+Components: non-free
+Description: DBinventLLC repo
+SignWith: yes

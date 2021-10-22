@@ -1,0 +1,18 @@
+name: rumba
+version: '1.0'
+summary: "Rumba[rdbm]: Relation DataBase (Schema) Management tool"
+description: |
+  rdbm is a command line program
+  bla-bla.
+
+confinement: devmode
+base: core18
+
+parts:
+  rumba:
+    plugin: rust
+    source: https://github.com/DBinvent/rumba.git
+
+apps:
+  rumba:
+    command: bin/rdbm

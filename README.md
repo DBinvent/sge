@@ -48,6 +48,14 @@ The app intend to be a microservice ready with multi-database (microservice conf
  - Only column name and type, pk, will be created, but not null and fk constraint 
  - No indexes, constraint, special sql on table or column definition
 
+### APT repo with DEB package
+ 
+wget -O - https://www.dbinvent.com/dist/DBinventLLC.gpg.key | sudo apt-key add -
+sudo apt update && sudo install rdbm
+
+### RPM
+sudo rpm -i https://www.dbinvent.com/dist/rdbm-latest.x86_64.rpm
+ 
 
 ### License
 
