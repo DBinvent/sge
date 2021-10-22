@@ -51,7 +51,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 ### APT repo with DEB package
  
 wget -O - https://www.dbinvent.com/dist/DBinventLLC.gpg.key | sudo apt-key add -
-sudo apt update && sudo install rdbm
+sudo apt update && sudo apt install rdbm
 
 ### RPM
 sudo rpm -i https://www.dbinvent.com/dist/rdbm-latest.x86_64.rpm
