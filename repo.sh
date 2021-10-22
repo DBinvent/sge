@@ -12,7 +12,7 @@ sudo dpkg-sig --sign builder $deb
 sudo dpkg-sig -c $deb
 
 sudo mv -f distributions $1/conf
-sudo reprepro -Vb $1 -S contrib  includedeb focal $(dirname $deb)/$deb
+sudo reprepro -Vb $1 -S contrib -C "non-free" includedeb focal $(dirname $deb)/$deb
 
 rm $deb
 
