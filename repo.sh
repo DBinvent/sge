@@ -9,7 +9,7 @@ vv=$(cat rdbm.version)
 echo "Deploy RDBM v$vv: to repositories at $1" #https://www.maxoberberger.net/blog/2013/05/creating-your-own-apt-repository.html
 deb=rdbm_${vv}_amd64.deb
 sudo dpkg-sig --sign builder $deb
-dpkg-sig -c $deb
+sudo dpkg-sig -c $deb
 
 sudo mv -f distributions $1/conf
 sudo reprepro -Vb $1 -S contrib  includedeb focal $(dirname $deb)/$deb
