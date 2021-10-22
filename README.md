@@ -33,7 +33,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 #### Limitations
 
  - Postgres DB only, psql client required
- - see 'Schema deploy restriction' bellow
+ - see 'Schema deploy restriction notice' bellow
 
 
 ### Schema/Table deploy by definition restriction notice
