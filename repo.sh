@@ -21,11 +21,11 @@ echo "Upgrade pub key: $gpg_pub_key" && rm -f $gpg_pub_key && ln -s /opt/www/$gp
 
 rpmp=rdbm-${vv}-1.x86_64.rpm
 echo "Signing $rpmp"
-sudo rpm --addsign $rpmp
-rpm -qiRp $rpmp
+sudo rpm --addsign $rpmp 2>&1
+rpm -qiRp $rpmp 2>&1
 rpm -Kv  $rpmp 2>&1 || true
 
 rpml=rdbm-latest.x86_64.rpm
 rm -f $rpml
 ln -s $rpmp $rpml
-ll
+
