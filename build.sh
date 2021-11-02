@@ -1,4 +1,4 @@
-#!/bin/bash
+set -e
 rd=$1
 BuildId=$2
 if [ ${#rd} -lt 1 ]; then
