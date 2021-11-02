@@ -18,9 +18,9 @@ do
   distr=$1/$line
   echo "APT to [$distr] distr"
   sudo mkdir -p $distr/conf
-  sudo echo "Codename: $line" > $dist/conf/distributions
-  sudo grep -v Codename distributions >> $dist/conf
-  sudo reprepro -Vb $dist -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
+  sudo echo "Codename: $line" > $distr/conf/distributions
+  sudo grep -v Codename distributions >> $distr/conf
+  sudo reprepro -Vb $distr -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
  fi
 done
 
