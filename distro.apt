@@ -1,6 +1,6 @@
 Origin: apt.dbinvent.com
 Label: apt repository
-Codename: focal
+Codename: focal # will be replaced by distro.lst for conf/distributions
 Architectures: amd64
 Components: non-free
 Description: DBinventLLC repo

@@ -49,6 +49,6 @@ rm -rf "${rd:?}"/*
 cp target/release/rdbm $rd/
 cp target/debian/*.deb $rd/
 cp target/generate-rpm/*.rpm $rd/
-cp -t $rd/ evaluation.license LICENSE lib-licenses.txt deploy.sh repo.sh distro.lst rdbm.version distributions
+cp -t $rd/ evaluation.license LICENSE lib-licenses.txt deploy.sh repo.sh distro.lst distro.apt rdbm.version
 
 echo "Prepared to drop: $(ls $rd)"

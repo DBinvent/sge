@@ -18,13 +18,13 @@ do
   distr=$1/$line
   echo "APT to [$distr] distr"
   sudo mkdir -p $distr/conf
-  sudo echo "Codename: $line" > $distr/conf/distributions
-  sudo grep -v Codename distributions >> $distr/conf
+  echo "Codename: $line" | sudo tee $distr/conf/distributions
+  grep -v Codename distro.apt | sudo tee -a $distr/conf
   sudo reprepro -Vb $distr -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
  fi
 done
 
-rm $deb
+rm $deb distro.apt
 
 gpg_pub_key="DBinventLLC.gpg.key"
 echo "Upgrade pub key: $gpg_pub_key" && rm -f $gpg_pub_key && ln -s /opt/www/$gpg_pub_key $gpg_pub_key
