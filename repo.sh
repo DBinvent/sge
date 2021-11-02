@@ -16,7 +16,7 @@ grep -v "#" distro.lst | while read line
 do
  if [ ${#line} -gt 1 ]; then
   echo "APT to [$line] distro"
-  sudo mkdir -p $1/$line
+  sudo mkdir -p $1/$line/conf
   sudo cp -f distributions $1/$line/conf
   sudo reprepro -Vb $1/$line -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
  fi
