@@ -12,12 +12,13 @@ deb=rdbm_${vv}_amd64.deb
 sudo dpkg-sig --sign builder $deb
 sudo dpkg-sig -c $deb
 
-sudo mv -f distributions $1/conf
 grep -v "#" distro.lst | while read line
 do
  if [ ${#line} -gt 1 ]; then
   echo "APT to [$line] distro"
-  sudo reprepro -Vb $1 -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
+  sudo mkdir -p $1/$line
+  sudo cp -f distributions $1/$line/conf
+  sudo reprepro -Vb $1/$line -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
  fi
 done
 
