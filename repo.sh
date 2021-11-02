@@ -15,10 +15,12 @@ sudo dpkg-sig -c $deb
 grep -v "#" distro.lst | while read line
 do
  if [ ${#line} -gt 1 ]; then
-  echo "APT to [$line] distro"
-  sudo mkdir -p $1/$line/conf
-  sudo cp -f distributions $1/$line/conf
-  sudo reprepro -Vb $1/$line -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
+  distr=$1/$line
+  echo "APT to [$distr] distr"
+  sudo mkdir -p $distr/conf
+  sudo echo "Codename: $line" > $dist/conf/distributions
+  sudo grep -v Codename distributions >> $dist/conf
+  sudo reprepro -Vb $dist -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
  fi
 done
 
