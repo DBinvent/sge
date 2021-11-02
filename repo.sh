@@ -19,7 +19,7 @@ do
   echo "APT to [$distr] distr"
   sudo mkdir -p $distr/conf
   echo "Codename: $line" | sudo tee $distr/conf/distributions
-  grep -v Codename distro.apt | sudo tee -a $distr/conf
+  grep -v Codename distro.apt | sudo tee -a $distr/conf/distributions
   sudo reprepro -Vb $distr -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
  fi
 done
