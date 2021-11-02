@@ -6,8 +6,7 @@ pool:
   name: Default
 
 steps:
-  - bash: build.sh
-    arguments: $(Build.ArtifactStagingDirectory)/release $(Build.BuildId)
+  - bash: ./build.sh $(Build.ArtifactStagingDirectory)/release $(Build.BuildId)
     displayName: RDBM build
 
   - task: ArchiveFiles@2
