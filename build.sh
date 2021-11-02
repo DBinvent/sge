@@ -1,4 +1,3 @@
-set -e
 rd=$1
 BuildId=$2
 if [ ${#rd} -lt 1 ]; then
@@ -46,11 +45,10 @@ cargo generate-rpm
 rpm -qiRp target/generate-rpm/*.rpm
 
 mkdir -p $rd
-# shellcheck disable=SC2115
-rm -rf "$rd"/*
-cp target/release/rdbm .
-cp target/debian/*.deb .
-cp target/generate-rpm/*.rpm .
-cp -t . evaluation.license LICENSE lib-licenses.txt deploy.sh repo.sh distro.lst rdbm.version distributions
+rm -rf "${rd:?}"/*
+cp target/release/rdbm $rd/
+cp target/debian/*.deb $rd/
+cp target/generate-rpm/*.rpm $rd/
+cp -t $rd/ evaluation.license LICENSE lib-licenses.txt deploy.sh repo.sh distro.lst rdbm.version distributions
 
-echo "Prepared to drop: $(ls)"
+echo "Prepared to drop: $(ls $rd)"
