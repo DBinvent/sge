@@ -7,11 +7,16 @@ description: |
 
 confinement: devmode
 base: core18
+grade: stable
 
 parts:
   rumba:
     plugin: rust
+
     source: https://github.com/DBinvent/rumba.git
+
+architectures:
+  - build-on: amd64
 
 apps:
   rumba:

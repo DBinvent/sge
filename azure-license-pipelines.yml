@@ -1,7 +1,3 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
 
 schedules:
 - cron: '0 10 * * * '
@@ -17,24 +13,7 @@ pool:
   name: Default
 
 steps:
-  # install tools (these will be cached)
-  - bash: |
-      curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain none
-      source $HOME/.cargo/env
-      echo $HOME
-      which rustup && rustup -V
-    displayName: Enusure rustup is installed
-    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-  - bash: |
-      source $HOME/.cargo/env
-      rustup update
-      which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
-    displayName: Select toolchain for tools (if updating the cache anyway)
-    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-
-  - bash: |
-      source $HOME/.cargo/env
-      cargo build --bin sl --release
+  - bash: $HOME/.cargo/cargo build --bin sl --release
     displayName: cargo build --release
 
   - bash: |

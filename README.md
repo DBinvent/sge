@@ -1,4 +1,4 @@
-# Rumba[rdbm]
+# Rumba:\[rdbm\]
 The Relation DB Management tool.
 
 ## SQL script tracker and DB deployment tool by schema definition for Postgres
@@ -50,11 +50,13 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 ### APT repo with DEB package
  
+```
 wget -O - https://www.dbinvent.com/dist/DBinventLLC.gpg.key | sudo apt-key add -
 sudo apt update && sudo apt install rdbm
+```
 
 ### RPM
-sudo rpm -i https://www.dbinvent.com/dist/rdbm-latest.x86_64.rpm
+`sudo rpm -i https://www.dbinvent.com/dist/rdbm-latest.x86_64.rpm`
  
 
 ### License

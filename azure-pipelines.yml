@@ -1,112 +1,14 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
 
 trigger:
 - main
 
 pool:
   name: Default
-  # vmImage: ubuntu-latest
-
-variables:
-  CHANNEL: stable
 
 steps:
-  # install tools (these will be cached)
-  - bash: |
-      curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain none
-      source $HOME/.cargo/env
-      echo $HOME
-      which rustup && rustup -V
-    displayName: Enusure rustup is installed
-    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-#    failOnStderr: true
-  - bash: |
-      source $HOME/.cargo/env
-      rustup update
-      which rustup && rustup -V && which cargo && cargo -V && which rustc && rustc -V
-    displayName: Select toolchain for tools (if updating the cache anyway)
-    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-
-  - bash: |
-      source $HOME/.cargo/env
-      cargo install cargo2junit
-    displayName: Install cargo2junit (if updating the cache anyway)
-    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-
-  - bash: $HOME/.cargo/bin/cargo install cargo-make cargo-deb cargo-generate-rpm
-    displayName: Prepare make
-    condition: and(succeeded(), ne(variables['CACHE_LOOKUP_RESULT'], 'true'))
-
-  - bash: $HOME/.cargo/bin/cargo build --bin sl && target/debug/sl /etc/corp0.rsa evaluation.license
-    displayName: sign
-
-  - bash: $HOME/.cargo/bin/cargo test --release
-    displayName: Test
-#      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
-
-  - bash: |
-      v=$(grep -m 1 version Cargo.toml)
-      IFS='.' read -r -a va <<< "${v:11:10}"
-      vv="${va[0]}.${va[1]}.$(Build.BuildId)"
-      echo $vv > rdbm.version
-      sed -i "0,/local_build/s/local_build/$vv/" src/i18n/*_clc.yaml
-      sed -i "0,/version.*/s//version = \"$vv\"/" Cargo.toml
-      grep version Cargo.toml
-      ./ul.sh
-      $HOME/.cargo/bin/cargo build --release
-    displayName: Release build
-
-  - bash: |
-      strip -s target/release/rdbm
-      echo "Building DEB..."
-      rm -rf target/debian
-      $HOME/.cargo/bin/cargo deb
-      dpkg -I target/debian/*.deb
-      dpkg --contents  target/debian/*.deb
-
-      echo "Building RPM..."
-      rm -rf target/generate-rpm
-      $HOME/.cargo/bin/cargo  generate-rpm
-      rpm -qiRp target/generate-rpm/*.rpm
-    displayName: Pack releases
-
-  - task: CopyFiles@2
-    inputs:
-      SourceFolder: '$(System.DefaultWorkingDirectory)/target/release'
-      Contents: 'rdbm'
-      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
-      CleanTargetFolder: true
-      OverWrite: true
-
-  - task: CopyFiles@2
-    inputs:
-      SourceFolder: '$(System.DefaultWorkingDirectory)/target/debian'
-      Contents: '*.deb'
-      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
-
-  - task: CopyFiles@2
-    inputs:
-      SourceFolder: '$(System.DefaultWorkingDirectory)/target/generate-rpm'
-      Contents: '*.rpm'
-      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
-
-  - task: CopyFiles@2
-    inputs:
-      SourceFolder: '$(System.DefaultWorkingDirectory)'
-      Contents: |
-        evaluation.license
-        LICENSE
-        lib-licenses.txt
-        deploy.sh
-        repo.sh
-        rdbm.version
-        distributions
-      TargetFolder: '$(Build.ArtifactStagingDirectory)/release'
-      CleanTargetFolder: false
-      OverWrite: true
+  - bash: build.sh
+    arguments: $(Build.ArtifactStagingDirectory)/release $(Build.BuildId)
+    displayName: RDBM build
 
   - task: ArchiveFiles@2
     displayName: 'Archive files'

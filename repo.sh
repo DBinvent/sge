@@ -3,6 +3,7 @@
 # runs repo.sh on prod before deploy.sh at /opt/www/rumba/dist
 # ATTENTION! ключи генерировать рутом! подписание идет рутом, иначе ключи не видны при добавленнии в репо
 # sudo gpg --gen-key && sudo gpg --armor --export support@dbinvent.com > /opt/www/DBinventLLC.gpg.key
+# https://github.com/emk/rust-musl-builder
 
 vv=$(cat rdbm.version)
 
@@ -12,7 +13,13 @@ sudo dpkg-sig --sign builder $deb
 sudo dpkg-sig -c $deb
 
 sudo mv -f distributions $1/conf
-sudo reprepro -Vb $1 -S contrib -C "non-free" includedeb focal $(dirname $deb)/$deb
+grep -v "#" distro.lst | while read line
+do
+ if [ ${#line} -gt 1 ]; then
+  echo "APT to [$line] distro"
+  sudo reprepro -Vb $1 -S contrib -C "non-free" includedeb $line $(dirname $deb)/$deb
+ fi
+done
 
 rm $deb
 
@@ -29,3 +36,6 @@ rpml=rdbm-latest.x86_64.rpm
 rm -f $rpml
 ln -s $rpmp $rpml
 
+#sudo yum install -y https://yum.dbinvent.com/rdbm-latest.x86_64.rpm
+sudo cp -f $rpmp /opt/www/yum/$rpml
+sudo createrepo --update -n $rpml /opt/www/yum

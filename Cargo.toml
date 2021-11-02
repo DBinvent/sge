@@ -20,6 +20,8 @@ path = "src/lib.rs"
 [[bin]]
 name = "rdbm"
 path = "src/main.rs"
+bench = false
+doc = false
 [profile.release]
 opt-level = 'z'  # Optimize for size.
 lto = true
@@ -97,5 +99,5 @@ assets= [
 ]
 
 [package.metadata.generate-rpm.requires]
-postgresql-client = "*"
+#postgresql = "*"
 curl = "*"
