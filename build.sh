@@ -41,7 +41,7 @@ echo "Rebuild as $mt"
 docker run --rm -i -v "$(pwd)":/home/rust/src rust cargo build --release --target $mt
 cp -f target/$mt/release/rdbm target/release/.
 strip -s target/release/rdbm
-cargo generate-rpm
+cargo generate-rpm --auto-req no
 rpm -qiRp target/generate-rpm/*.rpm
 
 mkdir -p $rd
