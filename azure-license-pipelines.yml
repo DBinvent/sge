@@ -13,7 +13,7 @@ pool:
   name: Default
 
 steps:
-  - bash: $HOME/.cargo/cargo build --bin sl --release
+  - bash: $HOME/.cargo/bin/cargo build --bin sl --release
     displayName: cargo build --release
 
   - bash: |
