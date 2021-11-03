@@ -57,7 +57,10 @@ sudo apt update && sudo apt install rdbm
 ```
 
 ### RPM
-`sudo rpm -i https://www.dbinvent.com/dist/rdbm-latest.x86_64.rpm`
+```
+sudo rpm --import https://www.dbinvent.com/dist/DBinventLLC.gpg.key
+sudo rpm -i https://www.dbinvent.com/dist/rdbm-latest.x86_64.rpm
+```
  
 
 ### License
