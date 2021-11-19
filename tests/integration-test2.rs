@@ -67,14 +67,14 @@ fn migration_log_db_tests3() -> Result<(), String> {
 fn run_all(pg: &PgInstance, logpg: &PgInstance) -> Result<(), String> {
     let d0 = "./tests/test_scen/case0".to_string();
     migrate(pg.with_src(&d0, vec!["createdb", "yes"]), false, &init::LOG)?;
-    init::compare_with(d0.clone(), "test.result", init::dump_db(&logpg)?)?;
+    init::compare_with(&d0, "test.result", init::dump_db(&logpg)?)?;
     fs::write(format!("{}/empty.result", &d0), "");
-    init::compare_with(d0.clone(), "empty.result", init::dump_db(&pg)?)?;
+    init::compare_with(&d0, "empty.result", init::dump_db(&pg)?)?;
 
     let d1 = "./tests/test_scen/case1".to_string();
     migrate(pg.with_src(&d1, vec![]), false, &init::LOG)?;
-    init::compare_with(d1, "test-db.result", init::dump_db(&pg)?)?;
-    init::compare_with(d0, "test.result", init::dump_db(&logpg)?)?;
+    init::compare_with(&d1, "test-db.result", init::dump_db(&pg)?)?;
+    init::compare_with(&d0, "test.result", init::dump_db(&logpg)?)?;
 
     Ok(())
 }

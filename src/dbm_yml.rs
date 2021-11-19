@@ -56,7 +56,7 @@ impl FileVersion {
     }
     #[inline]
     #[allow(dead_code)]
-    fn from(key: &str) -> Result<Self, SemVerError> {
+    pub(crate) fn from(key: &str) -> Result<Self, SemVerError> {
         Ok(FileVersion {
             v: Version::parse(key)?,
             s: key.into(),
@@ -279,12 +279,10 @@ fn load_dir(
                                             .insert(FileVersion::new(vv, key), file_name);
                                     }
                                 }
-                                b'a' => {
+                                b'a' | b'A' => {
                                     if file_name.ends_with(".sql") {
-                                        schema.after.insert(
-                                            file_name[starting_pos..file_name.len() - 4].into(),
-                                            file_name,
-                                        );
+                                        let akey =  file_name[starting_pos..file_name.len() - 4].to_lowercase();
+                                        schema.after.insert(akey, file_name);
                                     }
                                 }
                                 _ => {
@@ -431,7 +429,18 @@ pub struct YTable {
     pub columns: OrderedHashMap<YColumn>,
     #[serde(skip_serializing_if = "OrderedHashMap::is_empty")]
     pub triggers: OrderedHashMap<YTrig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub etl: Option<YEtl>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct YEtl {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub view: Option<String>,
+}
+
 
 /// wrapper for table to get a format as on lb
 #[derive(Serialize)]
@@ -586,6 +595,27 @@ impl YColumn {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn newt(name: &str, ctype: &str, primary_key: bool, nullable: bool) -> Self {
+        let constraint = if primary_key || !nullable {
+            Some(YConstr {
+                primary_key: if primary_key {Some(true)} else {None},
+                nullable,
+                foreign_key: None,
+            })
+        } else {
+            None
+        };
+        YColumn {
+            name: name.to_string(),
+            column_type: ctype.to_string(),
+            default_value: None,
+            description: "".to_string(),
+            sql: "".to_string(),
+            constraint,
+        }
+    }
+
     pub(crate) fn is_pk(&self) -> bool {
         match &self.constraint {
             None => false,
@@ -709,6 +739,18 @@ fn as_str(input: &Yaml, field: &str, def: &str) -> String {
 }
 
 #[inline]
+fn as_stro(input: &Yaml, field: &str) -> Option<String> {
+    if input.is_null() {
+        None
+    } else {
+        match &input[field] {
+            Yaml::String(v) => Some(v.to_string()),
+            _ => None,
+        }
+    }
+}
+
+#[inline]
 fn as_bool(input: &Yaml, field: &str, default: bool) -> bool {
     if input.is_null() {
         default
@@ -789,6 +831,15 @@ impl<T: Named + Serialize> OrderedHashMap<T> {
             Some(id) => Some(&self.list[*id]),
         }
     }
+
+    #[inline]
+    pub(crate) fn get_mut(&mut self, key: &String) -> Option<&mut T> {
+        match self.map.get_mut(key) {
+            None => None,
+            Some(id) => Some(&mut self.list[*id]),
+        }
+    }
+
     #[inline]
     pub fn len(&self) -> usize {
         self.list.len()
@@ -885,6 +936,7 @@ impl YTable {
                 }
             }
         }
+        let etl = &input["etl"];
         Ok(YTable {
             table_name: table_name.into(),
             description: as_str(input, "description", ""),
@@ -893,6 +945,14 @@ impl YTable {
             constraint: as_str_esc(input, "constraint"),
             columns,
             triggers,
+            etl: if etl.is_null() {
+                None
+            } else {
+                Some(YEtl {
+                    file: as_stro(etl, "file"),
+                    view: as_stro(etl, "view")
+                })
+            },
         })
     }
 

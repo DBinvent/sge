@@ -8,9 +8,8 @@ connections:
   - valid_until: "2022-12-12"
     hosts: ["rt2","rt3"]
     db_names: ["gpc2"]
-clusters:
 
 api_key_valid_until: "2021-12-12T00:00:00+00:00"
-api_key: "uuid"
-license: "<signature_see_bellow -- это будет строчка 550 символов>"
-key:
+api_key: "uuid-32"
+license: "<signature -- это будет base64 строчка>"
+key: "<rsa private key - base 64>"

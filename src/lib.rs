@@ -11,6 +11,7 @@ mod dbm_log;
 pub mod dbm_yml;
 pub mod license;
 pub mod i18n;
+mod dbm_etl;
 
 use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
@@ -206,7 +207,7 @@ fn migrate_db(
             }
         },
         Err(e) => {
-            info!(log, "commit history failed: {}", e);
+            error!(log, "commit history failed: {}", e);
             match &res {
                 Ok(_) => Err(format!("commit history failed: {}", e)),
                 Err(ee) => Err(format!("{}. Also, commit history failed: {}", e, ee)),
@@ -233,7 +234,7 @@ fn migrate_db(
     }
 
     if let Ok(ids) = res {
-        StatementLog::new(cfg).after("after_end", &files, &HashMap::new(),
+        StatementLog::new(cfg).after("after", &files, &HashMap::new(),
             pgsrv.as_str(), cfg, None, ids, log)?;
     }
     if cfg.is_pgsrv() {
@@ -255,12 +256,15 @@ fn migrate_all_versions(
     log: &Logger,
 ) -> Result<Vec<i32>, String> {
     let mut res = Vec::new();
+    let draft = StatementLog::new(cfg);
     for ver in files.all_versions() {
         info!(log, "Deploying version: {}", ver);
         res.push(deploy_pre_files(&logs, &ver, &files, pgsrv, &cfg, t, clog_t, log)?);
-        res.push(deploy_all_schemas(client, &ver, &files, dbc, &cfg, t, clog_t, log)?);
+        res.push(deploy_all_schemas(&logs, client, &ver, &files, dbc, &cfg, t, clog_t, log)?);
         res.push(deploy_all_files(&logs, &ver, &files, pgsrv, &cfg, t, clog_t, log)?);
+        let _ = draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![], log)?;
     }
+    let _ = draft.after("after", files, &logs, pgsrv, cfg, Some(t), vec![], log)?;
     Ok(res)
 }
 
@@ -301,7 +305,7 @@ fn deploy_pre_files(
         if let Some(file) = files.pre.get(ver) {
             let id = draft
                 .instance('P', &ver.s, &cfg.get("source_dir"), file)
-                .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], log)?;
+                .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], true, log)?;
             draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
             id
         } else { 0 }
@@ -326,23 +330,21 @@ fn deploy_all_files(
     if let Some(file) = &files.versions.get(ver) {
         id = draft
             .instance('V', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], log)?;
-        draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], true, log)?;
     }
     // deploy re-runable
     if let Some(file) = &files.re_runnable.get(ver) {
         id = draft
             .instance('R', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], log)?;
-        draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![], log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], true, log)?;
     }
-    draft.after("after", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
     Ok(id)
 }
 
 #[inline]
 /// deploy schema by definitions - declaratives
 fn deploy_all_schemas(
+    logs: &LogSchemaType,
     client: &mut Client,
     ver: &FileVersion,
     files: &FilesMap,
@@ -357,6 +359,7 @@ fn deploy_all_schemas(
     // let mut client = connect("db_", &cfg, None, log)?;
     {
         let stl = StatementLog::new(cfg);
+        let etl = dbm_etl::Etl::from(cfg)?;
         let table_tr = cfg.get("schema_transaction") == "table";
         let mut do_persist = false;
         // for (ver, (file, ysv)) in &files.schemas
@@ -421,6 +424,15 @@ fn deploy_all_schemas(
                             }
                             if let Some(_) = &err {
                                 break;
+                            }
+                        }
+                    }
+                    if err.is_none() {
+                        match etl.deploy_all(&ysv, logs, ver, dbc, &mut t, lt, clog_t, &stl, log) {
+                            Ok(p) => do_persist = do_persist || p,
+                            Err(e) => {
+                                do_persist = true;
+                                err = Some(e);
                             }
                         }
                     }
@@ -663,38 +675,17 @@ fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
 
 #[inline]
 pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
-    let snapshot_to = cfg.get_opt("snapshot_to");
     let mut log_client = connect("logdb_", &cfg, None, "loading logs",log)?;
     let mut db_client = connect("db_", &cfg, None, "loading data",log)?;
-    let result = { load_impl(dump, &mut db_client, &mut log_client, &cfg) };
+    let etl = dbm_etl::Etl::from(&cfg)?;
+    let result = if dump {
+        LoadResult::load(&etl, &mut db_client)?.format(etl.yaml_format)
+    } else {
+        StatementLog::load_formatted(&cfg, &mut log_client)
+    };
     let _ = db_client.close();
     let _ = log_client.close();
-
-    match result {
-        Ok(loaded) => {
-            match snapshot_to {
-                None => println!("{}", loaded),
-                Some(file) => dump_loaded(file, loaded)?,
-            }
-            Ok(())
-        }
-        Err(e) => {
-            let yaml = format!("error: \"{}\"", e);
-            match snapshot_to {
-                None => println!("{}", yaml),
-                Some(file) => dump_loaded(file, yaml)?,
-            }
-            Err(e)
-        }
-    }
-}
-
-#[inline]
-fn dump_loaded(file: String, content: String) -> Result<(), String> {
-    if let Some(i) = file.rfind("/") {
-        let _ = fs::create_dir_all(&file[..i]).map_err(|e| format!("writing to dir {} : {}", &file, e))?;
-    }
-    fs::write(&file, content).map_err(|e| format!("writing to {} : {}", file, e))
+    etl.dump_loaded(result)
 }
 
 #[cfg(test)]

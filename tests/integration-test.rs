@@ -14,6 +14,7 @@ use rdbm::dbm_cfg::ConfigMap;
 use slog::Logger;
 use std::time::Duration;
 use std::env::VarError;
+use yaml_rust::YamlLoader;
 use crate::init::PgInstance;
 
 /**
@@ -57,15 +58,18 @@ fn run_all(pg: &PgInstance) -> Result<(), String> {
         if !Path::new(d.as_str()).is_dir() {
             return Ok(());
         }
+        if i > 100 {
+            break;
+        }
         i += 1;
         println!("\n\nStarting test case: {}", d);
         migrate(pg.with_src(&d, vec!["createdb", i.to_string().as_str()]), false, &init::LOG)?;
-        init::compare_with(d.clone(), "test.result", init::dump_db(&pg)?)?;
+        init::compare_with(&d, "test.result", init::dump_db(&pg)?)?;
 
         let dumys = format!("{}/dump.yaml", d);
         rdbm::load(true, pg.with_src(&d, vec!["snapshot_to", dumys.as_str()]), &init::LOG)?;
         let dumpys = fs::read_to_string(dumys.as_str()).map_err(|e| format!("reading [{}] {}", dumys, e))?;
-        init::compare_with(d, "test.result.yaml", dumpys)?;
+        init::compare_with(&d, "test.result.yaml", dumpys)?;
 
     }
     Ok(())

@@ -1,3 +1,8 @@
 --test
 -- test --single-transaction=false
-select 1;
+
+insert into test_schema.test_table (test) values (NULL);
+insert into test_schema.test_table (test) values ('NULL');
+insert into test_schema.test_table (test) values ('third');
+
+select * from test_schema.test_table;

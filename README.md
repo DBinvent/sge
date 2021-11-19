@@ -21,6 +21,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
  - create database if absent
  - ability to connect by certs
  - use both: schema/table definition and script execution tracking
+ - simple ETL for extraction on snapshot and load data on migration
  - support separate db connection for history table as a remote copy or primary one
  - use psql client for script execution, include native psql script support
  - no JVM nor Python required to run

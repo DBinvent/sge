@@ -1,3 +1,7 @@
 --test
 -- test --single-transaction=false
-select 1;
+\echo test_schema.test_table
+select * from test_schema.test_table;
+
+\echo test_schema.test_ref_table
+select * from test_schema.test_ref_table;

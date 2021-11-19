@@ -20,8 +20,6 @@ database:
             - column:
                 name: target
                 type: varchar(250)
-                constraint:
-                  nullable: false
             - column:
                 name: source_type
                 type: bpchar
@@ -41,33 +39,21 @@ database:
             - column:
                 name: checksum
                 type: varchar(80)
-                constraint:
-                  nullable: false
             - column:
                 name: scheduled_on
                 type: timestamp
-                constraint:
-                  nullable: false
             - column:
                 name: script_tag
                 type: varchar(80)
-                constraint:
-                  nullable: false
             - column:
                 name: catalog
                 type: varchar(80)
-                constraint:
-                  nullable: false
             - column:
                 name: executed_on
                 type: timestamptz
-                constraint:
-                  nullable: false
             - column:
                 name: executed_by
                 type: varchar(80)
-                constraint:
-                  nullable: false
             - column:
                 name: ok
                 type: bool
@@ -77,8 +63,6 @@ database:
             - column:
                 name: msg
                 type: varchar(250)
-                constraint:
-                  nullable: false
             - column:
                 name: took_sec
                 type: int8
@@ -112,8 +96,6 @@ database:
             - column:
                 name: test
                 type: varchar(20)
-                constraint:
-                  nullable: false
       - table:
           tableName: test_table
           columns:
@@ -126,12 +108,10 @@ database:
             - column:
                 name: test
                 type: varchar(250)
-                constraint:
-                  nullable: false
             - column:
                 name: tr
                 type: int4
                 constraint:
-                  nullable: false
+                  nullable: true
                   foreignKey:
                     references: test_schema.test_ref_table

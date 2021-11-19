@@ -26,3 +26,5 @@ database:
             - column:
                 name: test
                 type: varchar(20)
+          etl:
+            file: D1__test_ref.csv

@@ -49,6 +49,16 @@ schema:
           type: string
 
 ---
+uri: etl
+schema:
+  type: object
+  items:
+    file:
+      type: string
+    view:
+      type: string
+
+---
 uri: table
 schema:
   type: object
@@ -74,6 +84,8 @@ schema:
           type: array
           items:
             $ref: trigger
+        etl:
+          $ref: etl
 
 ---
 uri: schema

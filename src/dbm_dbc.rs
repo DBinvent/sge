@@ -95,7 +95,7 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
         let numeric_precision: Option<i32> = r.get(9);
         let numeric_scale: Option<i32> = r.get(10);
         let mut data_type = if udt_name.len() == 0 {data_type.to_string()} else {udt_name.to_string()};
-        if data_type.as_str() == "varchar" {
+        if data_type.to_lowercase().as_str() == "varchar" {
             if let Some(varchar_len) = character_maximum_length {
                 data_type.push_str(format!("({})", varchar_len).as_str());
             }
@@ -110,7 +110,7 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
         }
 
         let column_data = SColumnDfn::new(column_name, data_type,
-            column_default, nullable == "yes", sort_order);
+            column_default, nullable.to_lowercase() == "yes", sort_order);
         match data.get_mut(table_schema) {
             None => {
                 let mut hd = HashMap::new();

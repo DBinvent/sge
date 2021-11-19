@@ -9,7 +9,7 @@ use serde::Serialize;
 use slog::Logger;
 
 use crate::dbm_cfg::ConfigMap;
-use crate::dbm_dbc::{InfoSchemaOwnerType, InfoSchemaType, STable, SColumnDfn};
+use crate::dbm_dbc::{STable, SColumnDfn};
 use crate::dbm_yml::{semver_parse, FilesMap, OrderedHashMap, YColumn, YSchema, YTable};
 use crate::*;
 use chrono::{DateTime, Utc};
@@ -17,6 +17,7 @@ use semver::Version;
 use std::fs::{File, OpenOptions};
 use std::time::Instant;
 use crypto::digest::Digest;
+use crate::dbm_etl::Etl;
 
 /// loaded from DB or stored to DB, see [STATEMENT_LOG_TBL] and [STATEMENT_LOG_TABLE_YML] for table defenition
 #[derive(Debug, Clone, Serialize)]
@@ -92,6 +93,20 @@ mod my_date_format {
 type SortedStatementLog = HashMap<String, HashMap<String, LogVer>>;
 
 impl StatementLog {
+
+    /// load impl
+    #[inline]
+    pub(crate) fn load_formatted(cfg: &ConfigMap, log_client: &mut Client) -> Result<String, String> {
+        let logs = StatementLog::load_ok(log_client, cfg)?;
+        if cfg.get("out_format").as_str() == "json" {
+            serde_json::to_string(&logs)
+                .map_err(|e| format!("converting result to JSON format with error: {}", e))
+        } else {
+            serde_yaml::to_string(&logs)
+                .map_err(|e| format!("converting result to YAML format with error: {}", e))
+        }
+    }
+
     /// select table for update -- row level lock
     #[inline]
     pub(crate) fn load_all(
@@ -141,7 +156,7 @@ impl StatementLog {
     // map: db_name(target) -> catalog (schemas) -> max(version)/
     #[inline]
     #[allow(unused_mut)]
-    fn load_ok(t: &mut Transaction, cfg: &ConfigMap) -> Result<SortedStatementLog, String> {
+    fn load_ok(t: &mut Client, cfg: &ConfigMap) -> Result<SortedStatementLog, String> {
         let mut sql = format!(
             "select target, catalog, version, script_tag, executed_by, executed_on, ok from {}.{} \
              where version <> 'baseline' ",
@@ -229,7 +244,7 @@ impl StatementLog {
         insta.source_type = code;
         insta.version = tlim(version, SLT_C_LEN);
         insta.source = tlim(file, SRC_T_M_LEN);
-        insta.checksum = if file.as_str() == BASELINE {
+        insta.checksum = if file.as_str() == BASELINE || code == 'a' || code == 'A' {
             "".into()
         } else {
             let file = if dir.len() > 0 {
@@ -263,9 +278,9 @@ impl StatementLog {
         log: &Logger,
     ) -> Result<(), String> {
         if let Some((va, afile)) = files.after.get_key_value(key) {
-            if afile.ends_with(format!("/{}", cfg.get(key)).as_str()) {
+            if afile.ends_with(cfg.get(key).as_str()) {
                 let _ = self.instance(' ', va, &"".into(), afile)
-                    .deploy(&logs, pgsrv, cfg, t, &mut None, ids, log)?;
+                    .deploy(&logs, pgsrv, cfg, t, &mut None, ids, false, log)?;
             }
         }
         Ok(())
@@ -281,6 +296,7 @@ impl StatementLog {
         t: Option<&mut Transaction>,
         clog_t: &mut Option<Transaction>, // copy_log_client
         _id: Vec<i32>,
+        persist: bool,
         log: &Logger,
     ) -> Result<i32, String> {
         let key = format!("{}{}", self.source_type, self.version);
@@ -352,7 +368,9 @@ impl StatementLog {
                         if emsg.len() > 0 {
                             error!(log, "{}", emsg);
                         }
-                        self.persist(None, t, clog_t)
+                        if persist {
+                            self.persist(None, t, clog_t)
+                        } else { Ok(0)}
                     } else {
                         let msg = format!(
                             "{} : {} {}",
@@ -361,12 +379,16 @@ impl StatementLog {
                             trim_output(&output.stderr)
                         );
                         error!(log, "{}", msg);
-                        self.persist(Some(msg), t, clog_t)
+                        if persist {
+                            self.persist(Some(msg), t, clog_t)
+                        } else { Ok(0)}
                     }
                 }
                 Err(e) => {
                     error!(log, "psql {}", e);
-                    self.persist(Some(e.to_string()), t, clog_t)
+                    if persist {
+                        self.persist(Some(e.to_string()), t, clog_t)
+                    } else { Ok(0)}
                 }
             }
         }
@@ -580,47 +602,17 @@ fn hash_md5<R: Read>(reader: &mut R) -> String {
     base64::encode(output)
 }
 
-/// load impl
-#[inline]
-pub(crate) fn load_impl(
-    dump: bool,
-    db_client: &mut Client,
-    log_client: &mut Client,
-    cfg: &ConfigMap,
-) -> Result<String, String> {
-    if dump { // i.e. snapshot vs. info only from log
-        let db_name = cfg.get("db_name");
-        let dbc = crate::dbm_dbc::load_info_schema(db_name.as_str(), db_client)?;
-        let dbco = crate::dbm_dbc::load_info_schema_owner(db_name.as_str(),db_client)?;
-        let logs = LoadResult::new(dbc, dbco);
-        if cfg.get("out_format").as_str() == "json" {
-            serde_json::to_string(&logs)
-                .map_err(|e| format!("converting result to JSON format with error: {}", e))
-        } else {
-            serde_yaml::to_string(&logs)
-                .map_err(|e| format!("converting result to YAML format with error: {}", e))
-        }
-    } else {
-        let mut t = log_client.transaction().unwrap();
-        let logs = StatementLog::load_ok(&mut t, cfg)?;
-        let _ = t.rollback();
-        if cfg.get("out_format").as_str() == "json" {
-            serde_json::to_string(&logs)
-                .map_err(|e| format!("converting result to JSON format with error: {}", e))
-        } else {
-            serde_yaml::to_string(&logs)
-                .map_err(|e| format!("converting result to YAML format with error: {}", e))
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
-struct LoadResult {
+pub(crate) struct LoadResult {
     pub database: Vec<YSchema>,
 }
 
 impl LoadResult {
-    fn new(input: InfoSchemaType, owners: InfoSchemaOwnerType) -> Self {
+    pub(crate) fn load(etl: &Etl, db_client: &mut Client) -> Result<Self, String> {
+        let input = crate::dbm_dbc::load_info_schema(etl.db_name.as_str(), db_client)?;
+        let owners = crate::dbm_dbc::load_info_schema_owner(etl.db_name.as_str(),db_client)?;
+
         let mut schemas = Vec::new();
         for (schema, tables) in input {
             let mut tables = tables.values().cloned().collect::<Vec<STable>>();
@@ -635,7 +627,8 @@ impl LoadResult {
                     constraint: "".to_string(),
                     columns: OrderedHashMap::new(),
                     triggers: OrderedHashMap::new(),
-                };
+                    etl: None
+               };
                 let mut columns = table.columns.values().cloned().collect::<Vec<SColumnDfn>>();
                 columns.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
                 for c in columns {
@@ -668,9 +661,25 @@ impl LoadResult {
             };
             schemas.push(ys);
         }
-        LoadResult { database: schemas }
+        let mut lr = LoadResult { database: schemas };
+        let _ = etl.extract(&mut lr, db_client)?;
+        Ok(lr)
     }
+
+    /// load impl
+    #[inline]
+    pub(crate) fn format(&self, yaml_format: bool) -> Result<String, String> {
+        if yaml_format {
+            serde_yaml::to_string(self)
+                .map_err(|e| format!("converting result to YAML format with error: {}", e))
+        } else {
+            serde_json::to_string(self)
+                .map_err(|e| format!("converting result to JSON format with error: {}", e))
+        }
+    }
+
 }
+// LoadResult
 
 // V1_1__sample_ddl.sql
 
