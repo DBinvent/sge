@@ -55,8 +55,12 @@ schema:
   items:
     file:
       type: string
-    view:
-      type: string
+#    view:
+#      type: string
+#    auto:
+#      type: boolean
+#    sql:
+#      type: string
 
 ---
 uri: table

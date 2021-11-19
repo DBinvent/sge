@@ -67,6 +67,7 @@ fn run(ver: usize, d: &String, pg: &PgInstance) -> Result<(), String> {
             // "rr_deploy".to_string(), format!("1.{}", ver).as_str(),
             "script_tag", format!("tag_1_{}", ver).as_str(),
             "executed_by", format!("dba{}", ver).as_str(),
+            "etl", "ignore" //"skip",
         ]);
 
     println!("\n\nStarting test case ver[1.{}] from {}", ver, d);

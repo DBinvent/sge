@@ -646,7 +646,8 @@ impl YColumn {
                 nullable: c.clone().map_or(true, |c| c.nullable),
                 fk: c.map_or(None, |cs| cs.foreign_key
                         .map_or(None, |fk| Some((fk.references.trim().into(), fk.sql.trim().into())))),
-                sort_order: 0
+                sort_order: 0,
+                column_comment: None
             })
         }
     }
@@ -1040,7 +1041,8 @@ impl YTable {
                 columns: HashMap::new(),
                 fks: Default::default(),
                 triggers: HashMap::new(),
-                sort_order: 0
+                sort_order: 0,
+                table_comment: None
             };
             for dc in &self.columns.list {
                 let cd = dc.column_def(schema, &self.table_name, file)?;

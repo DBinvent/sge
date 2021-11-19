@@ -443,8 +443,8 @@ impl Etl {
                                 };
                                 let mut r = csv::Reader::from_path(&file)
                                     .map_err(|e| format!("ETL: Reading {}: {}", file, e))?;
-                                match EtlComposer::new(&self, dbc, &s, yt, update, &file, &mut r)?
-                                    .deploy(&mut r, db, log) {
+                                match EtlComposer::new(&self, dbc, &s, yt, update, &file, &mut r, log)?
+                                    .deploy(&mut r, db) {
                                     Ok(ok) => {
                                         if ok {
                                             let _ = dstl.persist(None, Some(lt), clog_t)?;
@@ -493,7 +493,8 @@ type ColumnSet = BTreeSet<u16>;
 struct EtlComposer<'a> {
     /// execution context
     etl: &'a Etl,
-    columns_def: BTreeMap<u16, String>,
+    /// PK columns default for sequence build
+    pk_defaults: BTreeMap<String, String>,
     /// list of PK from file header: indexes from header
     /// PK list of columns, might be empty, but usually one name
     hidx_pks_clmn: ColumnSet,
@@ -513,50 +514,85 @@ struct EtlComposer<'a> {
     columns_pklst: String,
     /// schema.table
     table: String,
+    /// schema
+    schema: String,
     /// for logging
     file: String,
+    log: Logger,
 }
 
 const IS_NULL:&str = " IS NULL";
 const SETE_NULL:&str = " = NULL";
 
-fn def(dbc: &InfoSchemaType, schema: &String, table: &String, column: &String) -> Option<String> {
-    if let Some(ds) = dbc.get(schema) {
-        if let Some(dc) = ds.get(table) {
-            if let Some(dp) = dc.columns.get(column) {
-                return dp.column_default.clone()
+fn add_sequence(
+    pk_defaults: &mut BTreeMap<String, String>,
+    schema_name: &String,
+    yaml_table: &YTable,
+    column_name: &String,
+    column_type: &String,
+    column_default: &Option<String>
+) {
+    if !pk_defaults.contains_key(column_name) {
+        if column_type.ends_with("serial") {
+            pk_defaults.insert(column_name.clone(), format!("nextval('{}.{}_{}_seq')",
+                schema_name, yaml_table.table_name, column_name));
+        } else {
+            if let Some(def) = column_default {
+                pk_defaults.insert(column_name.clone(), def.clone());
             }
         }
     }
-    None
 }
 
 impl <'a> EtlComposer <'a>  {
     /// prepare composer context
     #[inline]
     fn new(
-        etl: &'a Etl,
-        dbc: &'a InfoSchemaType,
-        schema: &'a String,
-        table: &'a YTable,
-        update: bool,
-        file: &String, // to use for logging only
-        reader: &mut Reader<File>,
+        etl_cmd: &'a Etl,
+        db_info_schema: &'a InfoSchemaType,
+        schema_name: &'a String,
+        yaml_table: &'a YTable,
+        do_force_update: bool,
+        src_file: &String, // to use for logging only
+        csv_reader: &mut Reader<File>,
+        log: &'a Logger,
     ) -> Result<Self, String>
     {
-        let headers = reader.headers().map_err(|e| format!("Reading {}: {}", file, e))?.clone();
+        let headers = csv_reader.headers().map_err(|e| format!("Reading {}: {}", src_file, e))?.clone();
         let mut pks  = BTreeSet::new();
         let mut null_clmn  = BTreeSet::new();
         let mut null_str = BTreeSet::new();
         let mut str_clmn = BTreeSet::new();
-        let mut columns_defy = BTreeMap::new();
-        for c in &table.columns.list {
+        let mut pk_defaults = BTreeMap::new();
+
+        if let Some(dbcs) =  db_info_schema.get(schema_name) {
+            if let Some(dbt) = dbcs.get(&yaml_table.table_name) {
+                for (cn, cd) in &dbt.columns {
+                    if cd.pk {
+                        pks.insert(cn.as_str());
+                        add_sequence(&mut pk_defaults, schema_name, yaml_table, cn, &cd.column_type, &cd.column_default);
+                    }
+                    if cd.nullable{
+                        null_clmn.insert(cn.as_str());
+                        if is_str_escapable(&cd.column_type) {
+                            null_str.insert(cn.as_str());
+                        }
+                    }
+                    if is_str_escapable(&cd.column_type) {
+                        str_clmn.insert(cn.as_str());
+                    }
+
+                }
+            }
+        }
+
+        let pds = pk_defaults.len(); // pk_defaults from schema
+        for c in &yaml_table.columns.list {
             let nullable = match &c.constraint {
                 Some(pk) => {
                     if pk.primary_key.unwrap_or(false) {
                         pks.insert(c.name.as_str());
-
-                        columns_defy.insert(c.name.clone(), c.column_type.clone());
+                        add_sequence(&mut pk_defaults, schema_name, yaml_table, &c.name, &c.column_type, &c.default_value);
                     }
                     pk.nullable
                 }
@@ -573,7 +609,8 @@ impl <'a> EtlComposer <'a>  {
             }
         }
 
-        let mut columns_def = BTreeMap::new();
+        let table = format!("{}.{}", schema_name, yaml_table.table_name);
+
         let mut hidx_null_clmn: ColumnSet = Default::default();
         let mut hidx_null_str: ColumnSet = Default::default();
         let mut hidx_str_clmn: ColumnSet = Default::default();
@@ -581,52 +618,57 @@ impl <'a> EtlComposer <'a>  {
         let mut columns_lst = String::new();
         let mut columns_pklst = String::new();
         for i in 0..headers.len() {
-            if pks.contains(&headers[i]) {
+            let cn = headers[i].to_string();
+            if pks.contains(cn.as_str()) {
                 hidx_pks_clmn.insert(i as u16);
                 if columns_pklst.len() > 0 {
                     columns_pklst.push_str(", ");
                 }
-                columns_pklst.push_str(&headers[i]);
-                if let Some(v) = match def(dbc, schema, &table.table_name, &headers[i].to_string()) {
-                    None => columns_defy.remove(&headers[i].to_string()),
-                    Some(v) => Some(v)
-                } {
-                    columns_def.insert(i as u16, v);
-                }
+                columns_pklst.push_str(cn.as_str());
             }
             if i > 0 {
                 columns_lst.push_str(", ");
             }
-            columns_lst.push_str(&headers[i]);
-            if null_clmn.contains(&headers[i]) {
+            columns_lst.push_str(cn.as_str());
+            if null_clmn.contains(cn.as_str()) {
                 hidx_null_clmn.insert(i as u16);
             }
-            if null_str.contains(&headers[i]) {
+            if null_str.contains(cn.as_str()) {
                 hidx_null_str.insert(i as u16);
             }
-            if str_clmn.contains(&headers[i]) {
+            if str_clmn.contains(cn.as_str()) {
                 hidx_str_clmn.insert(i as u16);
             }
         }
-        let table = format!("{}.{}", schema, table.table_name);
-        Ok(EtlComposer {
-            etl,
-            columns_def,
+        let etl = EtlComposer {
+            etl: etl_cmd,
+            pk_defaults,
             hidx_pks_clmn,
             hidx_null_clmn,
             hidx_null_str,
             hidx_str_clmn,
-            update: update && etl.tables.get(&table).is_some(),
+            update: do_force_update && etl_cmd.tables.get(&table).is_some(),
             headers,
             columns_lst,
             columns_pklst,
             table,
-            file: file.clone() // to use for logging
-        })
+            schema: schema_name.clone(),
+            file: src_file.clone(), // to use for logging
+            log: log.clone()
+        };
+        // #[cfg(test)]
+        #[cfg(debug_assertions)]
+        {
+            let mut dbc = db_info_schema.clone();
+            dbc.remove("public");
+            debug!(log, "DEBUG_ETL \n{:?}\n{:?}\n{:?}\n PKS: {:?} pk_def from schema: {}\n null_clmn: {:?}\n null_str: {:?}\n str_clmn: {:?}\n   ",
+                yaml_table.columns.list, dbc, etl, pks, pds, null_clmn, null_str, str_clmn);
+        }
+       Ok(etl)
     }
 
     #[inline]
-    fn deploy(&self, reader: &mut Reader<File>, db: &mut Transaction, log: &Logger) -> Result<bool, String>
+    fn deploy(&self, csv_reader: &mut Reader<File>, db: &mut Transaction) -> Result<bool, String>
     {
         let mut cnt = 0;
         let mut clean_sql = String::new();
@@ -635,13 +677,13 @@ impl <'a> EtlComposer <'a>  {
             EtlRule::Clean => true,
             _ => false
         };
-        info!(log, "ETL: Loading data from {} into {} using {}", self.file, self.table, self.etl.rule);
-        while reader.read_record(&mut record)
+        info!(self.log, "ETL: Loading data from {} into {} using {}", self.file, self.table, self.etl.rule);
+        while csv_reader.read_record(&mut record)
             .map_err(|e| format!("Reading {} {}", self.file, e))?
         {
             let sql = if self.hidx_pks_clmn.len() == 0 {
                 if clean {
-                    warn!(log, "ETL: --etl=clean not allowed for table {} contains no PrimaryKey", self.table);
+                    warn!(self.log, "ETL: --etl=clean not allowed for table {} contains no PrimaryKey", self.table);
                 }
                 self.insert_statement_nopk(&record)
             } else {
@@ -651,54 +693,50 @@ impl <'a> EtlComposer <'a>  {
                 self.insert_statement_pk(&record)
             };
 
-            if self.etl.dry_run {
-                let _ = StatementLog::dry_store(self.etl.dry_run_to.clone(), sql, log)?;
-            } else {
-                cnt += db.execute(sql.as_str(), &[])
-                    .map_err(|e| format!("ETL: insert/update {}: {}", self.table, e))?;
-            }
+            cnt += self.execute("insert/update", sql, db)?;
         }
         let cleaned = if clean_sql.len() > 0 {
             let (lb, rb) = if self.hidx_pks_clmn.len() > 1 { ('(',')') } else { (' ', ' ')};
-            let sql = format!("DELETE FROM {} WHERE {}{}{} NOT IN ({})", self.table, lb, self.columns_pklst, rb, clean_sql);
-            if self.etl.dry_run {
-                let _ = StatementLog::dry_store(self.etl.dry_run_to.clone(), sql, log)?; 0
-            } else {
-                db.execute(sql.as_str(), &[])
-                    .map_err(|e| format!("ETL: clean {}: {}", self.table, e))?
-            }
+            self.execute("clean update", format!("DELETE FROM {} WHERE {}{}{} NOT IN ({})", self.table, lb, self.columns_pklst, rb, clean_sql), db)?
         } else { 0 };
         if cleaned > 0 {
-            info!(log, "ETL: Cleaned {} records, from {} by {}", cleaned, self.file, self.table);
+            info!(self.log, "ETL: Cleaned {} records, from {} by {}", cleaned, self.file, self.table);
         }
         if cnt > 0 {
-            if self.hidx_pks_clmn.len() == 0 {
-                for pk_id in &self.hidx_pks_clmn {
-                    if let Some(sql) = self.build_sequence(*pk_id) {
-                        if self.etl.dry_run {
-                            let _ = StatementLog::dry_store(self.etl.dry_run_to.clone(), sql, log)?;
-                        } else {
-                            let _ = db.execute(sql.as_str(), &[])
-                                .map_err(|e| format!("ETL: clean {}: {}", self.table, e))?;
-                        }
-                    }
+            for (pk, def) in &self.pk_defaults {
+                if let Some(sql) = self.build_sequence(pk, def) {
+                    let _ = self.execute("sequence",sql, db)?;
                 }
             }
-            info!(log, "ETL: Loaded {} records, from {} into {}", cnt, self.file, self.table);
+            info!(self.log, "ETL: Loaded {} records, from {} into {}", cnt, self.file, self.table);
         }
         Ok(cleaned + cnt > 0)
     }
 
+    fn execute(&self, method: &str, sql: String, db: &mut Transaction) -> Result<u64, String> {
+        if self.etl.dry_run {
+            let _ = StatementLog::dry_store(self.etl.dry_run_to.clone(), sql, &self.log)?;
+            Ok(0)
+        } else {
+            #[cfg(debug_assertions)] debug!(self.log, "ETL_{}: {}", method, sql);
+            db.execute(sql.as_str(), &[])
+                .map_err(|e| format!("ETL {} execute for {}: raise {}", method, self.table, e))
+        }
+    }
+
     /// bump sequence from default
     #[inline]
-    fn build_sequence(&self, idx: u16) -> Option<String> {
-        if let Some(def) = self.columns_def.get(&idx) {
-            if def.starts_with("nextval") {
-                let names:Vec<&str> = def.split("'").collect();
-                if names.len() > 2 {
-                    return Some( format!("SELECT setval('{}', coalesce(max({}), 1)) from {}",
-                        names[1], self.headers[idx as usize].to_string(), self.table));
-                }
+    fn build_sequence(&self, pk: &String, def: &String) -> Option<String> {
+        if def.starts_with("nextval") {
+            let names:Vec<&str> = def.split("'").collect();
+            let sequence = if names[1].contains(".") {
+                names[1].to_string()
+            } else {
+                format!("{}.{}", self.schema, names[1])
+            };
+            if names.len() > 2 {
+                return Some( format!("SELECT setval('{}', coalesce(max({}), 0)) + 1 FROM {}",
+                    sequence, pk, self.table));
             }
         }
         None
@@ -841,9 +879,27 @@ fn escp_append(sql: &mut String, input: &str, with_field: bool){
 #[allow(unused, warnings)]
 mod tests {
     use csv::ReaderBuilder;
+    use sloggers::Build;
+    use sloggers::terminal::*;
+    use sloggers::types::*;
     use uuid::Uuid;
     use crate::YColumn;
     use super::*;
+
+    fn logger(debug: bool) -> Logger {
+        let mut builder = TerminalLoggerBuilder::new();
+        builder.channel_size(1024);
+        builder.destination(Destination::Stdout);
+        builder.format(Format::Compact);
+        builder.source_location(SourceLocation::None);
+        builder.level(if debug {
+            Severity::Debug
+        } else {
+            Severity::Info
+        });
+        builder.build().unwrap()
+    }
+
 
     #[test]
     fn s_test() {
@@ -939,6 +995,7 @@ Boston,United States,\"4628910\"\"\"
 
     #[test]
     fn w_test() {
+        let log = logger(true);
         let file = format!("/tmp/{}.csv", uuid());
         let data = "r,active,starts_at,ends_at,cap\n\
 1,true,,,NULL\n\
@@ -952,39 +1009,40 @@ Boston,United States,\"4628910\"\"\"
         let yt = yt_test();
         let dbc = Default::default();
         let schema = "public".to_string();
-        let c = EtlComposer::new(&etl, &dbc,  &schema, &yt,  true, &file, &mut rdr).unwrap();
-        println!("{:?}", c);
-        assert_eq!(c.hidx_pks_clmn.len(), 1);
-        assert_eq!(c.headers.len(), yt.columns.len());
-        assert_eq!(c.hidx_pks_clmn.iter().next().unwrap(), &0u16);
-        assert_eq!(c.hidx_null_clmn.len(), yt.columns.len() - 1);
-        assert_eq!(c.hidx_null_str.len(), 1);
-        assert_eq!(c.hidx_str_clmn.len(), 1);
-        assert_eq!(c.hidx_null_str.iter().next().unwrap(), &4u16);
-        assert_eq!(c.hidx_str_clmn.iter().next().unwrap(), &4u16);
-        assert_eq!(c.columns_lst.as_str(),"r, active, starts_at, ends_at, cap");
-        assert_eq!(c.columns_pklst.as_str(),  "r");
+        // let schema = "".to_string();
+        let ec_test = EtlComposer::new(&etl, &dbc, &schema, &yt, true, &file, &mut rdr, &log).unwrap();
+        println!("{:?}", ec_test);
+        assert_eq!(ec_test.hidx_pks_clmn.len(), 1);
+        assert_eq!(ec_test.headers.len(), yt.columns.len());
+        assert_eq!(ec_test.hidx_pks_clmn.iter().next().unwrap(), &0u16);
+        assert_eq!(ec_test.hidx_null_clmn.len(), yt.columns.len() - 1);
+        assert_eq!(ec_test.hidx_null_str.len(), 1);
+        assert_eq!(ec_test.hidx_str_clmn.len(), 1);
+        assert_eq!(ec_test.hidx_null_str.iter().next().unwrap(), &4u16);
+        assert_eq!(ec_test.hidx_str_clmn.iter().next().unwrap(), &4u16);
+        assert_eq!(ec_test.columns_lst.as_str(), "r, active, starts_at, ends_at, cap");
+        assert_eq!(ec_test.columns_pklst.as_str(), "r");
 
         let mut record = csv::StringRecord::new();
         assert!(rdr.read_record(&mut record).unwrap());
-        assert_eq!(c.conditions_all(&record), "r=1 AND active=true AND starts_at IS NULL AND ends_at IS NULL AND cap IS NULL");
-        assert_eq!(c.conditions_pk(&record), "r=1");
-        assert_eq!(c.insert_statement_pk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) VALUES (1, true, NULL, NULL, NULL) \
+        assert_eq!(ec_test.conditions_all(&record), "r=1 AND active=true AND starts_at IS NULL AND ends_at IS NULL AND cap IS NULL");
+        assert_eq!(ec_test.conditions_pk(&record), "r=1");
+        assert_eq!(ec_test.insert_statement_pk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) VALUES (1, true, NULL, NULL, NULL) \
             ON CONFLICT (r) DO UPDATE SET active=true, starts_at = NULL, ends_at = NULL, cap = NULL");
-        assert_eq!(c.insert_statement_nopk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) \
+        assert_eq!(ec_test.insert_statement_nopk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) \
             SELECT 1, true, NULL, NULL, NULL WHERE (SELECT COUNT(*) FROM public.rdict \
                     WHERE r=1 AND active=true AND starts_at IS NULL AND ends_at IS NULL AND cap IS NULL) = 0");
 
         assert!(rdr.read_record(&mut record).unwrap());
-        assert_eq!(c.conditions_all(&record), "r=2 AND active=true AND starts_at IS NULL AND ends_at IS NULL AND cap='NULL'");
-        assert_eq!(c.conditions_pk(&record), "r=2");
-        assert_eq!(c.insert_statement_pk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) VALUES (2, true, NULL, NULL, 'NULL') \
+        assert_eq!(ec_test.conditions_all(&record), "r=2 AND active=true AND starts_at IS NULL AND ends_at IS NULL AND cap='NULL'");
+        assert_eq!(ec_test.conditions_pk(&record), "r=2");
+        assert_eq!(ec_test.insert_statement_pk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) VALUES (2, true, NULL, NULL, 'NULL') \
             ON CONFLICT (r) DO UPDATE SET active=true, starts_at = NULL, ends_at = NULL, cap='NULL'");
 
         assert!(rdr.read_record(&mut record).unwrap());
-        assert_eq!(c.conditions_all(&record), "r=3 AND active=true AND starts_at IS NULL AND ends_at='2020-01-01' AND cap='''NULL'''");
-        assert_eq!(c.conditions_pk(&record), "r=3");
-        assert_eq!(c.insert_statement_pk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) VALUES (3, true, NULL, '2020-01-01', '''NULL''') \
+        assert_eq!(ec_test.conditions_all(&record), "r=3 AND active=true AND starts_at IS NULL AND ends_at='2020-01-01' AND cap='''NULL'''");
+        assert_eq!(ec_test.conditions_pk(&record), "r=3");
+        assert_eq!(ec_test.insert_statement_pk(&record), "INSERT INTO public.rdict (r, active, starts_at, ends_at, cap) VALUES (3, true, NULL, '2020-01-01', '''NULL''') \
             ON CONFLICT (r) DO UPDATE SET active=true, starts_at = NULL, ends_at='2020-01-01', cap='''NULL'''");
 
         fs::remove_file(&file);

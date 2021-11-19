@@ -12,6 +12,8 @@ database:
                 constraint:
                   foreignKey:
                     references: test_ref_table
+          etl:
+            file: D1__test.csv
 
       - table:
           tableName: test_ref_table

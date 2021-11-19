@@ -621,7 +621,7 @@ impl LoadResult {
             for  table in &tables {
                let mut yt = YTable {
                     table_name: table.table_name.clone(),
-                    description: "".to_string(),
+                    description: table.table_comment.clone().unwrap_or("".to_string()),
                     transaction: "".to_string(),
                     sql: "".to_string(),
                     constraint: "".to_string(),
@@ -643,7 +643,7 @@ impl LoadResult {
                                 .map( |f| YForeignKey{ references: f.0.clone(), sql: f.1.clone() })
                         }) }
                         else { None },
-                        description: "".to_string(),
+                        description: c.column_comment.clone().unwrap_or("".to_string()),
                         sql: "".to_string(),
                     };
                     let _ = yt.columns.append(yc);
