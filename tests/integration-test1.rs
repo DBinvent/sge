@@ -67,12 +67,13 @@ fn run(ver: usize, d: &String, pg: &PgInstance) -> Result<(), String> {
             // "rr_deploy".to_string(), format!("1.{}", ver).as_str(),
             "script_tag", format!("tag_1_{}", ver).as_str(),
             "executed_by", format!("dba{}", ver).as_str(),
+            "etl", "ignore" //"skip",
         ]);
 
     println!("\n\nStarting test case ver[1.{}] from {}", ver, d);
 
     migrate(cfg.clone(), false, &init::LOG)?;
-    init::compare_with(format!("{}/case{}", d, ver), "test.result", init::dump_db(&pg)?)?;
+    init::compare_with(&format!("{}/case{}", d, ver), "test.result", init::dump_db(&pg)?)?;
 
     let _ = load(false, cfg.clone(),&init::LOG)?;
     cfg.insert(&"snapshot_to".to_string(), verf.as_str());

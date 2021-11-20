@@ -21,6 +21,7 @@ pub(crate) struct STable {
     /// trigger name, trigger's schema
     pub triggers: HashMap<String, String>,
     pub sort_order: usize,
+    pub table_comment: Option<String>,
 }
 
 /// information schema column data
@@ -34,6 +35,7 @@ pub(crate) struct SColumnDfn {
     pub pk: bool,
     pub nullable: bool,
     pub sort_order: usize,
+    pub column_comment: Option<String>,
 }
 
 /// FK information loaded from DB
@@ -56,7 +58,8 @@ impl SColumnDfn {
             fk: None,
             pk: false,
             nullable,
-            sort_order
+            sort_order,
+            column_comment: None
         }
     }
 }
@@ -69,6 +72,7 @@ pub(crate) fn load_info_schema(db_name: &str, db: &mut Client) -> Result<InfoSch
     Ok(data)
 }
 
+// SELECT table_catalog, table_schema, table_name, column_name, column_default, is_nullable, data_type, udt_name, character_maximum_length, numeric_precision, numeric_scale, ordinal_position from information_schema.columns where table_schema not in ('pg_catalog', 'information_schema') and table_name = table_catalog = $1
 #[inline]
 fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String> {
     let mut data = BTreeMap::new();
@@ -84,10 +88,7 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
         let table_schema: &str = r.get(1);
         let table_name: &str = r.get(2);
         let column_name: &str = r.get(3);
-        let column_default: &str = match r.try_get(4) {
-            Ok(t) => t,
-            Err(_) => "",
-        };
+        let column_default: Option<&str> = r.get(4);
         let nullable: &str = r.get(5);
         let data_type: &str = r.get(6);
         let udt_name: &str = r.get(7);
@@ -95,7 +96,7 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
         let numeric_precision: Option<i32> = r.get(9);
         let numeric_scale: Option<i32> = r.get(10);
         let mut data_type = if udt_name.len() == 0 {data_type.to_string()} else {udt_name.to_string()};
-        if data_type.as_str() == "varchar" {
+        if data_type.to_lowercase().as_str() == "varchar" {
             if let Some(varchar_len) = character_maximum_length {
                 data_type.push_str(format!("({})", varchar_len).as_str());
             }
@@ -108,9 +109,14 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
                 }
             }
         }
-
+        #[cfg(debug_assertions)]
+        {
+            if column_name == "id" {
+                println!("{}.id= {}", table_name, column_default.unwrap_or("NA"));
+            }
+        }
         let column_data = SColumnDfn::new(column_name, data_type,
-            column_default, nullable == "yes", sort_order);
+            column_default.unwrap_or(""), nullable.to_lowercase() == "yes", sort_order);
         match data.get_mut(table_schema) {
             None => {
                 let mut hd = HashMap::new();
@@ -130,33 +136,51 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
         }
     }
 
-/*
-TODO  add description
-
-SELECT * from (SELECT tabs.table_schema, tabs.table_name, pg_catalog.obj_description(tabs.table_name::regclass::oid) as table_comment
-FROM information_schema.tables tabs
-WHERE tabs.table_schema not in ('pg_catalog', 'information_schema') AND tabs.table_catalog = 'vk'
- AND tabs.table_name in ('rdbm_history')
-) as ist
-WHERE ist.table_comment is not null;
-
-
-select * from
-(SELECT cols.column_name, pg_catalog.col_description(cols.table_name::regclass::oid, cols.ordinal_position::int) as column_comment
-FROM information_schema.columns cols
-WHERE cols.table_schema not in ('pg_catalog', 'information_schema')  AND cols.table_catalog = 'vk'
- AND cols.table_name in ('rdbm_history')
-) as iss where iss.column_comment is not null;
-
-*/
-
     for (schema, tbls) in &mut data {
         let mut query = String::new();
+        let mut tables = String::new();
         for tn in tbls.keys() {
-            if !query.is_empty() {query.push(',')}
+            if !query.is_empty() {query.push(','); tables.push(',');}
             query.push_str(format!("'{}.{}'::regclass", schema, tn).as_str());
+            tables.push_str(format!("'{}.{}'", schema, tn).as_str());
         }
         if !query.is_empty() {
+
+            let result = db.query(format!("SELECT * from
+(SELECT tabs.table_schema, tabs.table_name,
+    pg_catalog.obj_description(tabs.table_name::regclass::oid) as table_comment
+    FROM information_schema.tables tabs
+    WHERE tabs.table_schema not in ('pg_catalog', 'information_schema') AND tabs.table_catalog = $1
+     and tabs.table_name in ({})
+    ) as ist WHERE ist.table_comment is not null order by 1,2", tables).as_str(), &[&db_name])
+                .map_err(|e| format!("on loading table_comment from information_schema [{}]: {}", db_name, e))?;
+            for r in result {
+                // let table_schema: &str = r.get(1);
+                let table_name: &str = r.get(2);
+                let table_comment: &str = r.get(3);
+                if let Some(t) = tbls.get_mut(table_name) {
+                    t.table_comment = Some(table_comment.to_string());
+                }
+            }
+
+            let result = db.query(format!("select * from
+(SELECT cols.table_schema, cols.table_name, cols.column_name, pg_catalog.col_description(cols.table_name::regclass::oid, cols.ordinal_position::int) as column_comment
+FROM information_schema.columns cols
+WHERE cols.table_schema not in ('pg_catalog', 'information_schema')  AND cols.table_catalog = $1
+ AND cols.table_name in ({})
+) as iss where iss.column_comment is not null", tables).as_str(), &[&db_name])
+                .map_err(|e| format!("on loading table_comment from information_schema [{}]: {}", db_name, e))?;
+            for r in result {
+                // let table_schema: &str = r.get(1);
+                let table_name: &str = r.get(2);
+                let column_name: &str = r.get(3);
+                let column_comment: &str = r.get(4);
+                if let Some(t) = tbls.get_mut(table_name) {
+                    if let Some(c) = t.columns.get_mut(column_name) {
+                        c.column_comment = Some(column_comment.to_string());
+                    }
+                }
+            }
 
             let result = db.query(format!("SELECT relname, a.attname, indisprimary, indisunique
                     FROM pg_index i
@@ -338,7 +362,8 @@ impl STable {
             columns: cls,
             fks: HashMap::new(),
             triggers: HashMap::new(),
-            sort_order
+            sort_order,
+            table_comment: None
         }
     }
 
@@ -351,7 +376,8 @@ impl STable {
             triggers: tgs,
             fks: HashMap::new(),
             columns: HashMap::new(),
-            sort_order
+            sort_order,
+            table_comment: None
         }
     }
 }

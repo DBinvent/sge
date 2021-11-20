@@ -38,7 +38,8 @@ dpkg -I target/debian/*.deb
 dpkg --contents  target/debian/*.deb
 mt=x86_64-unknown-linux-musl
 echo "Rebuild as $mt"
-docker run --rm -i -v "$(pwd)":/home/rust/src rust cargo build --release --target $mt
+docker image build -t mrust docker
+docker run --rm -i -v "$(pwd)":/home/rust/src mrust bash -e mu-build.sh
 cp -f target/$mt/release/rdbm target/release/.
 strip -s target/release/rdbm
 cargo generate-rpm --auto-req no

@@ -1010,7 +1010,7 @@ impl License {
                     crc::debug("do_header", &d, &s,  &rsa.to_public_key());
                     Ok(base64::encode(s))
                 },
-                Err(e) => Err(format!("key is not good for sign: {}", e)),
+                Err(e) => Err(format!("key is not good for sign header: {}", e)),
             }
         }
     }

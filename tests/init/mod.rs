@@ -178,6 +178,7 @@ pub fn cleanup_db(pg: PgInstance) {
 
 }
 
+/// pg_dump -s
 pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
     println!("Dumping:  pg_dump -s -h localhost -p {} {}", pg.port, pg.db_name);
     let p = Command::new("pg_dump").arg("-s")
@@ -203,7 +204,7 @@ pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
 }
 
 
-pub fn compare_with(d: String, dump: &str, b: String) -> Result<(), String> {
+pub fn compare_with(d: &String, dump: &str, b: String) -> Result<(), String> {
     let u = env::var("USER").unwrap();
     let a = fs::read_to_string(format!("{}/{}", d, dump).as_str())
             .map_err(|e| format!("reading [{}/{}] {}", d, dump, e))?;
@@ -226,6 +227,21 @@ pub fn compare_with(d: String, dump: &str, b: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// diff with $1 $1.dump
+pub fn diff(d: &String, dump: &str, ) -> Result<(), String> {
+    println!("DIFF at {} {} vs .dump", d, dump);
+    let p = Command::new("diff")
+        .arg(format!("{}/{}", d,  dump).as_str())
+        .arg(format!("{}/{}.dump", d,  dump).as_str())
+        .output().map_err(|e| format!("DIFF {}", e))?;
+    if p.status.success() {
+        Ok(())
+    } else {
+        Err(format!("diff: {} {}", String::from_utf8_lossy(&p.stderr), String::from_utf8_lossy(&p.stdout)))
+    }
+}
+
 
 /// pseudo random function based on timer
 #[inline]

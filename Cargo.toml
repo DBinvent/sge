@@ -69,7 +69,7 @@ sha-1 = "^0.9.4"
 uuid = {version="^0.8.1", features = ["v4"]}
 ipaddress = "^0.1.2"
 ureq = "^2.1.1"
-
+csv = "1.1.6"
 smallvec = "1.6.1"
 yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", features = []}
 
