@@ -586,7 +586,6 @@ impl <'a> EtlComposer <'a>  {
             }
         }
 
-        let pds = pk_defaults.len(); // pk_defaults from schema
         for c in &yaml_table.columns.list {
             let nullable = match &c.constraint {
                 Some(pk) => {
@@ -661,8 +660,8 @@ impl <'a> EtlComposer <'a>  {
         {
             let mut dbc = db_info_schema.clone();
             dbc.remove("public");
-            debug!(log, "DEBUG_ETL \n{:?}\n{:?}\n{:?}\n PKS: {:?} pk_def from schema: {}\n null_clmn: {:?}\n null_str: {:?}\n str_clmn: {:?}\n   ",
-                yaml_table.columns.list, dbc, etl, pks, pds, null_clmn, null_str, str_clmn);
+            debug!(log, "DEBUG_ETL \n{:?}\n{:?}\n{:?}\n PKS: {:?} \n null_clmn: {:?}\n null_str: {:?}\n str_clmn: {:?}\n   ",
+                yaml_table.columns.list, dbc, etl, pks, null_clmn, null_str, str_clmn);
         }
        Ok(etl)
     }
