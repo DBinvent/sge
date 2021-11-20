@@ -70,11 +70,11 @@ subcommands:
           Perform a DB schema dump into a '--snapshot_to' file (or dir) in yaml or json format.
           Use '--snapshot_version' to define a D<number>__db_name.yaml.
           See '--snapshot_data' to define list of tables to dump for ETL(extract) with YAML schema.
-          The '--etl' along with '--snapshot_data' can use in 'rdbm migrate' to perform ETL(load) into target databse.
+          The '--etl' along with '--snapshot_data' can use in 'rdbm migrate' to perform ETL(load) into target database.
           Notice: There is a limited amount of column information that will be converted from pg_catalog and information_schema
           to fully match an input format of the manual yaml schema created.
           Therefore, the dump schema snapshot and yaml input file may differ in some cases.
-          Some types suck arrays are not support for a snapshot.
+          Some types such as arrays are not support for a snapshot.
           See more options in 'rdbm help' command.
     - info:
         about: Return the deployment status and tag a version in JSON format. See '--info_format'.
@@ -190,7 +190,7 @@ args:
         long: pre_deploy
         default_value: "*"
         help: |
-            Scans for files to perform (P)re Deploy scripts. Finds files with suitable versions and will check for absent files during its execution. It runs before the (S)chema file.
+            Scans for files to perform (P)re Deploy scripts. Find files with suitable versions and will check for absent files during its execution. It runs before the (S)chema file.
             Use '--target' to set the default value for the migration.
     - schema_deploy:
         long: schema_deploy
@@ -302,7 +302,7 @@ args:
           Wildcard (*) is allowed for a table name.
           Use '--snapshot_version' to override 'D<next>__' number in the generated file name.
           See '--etl' for migration configuration.
-          Optional appended with a colon separated view to call instead of table.
+          Optional, appended with a colon separated view to call instead of table.
           Example: table_a,schema.table_b,table_c:view_c,schema.table_d:schema.view_d
     - etl:
         long: etl
@@ -310,14 +310,14 @@ args:
           Set the ETL task action on migration to load data from CSV file name set on 'table.etl.file' field in YAML schema file.
           If '--snapshot_data' set than the ETL Rule will override for those tables.
 
-          Data files speciefied in YAML 'table.etl.file' field expected to be a relative files names in CSV format.
+          Data files specified in YAML 'table.etl.file' field expected to be a relative files names in CSV format.
           Files will be searched at '--snapshot_to', or at '--source_dir', if '--snapshot_to' is not set.
-          ETL wont perform an action if the data file was not change from previous successfull migration.
+          ETL wont perform an action if the data file was not change from previous successful migration.
 
           Rules:
           - clean: Insert OR Update field if the record identified by primary key is present,
               remove from table those records which are not in the file.
-          - force: Insert OR Update field if the record identified by primary key is present. If no PK then insert only fields which absenet.
+          - force: Insert OR Update field if the record identified by primary key is present. If no PK then insert only fields which absent.
           - apply: Insert OR Ignore if the record identified by primary key is present.
           - ignore: Do not fail, if required file is absent, otherwise use 'apply' rule.
           - skip: Do not perform data load at all.
@@ -332,10 +332,10 @@ args:
         takes_value: true
         help: |
             Load all params from config file (: or = separated)
-            any command line params will override parameters loaded from file.
+            any command line params will override parameters loaded from the file.
             If neither is set, then environment variables (with CAPITALIZED names) will be searched to use.
             If still not found, then default values will be used (if set).
-            Support: YAML, Properties, Conf, Cfg, JSON, env etc formats of text files with a strings ':' or '=' separated to key-value pair.
+            Support: YAML, Properties, conf, cfg, JSON, env etc formats of text files with a string ':' or '=' separated to key-value pair.
             The 'key' will be lowercase and the 'value' will be unquoted. Please avoid multiline comments wrapped on first and last lines only!
             Notice: please see '--db_url' and '--logdb_url' for additional hierarchy"
     - after:
@@ -351,7 +351,7 @@ args:
     - createdb:
         long: createdb
         default_value: "false"
-        help: Create DB if the db_name/log_dbname does not exist then it will try to create with the same credentials with db postgres
+        help: Create DB if the db_name/log_dbname does not exist, then it will try to create with the same credentials with db postgres
         possible_values: [yes, no, ok, y, "1", "true", "false"]
     - verbose:
         long: verbose
