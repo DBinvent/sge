@@ -566,7 +566,8 @@ fn connect(
                 if let Some(code) = err.code() {
                     if code == &SqlState::UNDEFINED_DATABASE
                         || code == &SqlState::INVALID_PASSWORD
-                        || &code.code()[..5] == "0800"
+                        || code == &SqlState::INVALID_AUTHORIZATION_SPECIFICATION
+                        || code.code().starts_with("0800")
                     {
                         if cfg.get_bool("createdb", false) {
                             return create_connect(
@@ -585,8 +586,8 @@ fn connect(
                 }
             }
             Err(format!(
-                "Connect to Postgres [{}] {} ({:?}): {} ",
-                log_url, dbname, create, err
+                "Connect to Postgres [{}] {}: {} ",
+                log_url, dbname, err
             ))
         }
     }
