@@ -570,7 +570,6 @@ fn connect(
                     {
                         if cfg.get_bool("createdb", false) {
                             return create_connect(
-                                code == &SqlState::UNDEFINED_DATABASE,
                                 dbname.as_str(),
                                 prefix,
                                 cfg,
@@ -586,8 +585,8 @@ fn connect(
                 }
             }
             Err(format!(
-                "Connect to Postgres [{}] {}: {} ",
-                log_url, dbname, err
+                "Connect to Postgres [{}] {} ({:?}): {} ",
+                log_url, dbname, create, err
             ))
         }
     }
@@ -607,7 +606,6 @@ fn screen(_pwd: &String) -> &str {
 
 #[inline(never)]
 fn create_connect(
-    create_db: bool,
     dbname: &str,
     prefix: &str,
     cfg: &ConfigMap,
@@ -627,11 +625,15 @@ fn create_connect(
             format!(" OWNER {}", user)
         }
     };
-    if create_db {
-        info!(log, "NO DB name [{}] found, trying to create...", dbname);
-        let _ = client
-            .batch_execute(format!("CREATE DATABASE {} {}", dbname, owner).as_str())
-            .map_err(|e| format!("Creating DB [{}] by postgres: {} ", dbname, e))?;
+    match connect(prefix, cfg, Some(false), module, log) {
+        Ok(c) => { let _ = c.close(); }
+        Err(e) => {
+            debug!(log, "{} testing connection: {}", dbname, e);
+            info!(log, "NO DB name [{}] found, trying to create...", dbname);
+            let _ = client
+                .batch_execute(format!("CREATE DATABASE {} {}", dbname, owner).as_str())
+                .map_err(|e| format!("Creating DB [{}] by postgres: {} ", dbname, e))?;
+        }
     }
     let _ = client.close();
     info!(log, "DB/user [{}] created, reconnecting", dbname);

@@ -366,7 +366,7 @@ impl StatementLog {
                         }
                         let emsg = trim_output(&output.stderr);
                         if emsg.len() > 0 {
-                            error!(log, "{}", emsg);
+                            error!(log, "psql({})>{}", self.source, emsg);
                         }
                         if persist {
                             self.persist(None, t, clog_t)
@@ -385,7 +385,7 @@ impl StatementLog {
                     }
                 }
                 Err(e) => {
-                    error!(log, "psql {}", e);
+                    error!(log, "psql({}) {}", self.source, e);
                     if persist {
                         self.persist(Some(e.to_string()), t, clog_t)
                     } else { Ok(0)}
