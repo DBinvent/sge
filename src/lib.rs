@@ -233,10 +233,6 @@ fn migrate_db(
         }
     }
 
-    if let Ok(ids) = res {
-        StatementLog::new(cfg).after("after", &files, &HashMap::new(),
-            pgsrv.as_str(), cfg, None, ids, log)?;
-    }
     if cfg.is_pgsrv() {
         let _ = fs::remove_file(pgsrv.as_str());
     }
