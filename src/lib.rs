@@ -201,7 +201,8 @@ fn migrate_db(
     };
     let ret = match t.commit() {
         Ok(()) => {
-            match &res {
+           StatementLog::new(cfg).after("after", &files, &HashMap::new(), pgsrv.as_str(), cfg, None,  log)?;
+           match &res {
                 Ok(_) => Ok(()),
                 Err(e) => Err(e.to_string()),
             }
@@ -258,9 +259,8 @@ fn migrate_all_versions(
         res.push(deploy_pre_files(&logs, &ver, &files, pgsrv, &cfg, t, clog_t, log)?);
         res.push(deploy_all_schemas(&logs, client, &ver, &files, dbc, &cfg, t, clog_t, log)?);
         res.push(deploy_all_files(&logs, &ver, &files, pgsrv, &cfg, t, clog_t, log)?);
-        let _ = draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![], log)?;
+        let _ = draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), log)?;
     }
-    let _ = draft.after("after", files, &logs, pgsrv, cfg, Some(t), vec![], log)?;
     Ok(res)
 }
 
@@ -301,8 +301,8 @@ fn deploy_pre_files(
         if let Some(file) = files.pre.get(ver) {
             let id = draft
                 .instance('P', &ver.s, &cfg.get("source_dir"), file)
-                .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], true, log)?;
-            draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), vec![id], log)?;
+                .deploy(&logs, pgsrv, cfg, Some(t), clog_t, true, log)?;
+            draft.after("after_each", files, &logs, pgsrv, cfg, Some(t), log)?;
             id
         } else { 0 }
     )
@@ -326,13 +326,13 @@ fn deploy_all_files(
     if let Some(file) = &files.versions.get(ver) {
         id = draft
             .instance('V', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], true, log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, true, log)?;
     }
     // deploy re-runable
     if let Some(file) = &files.re_runnable.get(ver) {
         id = draft
             .instance('R', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, vec![], true, log)?;
+            .deploy(&logs, pgsrv, cfg, Some(t), clog_t, true, log)?;
     }
     Ok(id)
 }

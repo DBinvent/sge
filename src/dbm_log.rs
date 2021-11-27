@@ -273,14 +273,13 @@ impl StatementLog {
         logs: &LogSchemaType,
         pgsrv: &str,
         cfg: &ConfigMap,
-        t: Option<&mut Transaction>,
-        ids: Vec<i32>,
+        t: Option<&mut Transaction>, // ids: &Vec<i32>,
         log: &Logger,
     ) -> Result<(), String> {
         if let Some((va, afile)) = files.after.get_key_value(key) {
             if afile.ends_with(cfg.get(key).as_str()) {
                 let _ = self.instance(' ', va, &"".into(), afile)
-                    .deploy(&logs, pgsrv, cfg, t, &mut None, ids, false, log)?;
+                    .deploy(&logs, pgsrv, cfg, t, &mut None,  false, log)?;
             }
         }
         Ok(())
@@ -295,7 +294,7 @@ impl StatementLog {
         cfg: &ConfigMap,
         t: Option<&mut Transaction>,
         clog_t: &mut Option<Transaction>, // copy_log_client
-        _id: Vec<i32>,
+        // _id: &Vec<i32>,
         persist: bool,
         log: &Logger,
     ) -> Result<i32, String> {
