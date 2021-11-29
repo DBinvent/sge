@@ -966,7 +966,9 @@ impl YTable {
         log: &Logger,
     ) -> Option<String> {
         debug!(log, "starting with self deploy {} for {}", BASELINE, cause);
-        match crate::STATEMENT_LOG_TBL.deploy(dbc, t, &schema, cfg, BASELINE, log) {
+        let mut baseline = crate::STATEMENT_LOG_TBL.clone();
+        baseline.table_name = cfg.history_table_name();
+        match baseline.deploy(dbc, t, &schema, cfg, BASELINE, log) {
             Ok(exec) => {
                 if exec {
                     debug!(log, "self deploy of: {} complete", BASELINE);
@@ -1109,6 +1111,7 @@ impl YTable {
         } else {
             deploy_log(&sql, log);
             if exec {
+                debug!(log, "SQL> {}", sql);
                 match db.batch_execute(sql.as_str()) {
                     Ok(()) => {
                         let _ = db.batch_execute(comments.as_str());

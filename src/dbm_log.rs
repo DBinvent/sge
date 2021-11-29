@@ -219,7 +219,7 @@ impl StatementLog {
     /// create a default [StatementLog] pointed to schema-table (transient field)
     pub(crate) fn new(cfg: &ConfigMap) -> Self {
         StatementLog {
-            table: cfg.history_table_name(),
+            table: format!("{}.{}", cfg.schema(), cfg.history_table_name()),
             started: Instant::now(),
             dry_run: cfg.get_bool("dry_run", false),
             id: 0,
@@ -432,32 +432,33 @@ impl StatementLog {
             None => (true, "".into()),
             Some(e) => (false, tlim(e, SRC_T_M_LEN)),
         };
-        let rows = t.query(
-            format!(
+        let sql = format!(
                 "select id from {} where target = $1 and source_type = $2 and version = $3",
                 self.table
-            )
-            .as_str(),
+            );
+        let rows = t.query(sql.as_str(),
             &[&self.target, &self.source_type.to_string(), &self.version],
-        ).map_err(|e| format!("{}", e))?;
+        ).map_err(|e| format!("{}: {}", sql, e))?;
         let id = if rows.len() > 0 {
             let id: i32 = rows[0].get(0);
-            let _ = t.execute(format!(
+            let sql = format!(
 "update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
  checksum = $5, script_tag = $6, catalog = $7, source = $8, size = $9, \
  executed_on=current_timestamp, times = times+1 where id = $10",
-                self.table).as_str(), &[
+                self.table);
+            let _ = t.execute(sql.as_str(), &[
                     &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source, &self.size,
-                    &id]).map_err(|e| format!("{}", e))?;
+                    &id]).map_err(|e| format!("{}: {}", sql, e))?;
             id
         } else {
-            let r = t.query_one(format!(
+            let sql = format!(
 "insert into {} (target, source_type, source, version, ok, msg, took_sec, executed_by, \
  checksum, script_tag, catalog, size, executed_on, created_on) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, \
  current_timestamp, current_timestamp) returning id",
-                self.table).as_str(), &[&self.target, &self.source_type.to_string(), &self.source, &self.version,
+                self.table);
+            let r = t.query_one(sql.as_str(), &[&self.target, &self.source_type.to_string(), &self.source, &self.version,
                     &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.size,
-                ]).map_err(|e| format!("{}", e))?;
+                ]).map_err(|e| format!("{}: {}", sql, e))?;
             let id: i32 = r.get(0);
             id
         };
