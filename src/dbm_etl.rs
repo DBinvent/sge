@@ -1,13 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Display;
 use std::{fmt, fs};
+use std::cmp::{max, Ordering};
 use std::fs::File;
 use std::path::Path;
 use csv::{Reader, StringRecord};
 use postgres::{Client, Row, Transaction};
 use postgres::types::Type;
+use semver::Version;
 use slog::Logger;
-use crate::{ConfigMap, FileVersion, InfoSchemaType, LoadResult, LogSchemaType, Named, OrderedHashMap, StatementLog, YEtl, YSchema, YTable};
+use crate::{ConfigMap, FileFilter, FileVersion, InfoSchemaType, LoadResult, LogSchemaType, Named, OrderedHashMap, StatementLog, YEtl, YSchema, YTable};
 use serde::Serialize;
 
 /// | `chrono::NaiveDateTime`         | TIMESTAMP                           |
@@ -399,7 +401,6 @@ impl Etl {
         self,
         ysv: &HashMap<String, YSchema>,
         logs: &LogSchemaType,
-        ver: &FileVersion,
         dbc: &InfoSchemaType,
         db: &mut Transaction,
         lt: &mut Transaction,
@@ -407,6 +408,8 @@ impl Etl {
         stl: &StatementLog,
         log: &Logger,
     ) -> Result<bool, String> {
+        let mut datas = DataTableMap::new();
+        let fp = FileFilter::newt(".csv");
         let mut do_persist = false;
         for (s, ys) in ysv {
             for yt in &ys.tables.list {
@@ -414,61 +417,36 @@ impl Etl {
                     match &data.file {
                         Some(data_file) => {
                             let file = format!("{}{}", self.dir, data_file);
-                            let dstl = stl.instance('D', &ver.s, &self.dir, data_file);
-                            let go = match logs.get(&format!("D{}", ver.s)) {
-                                Some((_sl_file, checks)) => {
-                                    let changes = checks != &dstl.checksum;
-                                    if !changes {
-                                        info!(log, "ETL: skip unchanged file {} for table {}", file, yt.table_name);
-                                    }
-                                    changes
-                                },
-                                None => true,
-                            };
-                            if go {
-                                let update = match self.rule {
-                                    EtlRule::Ignore => {
-                                        if !Path::new(file.as_str()).exists() {
-                                            warn!(log, "ETL: {} table ignore non existing file {}", yt.table_name, file);
-                                            return Ok(false);
-                                        }
-                                        false
-                                    }
-                                    EtlRule::Skip => {
-                                        info!(log, "ETL: skip non existing file {} for table {}, and all other table(s)", file, yt.table_name);
+                            let update = match self.rule {
+                                EtlRule::Ignore => {
+                                    if !Path::new(file.as_str()).exists() {
+                                        warn!(log, "ETL: {} table ignore non existing file {}", yt.table_name, file);
                                         return Ok(false);
                                     }
-                                    EtlRule::Clean | EtlRule::Force => true,
-                                    EtlRule::Apply => false
-                                };
-                                let mut r = csv::Reader::from_path(&file)
-                                    .map_err(|e| format!("ETL: Reading {}: {}", file, e))?;
-                                match EtlComposer::new(&self, dbc, &s, yt, update, &file, &mut r, log)?
-                                    .deploy(&mut r, db) {
-                                    Ok(ok) => {
-                                        if ok {
-                                            let _ = dstl.persist(None, Some(lt), clog_t)?;
-                                            do_persist = !self.dry_run;
-                                            if self.table_tr && !self.dry_run {
-                                                if let Err(ec) = db.batch_execute("COMMIT; BEGIN") {
-                                                    let _ = dstl.persist(Some(ec.to_string()), Some(lt), clog_t)?;
-                                                    return Err(format!(
-                                                        "committing data change on {}.{} with {}",
-                                                        s, yt.table_name, ec
-                                                    ));
-                                                }
-                                            }
-                                        } else {
-                                            info!(log, "ETL: no data loaded from {} for table {}", file, yt.table_name);
-                                        }
-                                    }
-                                    Err(err) => {
-                                        let _ = dstl.persist(Some(err.clone()), Some(lt), clog_t)?;
-                                        return Err(err.to_owned());
-                                    }
+                                    false
                                 }
+                                EtlRule::Skip => {
+                                    info!(log, "ETL: skip non existing file {} for table {}, and all other table(s)", file, yt.table_name);
+                                    return Ok(false);
+                                }
+                                EtlRule::Clean | EtlRule::Force => true,
+                                EtlRule::Apply => false
+                            };
+                            let readable = { File::open(&file).map_err(|e| format!("Can't read file: {}: {}", file, e))?; true };
+                            if readable {
+                                let data_file_ver = DataFileVersion::new(data_file, &fp, Some(yt));
+                                let dstl = stl.instance('D', &data_file_ver.v.s, &self.dir, data_file);
+                                {
+                                    if let Some((_sl_file, checks)) = logs.get(&data_file_ver.file) {
+                                        if checks == &dstl.checksum {
+                                            info!(log, "ETL: skip unchanged file {} for table {} [{}]", file, yt.table_name, data_file_ver.file);
+                                            continue;
+                                        }
+                                    };
+                                }
+                                datas.insert(data_file_ver, (&s, yt, update, file, dstl));
                             } else {
-                                //  no changes on yt.data to deploy?
+                                return Err(format!("ETL: data file {} for table {} is not readable", data_file, yt.table_name));
                             }
 
                         }
@@ -481,10 +459,120 @@ impl Etl {
                 }
             }
         }
+
+        if datas.len() > 0 {
+            debug!(log, "ETL: uploading [{}] file(s)", datas.len());
+        }
+
+        for (schema_name, yt, update, file, dstl) in datas.values() {
+            let mut r = csv::Reader::from_path(file)
+                .map_err(|e| format!("ETL: Reading {}: {}", file, e))?;
+            match EtlComposer::new(&self, dbc, *schema_name, *yt, *update, file, &mut r, log)?
+                .deploy(&mut r, db) {
+                Ok(ok) => {
+                    if ok {
+                        let _ = dstl.persist(None, Some(lt), clog_t)?;
+                        do_persist = !self.dry_run;
+                        if self.table_tr && !self.dry_run {
+                            if let Err(ec) = db.batch_execute("COMMIT; BEGIN") {
+                                let _ = dstl.persist(Some(ec.to_string()), Some(lt), clog_t)?;
+                                return Err(format!(
+                                    "committing data change on {}.{} with {}", schema_name, yt.table_name, ec
+                                ));
+                            }
+                        }
+                    } else {
+                        info!(log, "ETL: no data loaded from {} for table {}", file, yt.table_name);
+                    }
+                }
+                Err(err) => {
+                    let _ = dstl.persist(Some(err.clone()), Some(lt), clog_t)?;
+                    return Err(err.to_owned());
+                }
+            }
+        }
+
         Ok(do_persist)
     }
 
 }
+
+#[derive(Debug, Clone)]
+struct DataFileVersion {
+    file: String,
+    v: FileVersion,
+    w: u8,
+}
+
+impl DataFileVersion {
+    // TODO FIXME NOW test
+    fn new(data_file: &String, fp: &FileFilter, yto: Option<&YTable>) -> Self {
+        let x = match data_file.rfind("/") {
+            None => 0,
+            Some(x) => x + 1
+        };
+        let zerov = (Version::new(0, 0, 0), "".to_string());
+        let (vv, key) = match fp.parse_type(data_file, x) {
+            Ok(f) => {
+                match f {
+                    None =>  zerov.clone(),
+                    Some(v) => v
+                }
+            }
+            Err(e) => {
+                println!("{}", e);
+                zerov.clone()
+            }
+        };
+        // let (vv, key) = fp.parse_type(data_file, x + 1)
+        //     .unwrap_or(Some(zerov.clone())).unwrap_or(zerov.clone());
+        DataFileVersion {
+            file: data_file[x..].to_string(),
+            v: FileVersion::new(vv, key),
+           w: match yto {
+               None => 0,
+               Some(yt) => max(yt.weight, yt.pseudo_weight())
+           }
+        }
+    }
+
+    fn cmp(&self, other: &Self)  -> Ordering {
+        match self.v.cmp(&other.v) {
+            Ordering::Equal => {
+                if self.w > other.w {
+                    Ordering::Greater
+                } else if self.w < other.w{
+                    Ordering::Less
+                } else {
+                    self.file.cmp(&other.file)
+                }
+            }
+            r @ _ => r
+        }
+    }
+}
+
+impl Eq for DataFileVersion {}
+
+impl PartialEq for DataFileVersion {
+    fn eq(&self, other: &Self) -> bool {
+        self.w == other.w && self.file.eq(&other.file) && self.v.eq(&other.v)
+    }
+}
+
+impl PartialOrd for DataFileVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(&other))
+    }
+}
+
+impl Ord for DataFileVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.cmp(&other)
+    }
+}
+
+type DataTableMap<'a> = BTreeMap<DataFileVersion, (&'a String, &'a YTable, bool, String, StatementLog)>;
 
 type ColumnSet = BTreeSet<u16>;
 
@@ -982,7 +1070,8 @@ Boston,United States,\"4628910\"\"\"
             constraint: "".to_string(),
             columns,
             triggers: OrderedHashMap::new(),
-            etl: None
+            etl: None,
+            weight: 0
         }
     }
 
@@ -1048,4 +1137,17 @@ Boston,United States,\"4628910\"\"\"
     }
 
 
+    #[test]
+    fn d_test() {
+        let ff = FileFilter::newt(".csv");
+        let df = DataFileVersion::new(&"D1__x.csv".to_string(), &ff, None);
+        assert_eq!(df.file.as_str(), "D1__x.csv");
+        let df = DataFileVersion::new(&"D1_1__x.csv".to_string(), &ff, None);
+        assert_eq!(df.file.as_str(), "D1_1__x.csv");
+        let df = DataFileVersion::new(&"D1_1_1__x.csv".to_string(), &ff, None);
+        assert_eq!(df.file.as_str(), "D1_1_1__x.csv");
+        let df = DataFileVersion::new(&"x/D1__x.csv".to_string(), &ff, None);
+        assert_eq!(df.file.as_str(), "D1__x.csv");
+
+    }
 }

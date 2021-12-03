@@ -424,7 +424,7 @@ fn deploy_all_schemas(
                         }
                     }
                     if err.is_none() {
-                        match etl.deploy_all(&ysv, logs, ver, dbc, &mut t, lt, clog_t, &stl, log) {
+                        match etl.deploy_all(&ysv, logs, dbc, &mut t, lt, clog_t, &stl, log) {
                             Ok(p) => do_persist = do_persist || p,
                             Err(e) => {
                                 do_persist = true;

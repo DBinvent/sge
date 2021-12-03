@@ -51,7 +51,7 @@ pub(crate) type VersionTableMap = BTreeMap<FileVersion, String>;
 
 impl FileVersion {
     #[inline]
-    fn new(vv: Version, key: String) -> Self {
+    pub(crate) fn new(vv: Version, key: String) -> Self {
         FileVersion { v: vv, s: key }
     }
     #[inline]
@@ -303,7 +303,7 @@ fn load_dir(
 }
 
 #[derive(Debug, Clone)]
-struct FileFilter {
+pub(crate) struct FileFilter {
     /// None for any
     filter: Option<Version>,
     file_type: String,
@@ -325,12 +325,20 @@ impl FileFilter {
     }
 
     #[inline]
-    fn parse_type(
+    pub(crate) fn newt(file_type: &str) -> Self {
+        FileFilter {
+            filter: None,
+            file_type: file_type.into(),
+        }
+    }
+
+    #[inline]
+    pub(crate) fn parse_type(
         &self,
         filename: &String,
         from_pos: usize,
     ) -> Result<Option<(Version, String)>, String> {
-        if filename.ends_with(&self.file_type) {
+        if filename.to_lowercase().ends_with(&self.file_type) {
             match filename.find("__") {
                 None => Err(format!("unrecognizable version of file: {}", filename)),
                 Some(i) => {
@@ -431,6 +439,9 @@ pub struct YTable {
     pub triggers: OrderedHashMap<YTrig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub etl: Option<YEtl>,
+    /// 0 - this table use no others, but other tables might use this one
+    #[serde(skip)]
+    pub weight: u8,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -954,6 +965,7 @@ impl YTable {
                     view: as_stro(etl, "view")
                 })
             },
+            weight: 0
         })
     }
 
@@ -1230,6 +1242,21 @@ impl YTable {
             Ok(exec)
         }
     }
+
+    /// calc pseudo weight by constraints count
+    // TODO replace to weight calculation: level from a top dictionary table
+    pub(crate) fn pseudo_weight(&self) -> u8 {
+        let mut w = 0;
+        for c in &self.columns.list {
+            if let Some(x) = &c.constraint {
+                if x.foreign_key.is_some() {
+                    w += 1;
+                }
+            }
+        }
+        w
+    }
+
 }
 //YTable
 

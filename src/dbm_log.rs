@@ -126,7 +126,7 @@ impl StatementLog {
         match t.query(lock.as_str(), &[&target]) {
             Ok(_) => {
                 let sql = format!(
-                    "select source_type||version, source, checksum from {} where target = $1 and ok",
+                    "select source_type||version, source, checksum, source_type from {} where target = $1 and ok",
                     log_st
                 );
                 match t.query(sql.as_str(), &[&target]) {
@@ -135,7 +135,12 @@ impl StatementLog {
                             let key: String = r.get(0);
                             let val: String = r.get(1);
                             let checksum: String = r.get(2);
-                            res.insert(key, (val, checksum));
+                            let source_type: String = r.get(3);
+                            if source_type.as_str() == "D" {
+                                res.insert(val.clone(), (val, checksum));
+                            } else {
+                                res.insert(key, (val, checksum));
+                            }
                         }
                         Ok(res)
                     }
@@ -190,7 +195,7 @@ impl StatementLog {
                         executed_on,
                     };
 
-                    match targets.get_mut(target.as_str()) {
+                    match targets.get_mut(&target) {
                         None => {
                             let mut catalogs = HashMap::new();
                             let t = target.clone();
@@ -432,12 +437,11 @@ impl StatementLog {
             None => (true, "".into()),
             Some(e) => (false, tlim(e, SRC_T_M_LEN)),
         };
-        let sql = format!(
-                "select id from {} where target = $1 and source_type = $2 and version = $3",
-                self.table
-            );
+        let sql = format!( "select id from {} where \
+            (source_type <> 'D' and target = $1 and source_type = $2 and version = $3) OR \
+            (source_type = 'D' and source = $4)", self.table);
         let rows = t.query(sql.as_str(),
-            &[&self.target, &self.source_type.to_string(), &self.version],
+            &[&self.target, &self.source_type.to_string(), &self.version, &self.source],
         ).map_err(|e| format!("{}: {}", sql, e))?;
         let id = if rows.len() > 0 {
             let id: i32 = rows[0].get(0);
@@ -623,7 +627,7 @@ impl LoadResult {
             tables.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
             let mut ytables = OrderedHashMap::new();
             for  table in &tables {
-               let mut yt = YTable {
+                let mut yt = YTable {
                     table_name: table.table_name.clone(),
                     description: table.table_comment.clone().unwrap_or("".to_string()),
                     transaction: "".to_string(),
@@ -631,8 +635,9 @@ impl LoadResult {
                     constraint: "".to_string(),
                     columns: OrderedHashMap::new(),
                     triggers: OrderedHashMap::new(),
-                    etl: None
-               };
+                    etl: None,
+                    weight: 0,
+                };
                 let mut columns = table.columns.values().cloned().collect::<Vec<SColumnDfn>>();
                 columns.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
                 for c in columns {

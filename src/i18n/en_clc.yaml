@@ -230,7 +230,7 @@ args:
         help: |
           The value to override (V)ersion file execution option in psql
           - single: (default) execute the (V)ersion file with a --single-transaction psql option.
-          - statement: execute psql without --single-transaction option. This is also available by setting the first line in file to 'false' like: --single-transaction=false        
+          - statement: execute psql without --single-transaction option. This is also available by setting the first line in file to 'false' like: --single-transaction=false
     - table:
         long: table
         default_value: rdbm_history
@@ -309,6 +309,7 @@ args:
         long: etl
         help: |
           Set the ETL task action on migration to load data from CSV file name set on 'table.etl.file' field in YAML schema file.
+          If the CSV file name has a format 'D<number or version>__', than the number will be use to sort data insert order. This is not a deployment target version.
           If '--snapshot_data' set than the ETL Rule will override for those tables.
 
           Data files specified in YAML 'table.etl.file' field expected to be a relative files names in CSV format.
@@ -352,7 +353,7 @@ args:
     - createdb:
         long: createdb
         default_value: "false"
-        help: Create DB if the db_name/log_dbname does not exist, then it will try to create with the same credentials with db postgres
+        help: Create DB if the db_name/logdb_name does not exist, then it will try to create with the same credentials with db postgres
         possible_values: [yes, no, ok, y, "1", "true", "false"]
     - verbose:
         long: verbose
