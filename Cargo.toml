@@ -1,7 +1,7 @@
 [package]
 name = "rdbm"
 version = "1.4.1"
-authors = ["vk <vk@dbinvent.com>"]
+authors = ["DBinvent <support@dbinvent.com>"]
 edition = "2018"
 license-file = "LICENSE"
 description = "Rumba[rdbm]: Relation DataBase (Schema) Management tool"
@@ -14,8 +14,6 @@ readme = "README.md"
 [lib]
 name = "rdbm"
 path = "src/lib.rs"
-#crate-type = ["rlib", "dylib"]
-#crate-type = ["rlib", "cdylib", "staticlib"]
 
 [[bin]]
 name = "rdbm"
@@ -35,9 +33,7 @@ path = "src/sl.rs"
 
 [dependencies]
 #std = {default-features=false, features=["panic_immediate_abort"]}
-# cargo-deb
 
-# num-bigint is nightly broken
 num-bigint = "0.4.1"
 slog = { version = "^2.7.0", features=["max_level_debug"] }
 slog-async = "^2.6.0"
@@ -73,14 +69,13 @@ csv = "1.1.6"
 smallvec = "1.6.1"
 yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", features = []}
 
-#https://www.maxoberberger.net/blog/2013/05/creating-your-own-apt-repository.html
-
 [package.metadata.deb]
 depends = "postgresql-client, curl"
 maintainer = "DBinvent <support@dbinvent.com>"
 maintainer-scripts = "deb-scripts"
 assets= [
     ["target/release/rdbm", "usr/bin/", "755"],
+    ["rdbm.1.gz", "usr/share/man/man1/rdbm.1.gz", "644"],
     ["evaluation.license", "etc/rdbm/", "664"],
     ["lib-licenses.txt", "usr/share/doc/rdbm/lib-licenses.txt", "644"],
     ["COPYRIGHT", "usr/share/doc/rdbm/copyright", "644"],
@@ -92,6 +87,7 @@ license = "LICENSE"
 post_install_script = "curl -s -o /etc/rdbm/evaluation.license https://www.dbinvent.com/dist/evaluation.license"
 assets= [
     {source = "target/release/rdbm", dest = "/usr/bin/rdbm", mode ="755"},
+    {source = "rdbm.1.gz", dest = "/usr/share/man/man1/", mode = "644"},
     {source = "evaluation.license", dest = "/etc/rdbm/", mode ="664", config = true},
     {source = "lib-licenses.txt", dest = "/usr/share/doc/rdbm/lib-licenses.txt", mode = "644", doc = true},
     {source = "COPYRIGHT", dest = "/usr/share/doc/rdbm/copyright", mode = "644", doc = true},

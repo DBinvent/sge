@@ -33,6 +33,9 @@ strip -s target/release/rdbm
 echo "Build: $(./target/release/rdbm -V)"
 
 echo "Building DEB..."
+help2man -o rdbm.1 -i examples.1 target/release/rdbm
+sed -i 's/ \[d/\n \[d/g' rdbm.1
+gzip rdbm.1
 cargo deb
 dpkg -I target/debian/*.deb
 dpkg --contents  target/debian/*.deb

@@ -1,0 +1,151 @@
+[examples]
+.UR examples
+https://github.com/DBinvent/rdbm
+.UE
+
+
+.PP
+.SS
+1. Simple migration:
+
+.PP
+
+.EX
+rdbm <args>  migrate
+.EE
+.P
+.B
+OR
+.P
+.EX
+rdbm -c config.cfg migrate
+.EE
+.PP
+Where <args> OR config.cfg:
+.TS
+tab(@), left, box;
+c | c
+rB | l.
+Field@Value
+_
+db_host@IP address or host name
+db_name@database name
+db_user@database user
+db_password@database user password
+.TE
+.RE
+
+.TP
+This will perform simple migration of all files found in current directory by the execution order
+.B
+.TP
+  (P)->(S)->(V)->(R)->(after)
+.P
+Separately on every found version.
+.P
+
+.TS
+tab(@), left, box;
+c | c | c | c | c
+rB | rB | l| l| l.
+#@Code@Script@Type@Value
+_
+1@P@PreDeploy@SQL@immutable
+2@S@Schema@YAML@mutable, (D)ata will be deployed there
+3@V@Version@SQL@immutable
+4@R@Re-runable@SQL@mutable
+_
+5@A@after@SQL@optional, see '--after', '--after_each'
+.TE
+.RE
+
+.B
+immutable:
+- will executed only once on target database, see '--checksum'
+.P
+.B
+mutable:
+- will be execute once change detected
+
+.PP
+See:
+.EX
+rdbm help migrate
+.EE
+- For more information
+
+.P
+.SS
+2. Migration with ETL:
+.P
+Assume we have a YAML file with two tables: table_a and table_b with 'table.etl.file' fields set to CSV file:
+.P
+.EX
+rdbm \fB\-\-etl=skip \fB\-\-snapshot_data=table_a \fB\-\-source_dir=./sql migrate
+.EE
+.P
+Do not use CSV for table_a. Apply table_b.etl.file(etc) from ./sql/ directory.
+
+.P
+.EX
+rdbm \fB\-\-etl=clean \fB\-\-snapshot_data=table_a \fB\-\-source_dir=./sql \fB\-\-snapshot_to=./data  migrate
+.EE
+.P
+ Use 'clean' ETL rule for table_a (delete extras), and 'apply' for table_b. Use ./data/ directory to locate CSV files.
+
+.P
+.EX
+rdbm \fB\-\-etl=force \fB\-\-snapshot_data=table_a  migrate
+.EE
+.P
+ Use 'force' ETL rule for table_a (update if exist), and 'apply' for table_b. Use ./ directory to locate YAML and CSV files.
+
+.P
+.EX
+rdbm \fB\-\-etl=ignore migrate
+.EE
+.P
+ Do not fail, if required file is absent, otherwise use 'apply' rule.
+
+.P
+.EX
+rdbm \fB\-\-etl=skip migrate
+.EE
+.P
+ Do not perform any ETL task for all tables
+
+.P
+.EX
+ rdbm migrate
+.EE
+.P
+ Default ETL rule 'apply' will use for table_a and table_b.
+ Records from CSV files fromn table.etl.file and relative to current directory.
+ The CSV file required to have a header.
+
+  Use '\fB\-\-dry_run' to avoid DB change.
+
+  See more options in 'rdbm help' command.
+
+.P
+.SS
+3. Snapshot with ETL:
+.P
+
+rdbm \fB\-\-snapshot_data=table snapshot
+
+Perform a DB schema dump into a '\fB\-\-snapshot_to' file (or dir) in yaml or json format.
+
+Use '\fB\-\-snapshot_version' to define a D<number>__db_name.yaml.
+
+See '\fB\-\-snapshot_data' to define list of tables to dump for ETL(extract) with YAML schema.
+
+The '\fB\-\-etl' along with '\fB\-\-snapshot_data' can use in 'rdbm migrate' to perform ETL(load) into target database.
+
+Notice: There is a limited amount of column information that will be converted from pg_catalog and information_schema
+to fully match an input format of the manual yaml schema created.
+
+Therefore, the dump schema snapshot and yaml input file may differ in some cases.
+
+Some types such as arrays are not support for a snapshot.
+

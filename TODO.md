@@ -12,9 +12,6 @@ The Relation DB Management tool.
 - Add schema(table) definition features: view, foreign tables, partitioned tables, indexes, constraint, sp/f
 - Add partitioning 
 - Add data snapshot (use pg_dump) full for featuring reverse eng.
-- Add data ELT migrations for small dictionary tables
-  - Dump to parquet?
-  - generate SQL: https://www.postgresql.org/docs/current/sql-insert.html with update on conflict 
 - Add key-vault's cloud integration for DB connection
 - Add UI / api to work as a service (php-admin inspired) and allow scheduled deploy
 
