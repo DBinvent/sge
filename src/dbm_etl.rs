@@ -297,26 +297,21 @@ impl Etl {
     // LoadResult
 
     /// same as  COPY ttest TO '/tmp/ttest_dn.csv' csv;
-    pub(crate) fn extract(&self, slf: &mut LoadResult, db_client: &mut Client) -> Result<(), String> {
+    pub(crate) fn extract(&self, slf: &mut LoadResult, db_client: &mut Client, log: &Logger) -> Result<(), String> {
         for t in &self.tables.list {
             if t.table.len() > 0 {
                 let (file, schema, table, yt) = match &t.schema {
                     None => self.find_set(slf, &t.table)?,
                     Some(s) => self.find_sets(slf, s.as_str(), &t.table)?
                 };
-                let tv: Vec<&str> = t.source.split(":").collect(); // table or view as a source
-                let tv = if tv.len() > 1 {
-                    tv[1].to_owned()
-                } else {
-                    format!("{}.{}", schema, table)
-                };
                 let mut write_header = true;
                 let msg = format!("ETL: CSV File '{}'", file);
                 let mut w = csv::Writer::from_path(file.as_str())
                     .map_err(|e| format!("{}, create error: {}", msg, e))?;
                 let mut c = 0;
-                for r in db_client.query(format!("select * from {}", tv).as_str(), &[])
-                    .map_err(|e| format!("ETL: Load from {}, with error: {}", tv, e))? {
+                let sql = format!("select * from {}", t.source);
+                for r in db_client.query(sql.as_str(), &[])
+                    .map_err(|e| format!("ETL: Load from {}, with error: {}", t.source, e))? {
                     if write_header {
                         for i in 0..r.len() {
                             let c = &r.columns()[i];
@@ -330,6 +325,11 @@ impl Etl {
                     }
                     let _ = w.write_record(None::<&[u8]>).map_err(|e| format!("{}: write EOL{} error: {}", msg, c, e))?;
                     c += 1;
+                }
+                if c == 0 {
+                    info!(log, "ETL: No data for {}.{} by sql [{}] therefor the file {} is empty!", schema, table, sql, file);
+                } else {
+                    debug!(log, "ETL: Extracted [{}] records into {}", c, file);
                 }
                 let _ = w.flush();
             }

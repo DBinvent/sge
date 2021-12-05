@@ -201,9 +201,12 @@ fn migrate_db(
     };
     let ret = match t.commit() {
         Ok(()) => {
-           StatementLog::new(cfg).after("after", &files, &HashMap::new(), pgsrv.as_str(), cfg, None,  log)?;
-           match &res {
-                Ok(_) => Ok(()),
+            let _ = StatementLog::new(cfg).after("after", &files, &HashMap::new(), pgsrv.as_str(), cfg, None,  log)?;
+            match &res {
+                Ok(_) => {
+                    debug!(log, "all done");
+                    Ok(())
+                },
                 Err(e) => Err(e.to_string()),
             }
         },
@@ -678,7 +681,7 @@ pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     let mut db_client = connect("db_", &cfg, None, "loading data",log)?;
     let etl = dbm_etl::Etl::from(&cfg)?;
     let result = if dump {
-        LoadResult::load(&etl, &mut db_client)?.format(etl.yaml_format)
+        LoadResult::load(&etl, &mut db_client, log)?.format(etl.yaml_format)
     } else {
         StatementLog::load_formatted(&cfg, &mut log_client)
     };

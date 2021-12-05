@@ -1,6 +1,6 @@
 name: rdbm
 version: "local_build"
-author: DBInvent LLC
+author: DBinvent LLC
 about: |
 
  The SQL script tracker and DB deployment tool by YAML schema definition for PostgreSQL.

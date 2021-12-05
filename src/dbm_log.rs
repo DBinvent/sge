@@ -617,7 +617,7 @@ pub(crate) struct LoadResult {
 }
 
 impl LoadResult {
-    pub(crate) fn load(etl: &Etl, db_client: &mut Client) -> Result<Self, String> {
+    pub(crate) fn load(etl: &Etl, db_client: &mut Client, log: &Logger) -> Result<Self, String> {
         let input = crate::dbm_dbc::load_info_schema(etl.db_name.as_str(), db_client)?;
         let owners = crate::dbm_dbc::load_info_schema_owner(etl.db_name.as_str(),db_client)?;
 
@@ -671,7 +671,7 @@ impl LoadResult {
             schemas.push(ys);
         }
         let mut lr = LoadResult { database: schemas };
-        let _ = etl.extract(&mut lr, db_client)?;
+        let _ = etl.extract(&mut lr, db_client, log)?;
         Ok(lr)
     }
 
