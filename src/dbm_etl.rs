@@ -182,7 +182,7 @@ impl Display for EtlRule {
 pub(crate) struct EtlTable {
     pub schema: Option<String>,
     pub table: String,
-    pub source: String,
+    pub source: Option<String>,
 }
 
 impl Named for EtlTable {
@@ -224,7 +224,11 @@ impl Etl {
                 let _ = tables.append(EtlTable {
                     schema: if n.len() > 1 { Some(n[0].to_string()) } else { None },
                     table: n[n.len() - 1].to_string(),
-                    source: tv[tv.len() - 1].to_string()
+                    source: if tv.len() > 1 {
+                        Some(tv[tv.len() - 1].to_string())
+                    } else {
+                        None
+                    }
                 });
             }
         }
@@ -309,9 +313,10 @@ impl Etl {
                 let mut w = csv::Writer::from_path(file.as_str())
                     .map_err(|e| format!("{}, create error: {}", msg, e))?;
                 let mut c = 0;
-                let sql = format!("select * from {}", t.source);
+                let source = t.source.clone().unwrap_or(format!("{}.{}", schema, table));
+                let sql = format!("select * from {}", source);
                 for r in db_client.query(sql.as_str(), &[])
-                    .map_err(|e| format!("ETL: Load from {}, with error: {}", t.source, e))? {
+                        .map_err(|e| format!("ETL: Load from {}, with error: {}", source, e))? {
                     if write_header {
                         for i in 0..r.len() {
                             let c = &r.columns()[i];
@@ -1039,7 +1044,7 @@ Boston,United States,\"4628910\"\"\"
         tables.append(EtlTable{
             schema: Some("public".to_string()),
             table: "rdict".to_string(),
-            source: "".to_string()
+            source: None
         });
         Etl {
             tables,
