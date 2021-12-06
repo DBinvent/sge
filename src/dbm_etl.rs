@@ -402,6 +402,20 @@ impl Etl {
         self.tables.list.len() > 0 && self.tables.get(&"*".to_string()).is_some()
     }
 
+    /// with schema
+    #[inline]
+    fn find(&self, schema: &String, table: &YTable) -> bool {
+        let tn = format!("{}.{}", schema, table.table_name);
+        match self.tables.get(&tn) {
+            None => match self.tables.get(&table.table_name) {
+                None => false,
+                Some(t) => !t.schema.is_some(),
+            }
+            Some(_t) => true
+        }
+    }
+    // LoadResult
+
     pub(crate) fn deploy_all(
         self,
         ysv: &HashMap<String, YSchema>,
@@ -431,8 +445,14 @@ impl Etl {
                                     false
                                 }
                                 EtlRule::Skip => {
-                                    info!(log, "ETL: skip non existing file {} for table {}, and all other table(s)", file, yt.table_name);
-                                    return Ok(false);
+                                    if self.tables.len() == 0 {
+                                        info!(log, "ETL: skipped on file {} (and all other)", file);
+                                        return Ok(false);
+                                    } else if self.find(s, yt) {
+                                        info!(log, "ETL: skip file {} for table {}", file, yt.table_name);
+                                        continue;
+                                    }
+                                    false
                                 }
                                 EtlRule::Clean | EtlRule::Force => true,
                                 EtlRule::Apply => false
