@@ -454,7 +454,19 @@ impl Etl {
                                     }
                                     false
                                 }
-                                EtlRule::Clean | EtlRule::Force => true,
+                                EtlRule::Clean | EtlRule::Force => {
+                                    if self.tables.len() == 0 {
+                                        true
+                                    } else {
+                                        let update = self.find(s, yt);
+                                        if update {
+                                            debug!(log, "ETL: [{}] set for table {} ({})", self.rule, yt.table_name, file);
+                                        } else {
+                                            info!(log, "ETL: [{}] is not set for table: {} ({}), therefore 'apply' will use instead", self.rule, yt.table_name, file);
+                                        }
+                                        update
+                                    }
+                                },
                                 EtlRule::Apply => false
                             };
                             let readable = { File::open(&file).map_err(|e| format!("Can't read file: {}: {}", file, e))?; true };
@@ -786,7 +798,7 @@ impl <'a> EtlComposer <'a>  {
         let mut clean_sql = String::new();
         let mut record = csv::StringRecord::new();
         let clean = match self.etl.rule {
-            EtlRule::Clean => true,
+            EtlRule::Clean => self.update, // clean only if update
             _ => false
         };
         info!(self.log, "ETL: Loading data from {} into {} using {}", self.file, self.table, self.etl.rule);
