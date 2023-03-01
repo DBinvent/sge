@@ -16,16 +16,22 @@ pub mod dbm_etl;
 use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
 use crate::dbm_yml::*;
-use openssl::ssl::{SslConnector, SslMethod};
-use postgres::{Client, NoTls, Transaction};
+
+#[cfg(target_os = "linux")]
+use openssl::{
+    ssl::{SslConnector, SslMethod},
+    error::ErrorStack
+};
+#[cfg(target_os = "linux")]
 use postgres_openssl::MakeTlsConnector;
+
+use postgres::{Client, NoTls, Transaction};
 use slog::Logger;
 use std::fs;
 
 use yaml_rust::YamlLoader;
 
 use crate::dbm_cfg::ConfigMap;
-use openssl::error::ErrorStack;
 use postgres::error::SqlState;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -359,7 +365,7 @@ fn deploy_all_schemas(
     {
         let stl = StatementLog::new(cfg);
         let etl = dbm_etl::Etl::from(cfg)?;
-        let table_tr = cfg.get("schema_transaction") == "table";
+        let table_tr = cfg.get("schema_transaction") == "table" || cfg.is_retry();
         let mut do_persist = false;
         // for (ver, (file, ysv)) in &files.schemas
         if let Some((file, ysv)) = &files.schemas.get(ver) {
@@ -372,7 +378,7 @@ fn deploy_all_schemas(
                                 Ok(ok) => {
                                     if ok {
                                         do_persist = true;
-                                        if table_tr {
+                                        if yt.is_table_transaction() || table_tr {
                                             if let Err(ec) = t.batch_execute("COMMIT; BEGIN") {
                                                 do_persist = true;
                                                 err = Some(format!(
@@ -403,7 +409,7 @@ fn deploy_all_schemas(
                                     Ok(ok) => {
                                         if ok {
                                             do_persist = true;
-                                            if table_tr {
+                                            if yt.is_table_transaction() || table_tr {
                                                 if let Err(ec) = t.batch_execute("COMMIT; BEGIN") {
                                                     do_persist = true;
                                                     err = Some(format!(
@@ -436,7 +442,7 @@ fn deploy_all_schemas(
                         }
                     }
 
-                    if table_tr || !do_persist {
+                    if !do_persist {
                         let _ = t.rollback(); // done with transaction anyway
                     } else {
                         match &err {
@@ -549,13 +555,15 @@ fn connect(
     let db = format!("postgresql:///{}?{}", dbname, url);
     debug!(log, "{}: connecting: {} {}", module, log_url, dbname);
     match if cfg.is_ssl() {
-        let connector = match make_tls_connector(&cfg.get(prefix)) {
+        #[cfg(not(target_os = "linux"))]
+        return Err(format!(" No openssl on Windows yet to connect to: {}", db));
+        #[cfg(target_os = "linux")]
+        Client::connect(db.as_str(), match make_tls_connector(&cfg.get(prefix)) {
             Ok(c) => c,
             Err(e) => {
                 return Err(format!("create TLS(SSL) connection: {}", e));
             }
-        };
-        Client::connect(db.as_str(), connector)
+        })
     } else {
         Client::connect(db.as_str(), NoTls)
     } {
@@ -669,6 +677,7 @@ fn create_role(
 }
 
 #[inline]
+#[cfg(target_os = "linux")]
 fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     builder.set_ca_file(cert)?;

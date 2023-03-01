@@ -260,7 +260,7 @@ impl Etl {
             db_name: cfg.get("db_name"),
             dir,
             schema_dump,
-            table_tr: cfg.get("schema_transaction") == "table",
+            table_tr: cfg.get("schema_transaction") == "table" || cfg.is_retry(),
             yaml_format: cfg.get_def("out_format", "yaml".to_lowercase()).to_lowercase().as_str() == "yaml",
             ver: cfg.get_opt("snapshot_version"),
             dry_run: cfg.get_bool("dry_run", false),
@@ -1108,6 +1108,7 @@ Boston,United States,\"4628910\"\"\"
             columns,
             triggers: OrderedHashMap::new(),
             etl: None,
+            owner: "".to_string(),
             weight: 0
         }
     }
@@ -1121,7 +1122,11 @@ Boston,United States,\"4628910\"\"\"
     #[test]
     fn w_test() {
         let log = logger(true);
-        let file = format!("/tmp/{}.csv", uuid());
+        #[cfg(target_os = "linux")]
+        let file = "/tmp";
+        #[cfg(not(target_os = "linux"))]
+        let file = "./target";
+        let file = format!("{}/{}.csv", file, uuid());
         let data = "r,active,starts_at,ends_at,cap\n\
 1,true,,,NULL\n\
 2,true,,,\\NULL\n\

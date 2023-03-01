@@ -1,6 +1,6 @@
 extern crate yaml_rust;
 
-use std::collections::{BTreeMap, HashMap, BTreeSet};
+use std::collections::{BTreeMap, HashMap, BTreeSet, HashSet};
 use std::fs;
 
 use postgres::Transaction;
@@ -131,20 +131,15 @@ impl FilesMap {
 
     /// looking for FKtable's PK
     #[inline]
-    fn pks(&self, schema: &String, table: &String, target: &FileVersion) -> String {
-        let mut pk = String::new();
+    fn pks(&self, schema: &String, table: &String, target: &FileVersion) -> HashSet<String> {
+        let mut pk = HashSet::new();
         for (v, (_, sks)) in &self.schemas {
             if v <= target {
                 if let Some(fkst) = sks.get(schema) {
                     if let Some(tt) = fkst.tables.get(table) {
                         for cc in &tt.columns.list {
                             if cc.is_pk() {
-                                let _ = write!(
-                                    pk,
-                                    "{}{}",
-                                    if pk.len() > 0 { ", " } else { "" },
-                                    cc.get_name()
-                                );
+                                pk.insert(cc.get_name());
                             }
                         }
                     }
@@ -426,7 +421,7 @@ pub struct YTable {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub description: String,
     /// transaction: -- single (default) OR table OR column OR retry (wrap to psql)
-    #[serde(skip)]
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub transaction: String,
     /// suffix on table create
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -439,6 +434,10 @@ pub struct YTable {
     pub triggers: OrderedHashMap<YTrig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub etl: Option<YEtl>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub owner: String,
+    // #[serde(skip_serializing_if = "OrderedHashMap::is_empty")]
+    // pub grant: OrderedHashMap<YTrig>,
     /// 0 - this table use no others, but other tables might use this one
     #[serde(skip)]
     pub weight: u8,
@@ -653,8 +652,8 @@ impl YColumn {
                 column_type: self.column_type.clone(),
                 column_default: self.default_value.clone(),
                 sql: Some(self.sql.trim().into()),
-                pk: c.clone().map_or(false, |c| c.primary_key.unwrap_or(false)),
-                nullable: c.clone().map_or(true, |c| c.nullable),
+                pk: c.as_ref().map_or(false, |c| c.primary_key.unwrap_or(false)),
+                nullable: c.as_ref().map_or(true, |c| c.nullable),
                 fk: c.map_or(None, |cs| cs.foreign_key
                         .map_or(None, |fk| Some((fk.references.trim().into(), fk.sql.trim().into())))),
                 sort_order: 0,
@@ -663,33 +662,6 @@ impl YColumn {
         }
     }
 }
-
-impl Display for SColumnDfn {
-    /// column defenition to SQL string
-
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        let _ = write!(f, "{} {}", self.column_name, self.column_type)?;
-        if self.pk {
-            let _ = write!(f, " primary key")?;
-        }
-        if !self.nullable {
-            let _ = write!(f, " not null")?;
-        }
-        if let Some(def) = &self.column_default {
-            if def.len() > 0 {
-                let _ = write!(f, " default {}", def)?;
-            }
-        }
-        if let Some(sql) = &self.sql {
-            if sql.len() > 0 {
-                let _ = write!(f, " {}", sql)?;
-            }
-        }
-        Ok(())
-    }
-}
-
-
 
 impl YTrig {
     fn new(input: &Yaml) -> Self {
@@ -965,6 +937,7 @@ impl YTable {
                     view: as_stro(etl, "view")
                 })
             },
+            owner: "".to_string(),
             weight: 0
         })
     }
@@ -1019,16 +992,23 @@ impl YTable {
             Some(mut ss) => match ss.get_mut(&self.table_name) {
                 None => (false, true),
                 Some(mut ts) => {
+                    let pks = ts.pks();
                     for dc in &self.columns.list {
                         if !ts.columns.contains_key(&dc.name) {
                             let def = dc.column_def(schema, &self.table_name, file)?;
-                            let _ = write!(
-                                sql,
-                                "ALTER TABLE {}.{} ADD COLUMN {};",
-                                schema, self.table_name, def
-                            );
+                            append(format!(
+                                "ALTER TABLE {}.{} ADD COLUMN {}",
+                                schema, self.table_name, def.def(pks.is_some())
+                            ).as_str(), &mut sql, cfg.is_retry());
                             let _ = ts.columns.insert(dc.get_name(), def);
                             exec = true;
+                        }
+                    }
+                    if let Some(o) = &ts.owner {
+                        if self.owner.len() > 0 && &self.owner != o {
+                            append(format!("ALTER TABLE {}.{} OWNER TO {}",
+                                schema, self.table_name, self.owner
+                            ).as_str(), &mut sql, cfg.is_retry());
                         }
                     }
                     for dt in &self.triggers.list {
@@ -1048,7 +1028,7 @@ impl YTable {
             dbc.insert(schema.clone(), HashMap::new());
         }
         if create_table {
-            let owner = "";
+            // let owner = "";
             let mut columns = String::new();
             let mut st = STable {
                 table_name: self.table_name.clone(),
@@ -1056,19 +1036,29 @@ impl YTable {
                 fks: Default::default(),
                 triggers: HashMap::new(),
                 sort_order: 0,
-                table_comment: None
+                table_comment: None,
+                owner: if self.owner.len() > 0 { Some(self.owner.clone()) } else { None },
             };
             for dc in &self.columns.list {
                 let cd = dc.column_def(schema, &self.table_name, file)?;
-                let _ = write!(columns, "{}, ", cd);
                 let _ = st.columns.insert(dc.get_name(), cd);
                 self.comments(&mut comments, schema, &dc.name, &dc.description);
             }
             if columns.len() > 0 {
+                let pks = st.pks();
+                for dc in &self.columns.list {
+                    if let Some(cd) = st.columns.get(dc.name.as_str()) {
+                        columns.push_str(cd.def(pks.is_some()).as_str());
+                        columns.push_str(", ");
+                    }
+                }
+                if let Some(pks) = pks {
+                    columns.push_str(pks.as_str());
+                }
                 if create_schema && schema.as_str() != "public" {
                     let _ = write!(sql, "CREATE SCHEMA IF NOT EXISTS {} ", schema);
-                    if owner.len() > 0 {
-                        let _ = write!(sql, "AUTHORIZATION {}", owner);
+                    if self.owner.len() > 0 {
+                        let _ = write!(sql, "AUTHORIZATION {}", self.owner);
                     }
                     let _ = write!(sql, ";\n");
                 }
@@ -1083,12 +1073,11 @@ impl YTable {
                     self.constraint,
                     self.sql
                 );
-                if owner.len() > 0 {
-                    let _ = writeln!(
-                        sql,
-                        "ALTER TABLE {}.{} OWNER TO {}; \n",
-                        schema, self.table_name, owner
-                    );
+                if self.owner.len() > 0 {
+                    append(format!(
+                        "ALTER TABLE {}.{} OWNER TO {}",
+                        schema, self.table_name, self.owner
+                    ).as_str(),  &mut sql, cfg.is_retry());
                 }
             }
             for dt in &self.triggers.list {
@@ -1178,7 +1167,7 @@ impl YTable {
         log: &Logger,
     ) -> Result<bool, String> {
         let mut sql = String::new();
-        let mut fk_list = Vec::new();
+        let mut fk_list = HashMap::new();
         if let Some(ss) = dbc.get(schema) {
             if let Some(ts) = ss.get(&self.table_name) {
                 for dc in &self.columns.list {
@@ -1200,8 +1189,9 @@ impl YTable {
                                 }
                             }
                             let fk_columns = files.pks(&fk_schema, &fk_table, target);
+                            let key = format!("{}.{}", fk_schema, fk_table);
                             if fk_columns.len() > 0 {
-                                fk_list.push(FKTable {
+                                fk_list.insert(key, FKTable {
                                     column: fk_columns,
                                     name: dc.get_name(),
                                     schema: fk_schema,
@@ -1215,17 +1205,17 @@ impl YTable {
             }
         };
         let exec = fk_list.len() > 0;
-        for ff in fk_list {
+        for ff in fk_list.values() {
             if let Some(mut ss) = dbc.get_mut(schema) {
                 if let Some(mut ts) = ss.get_mut(&self.table_name) {
                     ts.fks.insert(ff.name.clone(), ff.clone());
                 }
             }
-            let _ = writeln!(sql,
-                "ALTER TABLE {}.{} ADD CONSTRAINT fk_{}_{}_{} FOREIGN KEY ({}) REFERENCES {}.{} ({}) {};",
+            append(format!(
+                "ALTER TABLE {}.{} ADD CONSTRAINT fk_{}_{}_{} FOREIGN KEY ({}) REFERENCES {}.{} ({}) {}",
                 schema, self.table_name, schema, self.table_name, ff.table,
-                ff.name, ff.schema, &ff.table, ff.column, ff.sql
-            );
+                ff.name, ff.schema, &ff.table, ff.columns(), ff.sql
+            ).as_str(), &mut sql, cfg.is_retry());
         }
 
         if cfg.get_bool("dry_run", false) && exec {
@@ -1257,8 +1247,56 @@ impl YTable {
         w
     }
 
+    pub(crate) fn is_table_transaction(&self) -> bool {
+        self.transaction.as_str() == "table"
+        || self.transaction.as_str() == "retry"
+    }
+
 }
 //YTable
+
+fn append(sql: &str, buff: &mut String, retry: bool) {
+    if retry {
+        buff.push_str(RPT1);
+        buff.push_str(sql);
+        buff.push_str(RPT2);
+    } else {
+        buff.push_str(sql);
+        buff.push_str(";\n");
+    }
+}
+
+const RPT1: &str = r#"DO
+$do$
+DECLARE
+   lock_timeout CONSTANT text := '1000ms';
+   max_attempts CONSTANT INT := 100;
+   ddl_completed BOOLEAN := FALSE;
+BEGIN
+
+   PERFORM set_config('lock_timeout', lock_timeout, FALSE);
+
+   FOR i IN 1..max_attempts LOOP
+      BEGIN
+         EXECUTE '"#;
+
+const RPT2: &str = r#"';
+         ddl_completed := TRUE;
+         EXIT;
+      EXCEPTION
+         WHEN lock_not_available THEN
+           NULL;
+      END;
+   END LOOP;
+
+   IF ddl_completed THEN
+      RAISE INFO 'DDL has been successfully completed';
+   ELSE
+      RAISE EXCEPTION 'Failed to perform DDL';
+   END IF;
+END
+$do$;
+"#;
 
 #[cfg(debug_assertions)]
 #[inline]

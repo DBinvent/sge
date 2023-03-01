@@ -24,9 +24,9 @@ Test plan:
 
 #[test]
 fn migration_log_db_tests3() -> Result<(), String> {
-    match init::prepare_db("/tmp/tests", "test") {
+    match init::prepare_db() {
         Ok(pg) => {
-            match init::prepare_db("/tmp/tests", "test") {
+            match init::prepare_db() {
                 Ok(logpg) => {
                     let mut pg = pg.clone();
                     pg.cfg.insert(&"logdb".to_string(), "primary");

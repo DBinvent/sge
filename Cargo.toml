@@ -1,6 +1,6 @@
 [package]
 name = "rdbm"
-version = "1.4.1"
+version = "1.5.1"
 authors = ["DBinvent <support@dbinvent.com>"]
 edition = "2018"
 license-file = "LICENSE"
@@ -43,8 +43,7 @@ slog-term = "^2.8.0"
 sloggers = "^2.0.0"
 lazy_static = "^1.4.0"
 postgres = { version = "^0.19.1", features=["with-chrono-0_4", "with-time-0_2"] }
-postgres-openssl = "^0.5.0"
-openssl = "^0.10.33"
+
 chrono="^0.4.19"
 time = "^0.2.26"
 serde = { version = "^1.0", features = ["derive"] }
@@ -68,6 +67,10 @@ ureq = "^2.1.1"
 csv = "1.1.6"
 smallvec = "1.6.1"
 yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", features = []}
+
+[target.'cfg(unix)'.dependencies]
+postgres-openssl = "^0.5.0"
+openssl = "^0.10.33"
 
 [package.metadata.deb]
 depends = "postgresql-client, curl"

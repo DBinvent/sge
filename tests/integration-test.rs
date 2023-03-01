@@ -33,7 +33,7 @@ Test plan:
 
 #[test]
 fn migration_tests() -> Result<(), String> {
-    match init::prepare_db("/tmp/tests", "test") {
+    match init::prepare_db() {
         Ok(pg) => {
             let res = run_all(&pg);
             thread::sleep(Duration::from_secs(1));

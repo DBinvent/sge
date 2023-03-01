@@ -41,7 +41,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
  - Schemas and tables definition allowed only in YAML format (JSON file format coming soon) 
  - Adding sql & constraint on existing column/tables won't produce an ALTER TABLE SQL (except FK but sql)
- - The composite primary key (multi columns) will fail, as well as FK to those columns. 
+ - The composite primary key (multi columns) only on create table 
  
 
 ### Schema snapshot restriction notice

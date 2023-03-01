@@ -969,8 +969,8 @@ impl License {
                 }
             }
         }
-        // #[cfg(debug_assertions)]
-        // println!("Find {},{},{},{} in {:?} = {:?}", host_a, host_b, db_a,db_b, self.connections, fnd);
+        #[cfg(debug_assertions)]
+        println!("Find {},{},{},{} in {:?} = {:?}", host_a, host_b, db_a,db_b, self.connections, fnd);
         fnd
     }
     // License
@@ -1501,7 +1501,7 @@ mod tests {
     #[test]
     fn patch_test() -> Result<(), String> {
         let mut l = License::blank();
-        let now: LicenseDate = Utc::today().naive_utc();
+        let now: LicenseDate = Utc::now().naive_utc().date();
         let pk = str2rsa(TEST_PK).map_err(|e| e.to_string())?;
         let pp = pub2str(&pk.to_public_key());
         println!("{}", pp.len());
@@ -1559,7 +1559,7 @@ mod tests {
     #[test]
     fn digest_test() -> Result<(), String> {
         let mut l = License::blank();
-        let now: LicenseDate = Utc::today().naive_utc();
+        let now: LicenseDate = Utc::now().naive_utc().date();
         l.license_type = "Std".to_string();
         l.key = TEST_PK.to_string();
         let c = Connection{
@@ -1658,10 +1658,11 @@ mod tests {
 
     #[inline]
     fn test_find_n(star_host: bool, star_db: bool) {
+        env::set_var("USER", "rdbm");
         let mut l = License::blank();
-        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1), 0));
+        l.connections.push(Connection::new(Utc::now().naive_utc().date() + chrono::Duration::days(1), 0));
         let e = "".to_string();
-        let c = Utc::today().naive_utc();
+        let c = Utc::now().naive_utc().date();
         assert!(l.find(&e, &e, &e,&e).is_none());
         let user = env::var("USER").unwrap_or("".to_string());
         let h = "localhost".to_string();
@@ -1684,7 +1685,7 @@ mod tests {
         test_find_assert_gt(&l, &c, &h, &sample_db);
         test_find_assert_gt(&l, &c, &i, &sample_db);
 
-        l.connections.push(Connection::new(Utc::today().naive_utc() - chrono::Duration::days(10), 0));
+        l.connections.push(Connection::new(Utc::now().naive_utc().date() - chrono::Duration::days(10), 0));
         l.connections[1].hosts.insert(append_host.clone());
         l.connections[1].db_names.insert(append_db.clone());
 
@@ -1694,7 +1695,7 @@ mod tests {
         test_find_assert_gt(&l, &c, &h, &sample_db);
         test_find_assert_gt(&l, &c, &i, &sample_db);
 
-        let c = Utc::today().naive_utc() - chrono::Duration::days(100);
+        let c = Utc::now().naive_utc().date() - chrono::Duration::days(100);
         l.connections.remove(0);
 
         test_find_assert_gt(&l, &c, &sample_host, &sample_db);
@@ -1756,6 +1757,7 @@ mod tests {
 
     #[test]
     fn test_find_dbn_1() {
+        env::set_var("USER", "rdbm");
         let user = env::var("USER").unwrap_or("".to_string());
         let e = "".to_string();
         let h = "localhost".to_string();
@@ -1764,7 +1766,7 @@ mod tests {
         let zzz = "zzz".to_string();
 
         let mut l = License::blank();
-        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1), 0));
+        l.connections.push(Connection::new(Utc::now().naive_utc().date() + chrono::Duration::days(1), 0));
         l.connections[0].db_names.insert("*".into());
         //only db name
         assert!(l.find(&i, &h, &zzz, &p).is_some());
@@ -1773,21 +1775,21 @@ mod tests {
         assert!(l.find(&i, &zzz, &p, &zzz).is_none());
 
         // expiring license
-        l.connections[0].valid_until = Utc::today().naive_utc() - chrono::Duration::days(1);
-        l.connections.push(Connection::new(Utc::today().naive_utc() + chrono::Duration::days(1), 0));
+        l.connections[0].valid_until = Utc::now().naive_utc().date() - chrono::Duration::days(1);
+        l.connections.push(Connection::new(Utc::now().naive_utc().date() + chrono::Duration::days(1), 0));
         // expired license
-        assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
-        assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
+        assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::now().naive_utc().date());
+        assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::now().naive_utc().date());
         assert!(l.find(&zzz, &h, &zzz, &p).is_none());
         assert!(l.find(&i, &zzz, &p, &zzz).is_none());
         // eval license
-        assert!(l.find(&i, &h, &user, &e).unwrap() > Utc::today().naive_utc());
+        assert!(l.find(&i, &h, &user, &e).unwrap() > Utc::now().naive_utc().date());
         l.connections[1].hosts.insert("*".into());
         // new license
-        assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::today().naive_utc());
-        assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::today().naive_utc());
-        assert_eq!((l.find(&zzz, &h, &user, &p).unwrap() - Utc::today().naive_utc()).num_days(), 1);
-        assert_eq!((l.find(&i, &zzz, &p, &e).unwrap() - Utc::today().naive_utc()).num_days(), 1);
+        assert!(l.find(&i, &h, &zzz, &p).unwrap() < Utc::now().naive_utc().date());
+        assert!(l.find(&i, &h, &user, &zzz).unwrap() < Utc::now().naive_utc().date());
+        assert_eq!((l.find(&zzz, &h, &user, &p).unwrap() - Utc::now().naive_utc().date()).num_days(), 1);
+        assert_eq!((l.find(&i, &zzz, &p, &e).unwrap() - Utc::now().naive_utc().date()).num_days(), 1);
 
     }
 

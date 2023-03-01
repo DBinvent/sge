@@ -636,6 +636,7 @@ impl LoadResult {
                     columns: OrderedHashMap::new(),
                     triggers: OrderedHashMap::new(),
                     etl: None,
+                    owner: table.owner.clone().unwrap_or("".to_string()),
                     weight: 0,
                 };
                 let mut columns = table.columns.values().cloned().collect::<Vec<SColumnDfn>>();

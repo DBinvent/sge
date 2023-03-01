@@ -23,11 +23,11 @@ fn main() -> Result<(), String> {
 	let mut lic = rdbm::license::License::load(&file_name)?;
 	{
 		if lic.connections.len() == 0 {
-			lic.connections.push(Connection::new(Utc::today().naive_utc(), 1));
+			lic.connections.push(Connection::new(Utc::now().naive_utc().date(), 1));
 		} else {
 			for c in &mut lic.connections {
 				if c.state == "Evaluation" {
-					c.valid_until = Utc::today().naive_utc() + Duration::days(32);
+					c.valid_until = Utc::now().naive_utc().date() + Duration::days(32);
 					eval = true;
 				}
 			}

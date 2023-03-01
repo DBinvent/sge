@@ -3,10 +3,10 @@ The Relation DB Management tool.
 
 ### TODO
 
-- Lift column restrictions for Schema snapshot and deploy for composite-primary keys, etc
+- Partial Done: Lift column restrictions for Schema snapshot and deploy for composite-primary keys, etc
 - Add support of changing and extending datatype: "ALTER TABLE ... SET DATA TYPE"
 - Add ETL NULL convert IF string type changed to NOT NULL
-- Add --schema_transaction: 'retry' to support non-blocking changes on highload 
+- Added --schema_transaction: 'retry' to support non-blocking changes on highload 
 - Add roles granting
 - Add JSON format for schema definition
 - Add schema(table) definition features: view, foreign tables, partitioned tables, indexes, constraint, sp/f

@@ -71,6 +71,10 @@ impl PgInstance {
 }
 
 const TESTS_DIR: &str = "./tests";
+#[cfg(not(target_os = "linux"))]
+const TMP_TEST_DIR: &str = "./tmp_tests";
+#[cfg(target_os = "linux")]
+const TMP_TEST_DIR: &str = "/tmp/tests";
 
 /*
   echo " 2: working dir for postgres DB (like 'data')"
@@ -80,7 +84,7 @@ const TESTS_DIR: &str = "./tests";
 
 */
 ///work_dir: &str, port: u16, db_name: &str,
-pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
+pub fn prepare_db() -> Result<PgInstance, String> {
     if let Ok(ev) = env::var("RDBM_IT") {
         if ev.as_str() == "ignore" {
            return Err(format!("migration_tests RDBM_IT set to: {}", ev));
@@ -93,7 +97,7 @@ pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
         .unwrap();
 
     // let work_dir = uuid();
-    let work_dir = format!("{}/dd{}", dir, uuid());
+    let work_dir = format!("{}/dd{}", TMP_TEST_DIR, uuid());
 
     let port = pseudo_rnd(5555, 7777);
     let db_name = format!("db{}", uuid());
