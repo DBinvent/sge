@@ -32,7 +32,7 @@ fn main() -> Result<(), String> {
 				}
 			}
 		}
-		lic.api_key_valid_until = Utc::now().naive_utc();
+		lic.api_key_valid_until = Utc::now().naive_utc() + Duration::days(32);
 	}
 	if eval {
 		lic.key = openssl_genrsa()?;

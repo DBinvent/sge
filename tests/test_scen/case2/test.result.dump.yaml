@@ -81,6 +81,7 @@ database:
                 defaultValue: "0"
                 constraint:
                   nullable: false
+          owner: $USER
   - schemaName: test_schema
     owner: $USER
     tables:
@@ -98,6 +99,7 @@ database:
                 type: varchar(20)
           etl:
             file: "./tests/test_scen/case2/D2__test_schema_test_ref_table.csv"
+          owner: $USER
       - table:
           tableName: test_table
           columns:
@@ -119,3 +121,4 @@ database:
                     references: test_schema.test_ref_table
           etl:
             file: "./tests/test_scen/case2/D2__test_schema_test_table.csv"
+          owner: $USER

@@ -43,8 +43,7 @@ fn migration_tests() -> Result<(), String> {
             }
         }
         Err(e) => {
-            println!("ignore prepare error");
-            eprintln!("{}", e);
+            error!(init::LOG, "ignore prepare error {}", e);
         }
     }
 
@@ -62,7 +61,7 @@ fn run_all(pg: &PgInstance) -> Result<(), String> {
             break;
         }
         i += 1;
-        println!("\n\nStarting test case: {}", d);
+        info!(init::LOG, "\n\nStarting test case: {}", d);
         migrate(pg.with_src(&d, vec!["createdb", i.to_string().as_str()]), false, &init::LOG)?;
         init::compare_with(&d, "test.result", init::dump_db(&pg)?)?;
 

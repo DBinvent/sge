@@ -208,9 +208,9 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
     ) as ist WHERE ist.table_comment is not null order by 1,2", tables).as_str(), &[&db_name])
                 .map_err(|e| format!("on loading table_comment from information_schema [{}]: {}", db_name, e))?;
             for r in result {
-                // let table_schema: &str = r.get(1);
-                let table_name: &str = r.get(2);
-                let table_comment: &str = r.get(3);
+                // let table_schema: &str = r.get(0);
+                let table_name: &str = r.get(1);
+                let table_comment: &str = r.get(2);
                 if let Some(t) = tbls.get_mut(table_name) {
                     t.table_comment = Some(table_comment.to_string());
                 }
@@ -220,9 +220,9 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
                                   &[&schema])
                 .map_err(|e| format!("on loading table_owner from information_schema [{}]: {}", db_name, e))?;
             for r in result {
-                // let table_schema: &str = r.get(1);
-                let table_name: &str = r.get(2);
-                let table_owner: &str = r.get(3);
+                // let table_schema: &str = r.get(0);
+                let table_name: &str = r.get(1);
+                let table_owner: &str = r.get(2);
                 if let Some(t) = tbls.get_mut(table_name) {
                     t.owner = Some(table_owner.to_string());
                 }
@@ -236,10 +236,10 @@ WHERE cols.table_schema not in ('pg_catalog', 'information_schema')  AND cols.ta
 ) as iss where iss.column_comment is not null", tables).as_str(), &[&db_name])
                 .map_err(|e| format!("on loading table_comment from information_schema [{}]: {}", db_name, e))?;
             for r in result {
-                // let table_schema: &str = r.get(1);
-                let table_name: &str = r.get(2);
-                let column_name: &str = r.get(3);
-                let column_comment: &str = r.get(4);
+                // let table_schema: &str = r.get(0);
+                let table_name: &str = r.get(1);
+                let column_name: &str = r.get(2);
+                let column_comment: &str = r.get(3);
                 if let Some(t) = tbls.get_mut(table_name) {
                     if let Some(c) = t.columns.get_mut(column_name) {
                         c.column_comment = Some(column_comment.to_string());
@@ -471,6 +471,7 @@ impl STable {
 
     /// проверяет колонки на РК, если несколько, то выдает готовый кусок SQL,
     /// если одна колонка, то будет написано в def() колонке
+    /// возвращает только, если 2 колонки
     pub(crate) fn pks(&self) -> Option<String> {
         let mut pks = ", PRIMARY KEY (".to_string();
         let mut cnt = 0;

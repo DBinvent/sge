@@ -24,6 +24,7 @@ use serde::ser::SerializeSeq;
 use std::convert::TryFrom;
 use yaml_validator::Validate;
 use crate::BASELINE;
+use crate::dbm_yml::CreateST::{SchemaAndTable, TableOnly};
 
 /// version is a [parse_type]
 #[derive(Debug, Clone, Serialize)]
@@ -987,10 +988,10 @@ impl YTable {
         let mut sql = String::new();
         let mut comments = String::new();
         let mut exec = false;
-        let (create_schema, create_table) = match dbc.get_mut(schema) {
-            None => (true, true),
+        let do_create = match dbc.get_mut(schema) {
+            None => SchemaAndTable,
             Some(mut ss) => match ss.get_mut(&self.table_name) {
-                None => (false, true),
+                None => TableOnly,
                 Some(mut ts) => {
                     let pks = ts.pks();
                     for dc in &self.columns.list {
@@ -1020,14 +1021,16 @@ impl YTable {
                             }
                         }
                     }
-                    (false, false)
+                    CreateST::None
                 }
             },
         };
-        if create_schema {
+        if let SchemaAndTable = do_create { // no TableOnly
             dbc.insert(schema.clone(), HashMap::new());
         }
-        if create_table {
+        if {
+            match do_create { CreateST::None => false, _ => true }
+        } {
             // let owner = "";
             let mut columns = String::new();
             let mut st = STable {
@@ -1039,12 +1042,15 @@ impl YTable {
                 table_comment: None,
                 owner: if self.owner.len() > 0 { Some(self.owner.clone()) } else { None },
             };
+
             for dc in &self.columns.list {
                 let cd = dc.column_def(schema, &self.table_name, file)?;
+                // let _ = write!(columns, "{}, ", cd.def(true));
                 let _ = st.columns.insert(dc.get_name(), cd);
                 self.comments(&mut comments, schema, &dc.name, &dc.description);
             }
-            if columns.len() > 0 {
+
+            // if columns.len() > 0 {
                 let pks = st.pks();
                 for dc in &self.columns.list {
                     if let Some(cd) = st.columns.get(dc.name.as_str()) {
@@ -1054,18 +1060,21 @@ impl YTable {
                 }
                 if let Some(pks) = pks {
                     columns.push_str(pks.as_str());
+                    columns.push_str(", ");
                 }
-                if create_schema && schema.as_str() != "public" {
-                    let _ = write!(sql, "CREATE SCHEMA IF NOT EXISTS {} ", schema);
-                    if self.owner.len() > 0 {
-                        let _ = write!(sql, "AUTHORIZATION {}", self.owner);
+                if let SchemaAndTable = do_create {
+                    if schema.as_str() != "public" {
+                        let _ = write!(sql, "CREATE SCHEMA IF NOT EXISTS {} ", schema);
+                        if self.owner.len() > 0 {
+                            let _ = write!(sql, "AUTHORIZATION {}", self.owner);
+                        }
+                        let _ = write!(sql, ";\n");
                     }
-                    let _ = write!(sql, ";\n");
                 }
-                columns.remove(columns.rfind(",").unwrap());
-                let _ = writeln!(
-                    sql,
-                    "CREATE TABLE {}.{} ({}{}{}){}; \n",
+                if let Some(idx) = columns.rfind(",") {
+                    columns.remove(idx);
+                }
+                let csql = format!("CREATE TABLE {}.{} ({}{}{}){}; \n",
                     schema,
                     self.table_name,
                     columns,
@@ -1073,13 +1082,16 @@ impl YTable {
                     self.constraint,
                     self.sql
                 );
+
+                sql.push_str(csql.as_str());
+
                 if self.owner.len() > 0 {
                     append(format!(
                         "ALTER TABLE {}.{} OWNER TO {}",
                         schema, self.table_name, self.owner
                     ).as_str(),  &mut sql, cfg.is_retry());
                 }
-            }
+            // }
             for dt in &self.triggers.list {
                 if let Some(td) = dt.trig_def(schema, &self.table_name) {
                     let _ = writeln!(sql, "{}\n", td);
@@ -1112,7 +1124,7 @@ impl YTable {
         } else {
             deploy_log(&sql, log);
             if exec {
-                debug!(log, "SQL> {}", sql);
+                debug!(log, "deploy SQL [{}:{}]> {}", file, schema, sql);
                 match db.batch_execute(sql.as_str()) {
                     Ok(()) => {
                         let _ = db.batch_execute(comments.as_str());
@@ -1254,6 +1266,13 @@ impl YTable {
 
 }
 //YTable
+
+#[derive(Debug)]
+enum CreateST {
+    None,
+    SchemaAndTable,
+    TableOnly
+}
 
 fn append(sql: &str, buff: &mut String, retry: bool) {
     if retry {

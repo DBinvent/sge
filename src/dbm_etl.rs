@@ -1122,9 +1122,9 @@ Boston,United States,\"4628910\"\"\"
     #[test]
     fn w_test() {
         let log = logger(true);
-        #[cfg(target_os = "linux")]
+        #[cfg(feature = "openssl")]
         let file = "/tmp";
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(feature = "openssl"))]
         let file = "./target";
         let file = format!("{}/{}.csv", file, uuid());
         let data = "r,active,starts_at,ends_at,cap\n\

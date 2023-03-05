@@ -17,12 +17,12 @@ use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
 use crate::dbm_yml::*;
 
-#[cfg(target_os = "linux")]
+#[cfg(feature = "openssl")]
 use openssl::{
     ssl::{SslConnector, SslMethod},
     error::ErrorStack
 };
-#[cfg(target_os = "linux")]
+#[cfg(feature = "openssl")]
 use postgres_openssl::MakeTlsConnector;
 
 use postgres::{Client, NoTls, Transaction};
@@ -555,9 +555,9 @@ fn connect(
     let db = format!("postgresql:///{}?{}", dbname, url);
     debug!(log, "{}: connecting: {} {}", module, log_url, dbname);
     match if cfg.is_ssl() {
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(not(feature = "openssl"))]
         return Err(format!(" No openssl on Windows yet to connect to: {}", db));
-        #[cfg(target_os = "linux")]
+        #[cfg(feature = "openssl")]
         Client::connect(db.as_str(), match make_tls_connector(&cfg.get(prefix)) {
             Ok(c) => c,
             Err(e) => {
@@ -677,7 +677,7 @@ fn create_role(
 }
 
 #[inline]
-#[cfg(target_os = "linux")]
+#[cfg(feature = "openssl")]
 fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     builder.set_ca_file(cert)?;

@@ -34,8 +34,7 @@ fn migration_tests() -> Result<(), String> {
             }
         }
         Err(e) => {
-            println!("ignore prepare error");
-            eprintln!("{}", e);
+            error!(init::LOG, "ignore prepare error {}", e);
         }
     }
 
@@ -79,7 +78,7 @@ fn run_all(pg: &PgInstance) -> Result<(), String> {
         }
     }
 
-    println!("\nre-migrate case[{}]", i);
+    info!(init::LOG, "\nre-migrate case[{}]", i);
     migrate(pg.with_src(&format!("./tests/test_scen/case{}",  i-1), vec![]), false, &init::LOG)?;
 
     Ok(())

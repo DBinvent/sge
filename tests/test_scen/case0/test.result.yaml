@@ -81,3 +81,4 @@ database:
                 defaultValue: "0"
                 constraint:
                   nullable: false
+          owner: $USER

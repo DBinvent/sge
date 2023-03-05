@@ -24,7 +24,7 @@ lazy_static! {
     // pub static ref  DBM: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     pub static ref DB: Arc<RwLock<bool>> = {
-        println!("===> Starting DB...");
+        info!(LOG, "===> Starting DB...");
         thread::spawn(move || {
 //
         });
@@ -105,7 +105,7 @@ pub fn prepare_db() -> Result<PgInstance, String> {
 
     fs::create_dir_all(work_dir.as_str());
 
-    println!("Starting DB on ./postgres.sh start {} {} {} {} {} ... ", work_dir, port, ver, db_name, db_pwd);
+    info!(LOG, "Starting DB on ./postgres.sh start {} {} {} {} {} ... ", work_dir, port, ver, db_name, db_pwd);
 
     let mut pc = Command::new("./postgres.sh");
         pc.current_dir(TESTS_DIR)
@@ -140,7 +140,7 @@ pub fn prepare_db() -> Result<PgInstance, String> {
         match &*res {
             Ok(e) => {
                 if e.len() > 0 {
-                    println!("{}", e);
+                    info!(LOG, "{}", e);
                     break;
                 } else {
                     print!(".");
@@ -165,7 +165,7 @@ pub fn prepare_db() -> Result<PgInstance, String> {
 }
 
 pub fn cleanup_db(pg: PgInstance) {
-    println!("\n\nCleanup on {}", pg.work_dir);
+    info!(LOG, "\n\nCleanup on {}", pg.work_dir);
     match Command::new("./postgres.sh")
         .current_dir("./tests")
         .arg("stop")
@@ -173,10 +173,10 @@ pub fn cleanup_db(pg: PgInstance) {
         .arg(pg.port.to_string())
         .output().map_err(|e| format!("{}", e)) {
         Ok(pc) => {
-            println!("stop: [{}] {} {}", pc.status.success(), String::from_utf8_lossy(&pc.stderr), String::from_utf8_lossy(&pc.stdout));
+            info!(LOG, "stop: [{}] {} {}", pc.status.success(), String::from_utf8_lossy(&pc.stderr), String::from_utf8_lossy(&pc.stdout));
         }
         Err(e) => {
-            println!("stop: {}", e);
+            info!(LOG, "stop: {}", e);
         }
     }
 
@@ -184,7 +184,7 @@ pub fn cleanup_db(pg: PgInstance) {
 
 /// pg_dump -s
 pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
-    println!("Dumping:  pg_dump -s -h localhost -p {} {}", pg.port, pg.db_name);
+    info!(LOG, "Dumping:  pg_dump -s -h localhost -p {} {}", pg.port, pg.db_name);
     let p = Command::new("pg_dump").arg("-s")
         .arg("-h").arg("localhost")
         .arg("-p").arg(pg.port.to_string().as_str())
@@ -234,7 +234,7 @@ pub fn compare_with(d: &String, dump: &str, b: String) -> Result<(), String> {
 
 /// diff with $1 $1.dump
 pub fn diff(d: &String, dump: &str, ) -> Result<(), String> {
-    println!("DIFF at {} {} vs .dump", d, dump);
+    info!(LOG, "DIFF at {} {} vs .dump", d, dump);
     let p = Command::new("diff")
         .arg(format!("{}/{}", d,  dump).as_str())
         .arg(format!("{}/{}.dump", d,  dump).as_str())

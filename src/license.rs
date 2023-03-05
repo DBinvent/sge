@@ -16,6 +16,7 @@ use std::mem::swap;
 use crypto::digest::Digest;
 use rsa::padding::PaddingScheme::{PKCS1v15Sign, PKCS1v15Encrypt};
 use rsa::hash::Hash::{SHA2_512, SHA2_256};
+use chrono::Duration;
 
 static PKS: [&'static str; 10] = [
 include_str!("keys/corp0.pub"),
@@ -979,11 +980,11 @@ impl License {
     #[inline]
     #[allow(dead_code)]
     pub fn header(&self) -> Result<String, String> {
-        let now: LicenseTime = Utc::now().naive_utc();
+        let now: LicenseTime = Utc::now().naive_utc() - Duration::hours(24);
         if self.api_key.len() < 30 {
             Err("api_key is not set".into())
         } else if self.api_key_valid_until < now {
-            Err("api_key is outdated".into())
+            Err(format!("api_key is outdated: {}", self.api_key_valid_until))
         } else if self.key.len() < 300 {
             Err("key is not set".into())
         } else {

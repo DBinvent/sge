@@ -81,6 +81,7 @@ database:
                 defaultValue: "0"
                 constraint:
                   nullable: false
+          owner: $USER
   - schemaName: test_schema
     owner: $USER
     tables:
@@ -96,6 +97,7 @@ database:
             - column:
                 name: test
                 type: varchar(20)
+          owner: $USER
       - table:
           tableName: test_table
           columns:
@@ -115,3 +117,4 @@ database:
                   nullable: true
                   foreignKey:
                     references: test_schema.test_ref_table
+          owner: $USER

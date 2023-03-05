@@ -81,6 +81,7 @@ database:
                 defaultValue: "0"
                 constraint:
                   nullable: false
+          owner: $USER
   - schemaName: test_schema
     owner: $USER
     tables:
@@ -96,3 +97,4 @@ database:
             - column:
                 name: test
                 type: varchar(250)
+          owner: $USER

@@ -38,7 +38,7 @@ fn migration_log_db_tests3() -> Result<(), String> {
                     pg.cfg.insert(&"createlogdb_user".to_string(), env::var("USER").unwrap().as_str());
                     pg.cfg.insert(&"createlogdb_pwd".to_string(), logpg.db_pwd.as_str());
 
-                    println!("starting split logging cases");
+                    info!(init::LOG, "starting split logging cases");
                     thread::sleep(Duration::from_secs(1));
                     let res = run_all(&pg, &logpg);
 
@@ -50,14 +50,12 @@ fn migration_log_db_tests3() -> Result<(), String> {
                     }
                 }
                 Err(e) => {
-                    println!("ignore prepare error for logdb");
-                    eprintln!("{}", e);
+                    error!(init::LOG, "ignore prepare error for logdb {}", e);
                 }
             }
         }
         Err(e) => {
-            println!("ignore prepare error for main db");
-            eprintln!("{}", e);
+            error!(init::LOG, "ignore prepare error for main db {}", e);
         }
     }
     Ok(())
