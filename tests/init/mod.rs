@@ -207,14 +207,25 @@ pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
     }
 }
 
+pub const ALTER_SCHEMA: &str = "ALTER SCHEMA";
+pub const OWNER_TO: &str = "OWNER TO";
+
+fn fix_owner(x: &str) -> bool {
+    x.contains(ALTER_SCHEMA) && x.contains(OWNER_TO)
+}
 
 pub fn compare_with(d: &String, dump: &str, b: String) -> Result<(), String> {
     let u = env::var("USER").unwrap();
     let a = fs::read_to_string(format!("{}/{}", d, dump).as_str())
             .map_err(|e| format!("reading [{}/{}] {}", d, dump, e))?;
     fs::write(format!("{}/{}.out", d, dump), &b); // dump the dump
-    let a:Vec<String> = a.split("\n").map(|l| l.replace("$USER", u.as_str())).collect();
-    let b:Vec<&str> = b.split("\n").collect();
+    let a:Vec<String> = a.split("\n")
+        .map(|l| l.replace("$USER", u.as_str()))
+        .filter(|x| !fix_owner(x.as_str()))
+        .collect();
+    let b:Vec<&str> = b.split("\n")
+        .filter(|x| !fix_owner(*x))
+        .collect();
     let mut i = 0usize;
     loop {
         let x = if a.len() == 0 {""} else { a[min(a.len() - 1, i)].as_str() };

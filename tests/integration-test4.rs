@@ -23,7 +23,7 @@ same as it1, but with ETL
 */
 
 #[test]
-fn migration_tests() -> Result<(), String> {
+fn migration_tests4() -> Result<(), String> {
     match init::prepare_db() {
         Ok(pg) => {
             let res = run_all(&pg);
