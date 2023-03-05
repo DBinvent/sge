@@ -209,9 +209,11 @@ pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
 
 pub const ALTER_SCHEMA: &str = "ALTER SCHEMA";
 pub const OWNER_TO: &str = "OWNER TO";
+pub const REVOKE_USAGE: &str = "REVOKE USAGE ON SCHEMA";
 
 fn fix_owner(x: &str) -> bool {
-    x.contains(ALTER_SCHEMA) && x.contains(OWNER_TO)
+    (x.contains(ALTER_SCHEMA) && x.contains(OWNER_TO))
+    || x.contains(REVOKE_USAGE)
 }
 
 pub fn compare_with(d: &String, dump: &str, b: String) -> Result<(), String> {
