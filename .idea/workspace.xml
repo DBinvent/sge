@@ -18,16 +18,13 @@
     <cargoProject FILE="$PROJECT_DIR$/Cargo.toml" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="#9 IT: ignore REVOKE USAGE">
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/build.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mu-build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/mu-build.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_cfg.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_cfg.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_dbc.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_dbc.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_etl.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_etl.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/init/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/init/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_scen/case0/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case0/test.result.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_scen/case1/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case1/test.result.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result.yaml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -323,7 +320,8 @@
       <workItem from="1678059826402" duration="1437000" />
       <workItem from="1678077377683" duration="1841000" />
       <workItem from="1678242197575" duration="4388000" />
-      <workItem from="1678322799154" duration="2000" />
+      <workItem from="1678322799154" duration="133000" />
+      <workItem from="1678326877241" duration="1063000" />
     </task>
     <task id="LOCAL-00001" summary="fix create DB AND USER at same run">
       <created>1637798495596</created>
@@ -430,7 +428,14 @@
       <option name="project" value="LOCAL" />
       <updated>1678063213571</updated>
     </task>
-    <option name="localTasksCounter" value="16" />
+    <task id="LOCAL-00016" summary="#9 IT final fixes">
+      <created>1678322917594</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1678322917594</updated>
+    </task>
+    <option name="localTasksCounter" value="17" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -452,7 +457,8 @@
     <MESSAGE value="#9 it pass - fix alter owner" />
     <MESSAGE value="#9 IT: ignore REVOKE USAGE" />
     <MESSAGE value="#9 IT: ignore GRANT_ALL" />
-    <option name="LAST_COMMIT_MESSAGE" value="#9 IT: ignore GRANT_ALL" />
+    <MESSAGE value="#9 IT final fixes" />
+    <option name="LAST_COMMIT_MESSAGE" value="#9 IT final fixes" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

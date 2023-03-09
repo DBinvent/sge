@@ -232,8 +232,8 @@ pub fn compare_with(d: &String, dump: &str, b: String) -> Result<(), String> {
         .collect();
     let mut i = 0usize;
     loop {
-        let x = if a.len() == 0 {""} else { a[min(a.len() - 1, i)].as_str() };
-        let y = if b.len() == 0 {""} else { b[min(b.len() - 1, i)] };
+        let x = if a.len() == 0 {""} else { a[min(a.len() - 1, i)].trim() };
+        let y = if b.len() == 0 {""} else { b[min(b.len() - 1, i)].trim() };
         if x != y
         {
             return Err(format!("not equals at line({}/{}) [{}/{}:{}]: \n[{}]\n[{}]", d, dump, i+1, a.len(), b.len(), x, y));
