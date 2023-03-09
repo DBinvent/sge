@@ -42,6 +42,7 @@ fn main() {
         Err(e) => { println!("{}", e); std::process::exit(2); }
     };
     for ks in rdbm::CONFIG_APP.keys() {
+        // println!("check [{}]= [{}] {} ", ks, app.occurrences_of(ks.as_str()), app.value_of(ks).unwrap_or("UNSET"));
         if app.occurrences_of(ks.as_str()) > 0 {
             cfg.insert(ks, app.value_of(ks).unwrap_or(""));
         }
@@ -57,7 +58,11 @@ fn main() {
 }
 
 fn act(cmd: &str, cfg: ConfigMap, ) -> Result<(), String> {
-    let log = logger(cfg.get_bool("verbose", false));
+    let v = cfg.get_bool("verbose", false);
+    let log = logger(v);
+    #[cfg(debug_assertions)] if v {
+        cfg.debug(&log);
+    }
     match cmd {
         "migrate" => {
             if rdbm::license::is_ok(&cfg, &log)? {

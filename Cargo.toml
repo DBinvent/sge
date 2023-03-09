@@ -20,6 +20,14 @@ name = "rdbm"
 path = "src/main.rs"
 bench = false
 doc = false
+
+#[[bin]]
+#name = "rdbm-tls"
+#path = "src/main.rs"
+#bench = false
+#doc = false
+#required-features = ["tls"]
+
 [profile.release]
 opt-level = 'z'  # Optimize for size.
 lto = true
@@ -45,18 +53,18 @@ lazy_static = "^1.4.0"
 postgres = { version = "^0.19.1", features=["with-chrono-0_4", "with-time-0_2"] }
 
 chrono="^0.4.19"
-time = "^0.2.26"
+time = "^0.3.20"
 serde = { version = "^1.0", features = ["derive"] }
 
 serde_json = "^1.0.64"
-serde_yaml = "^0.8.17"
+serde_yaml = "^0.9.19"
 yaml-rust = "^0.4.5"
 semver = "^0.11.0"
 linked-hash-map="^0.5.4"
 
 rust-crypto = "^0.2.36"
 rand = "^0.8.3"
-base64 = "^0.13.0"
+base64 = "^0.21.0"
 clap = {version = "2.33.3", features = ["yaml"]}
 
 rsa = "^0.4.0"
@@ -68,16 +76,20 @@ csv = "1.1.6"
 smallvec = "1.6.1"
 yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", features = []}
 
-#[target.'cfg(unix)'.dependencies]
-postgres-openssl = { version = "^0.5.0", optional = true }
-openssl = { version = "^0.10.33", optional = true }
+#postgres-openssl = { version = "^0.5.0", optional = true }
+#openssl = { version = "^0.10.33", optional = true }
+
+postgres-native-tls = { version = "^0.5.0", optional = true }
+native-tls = { version = "^0.2.11", optional = true }
 
 [features]
-default = ["openssl"]
-openssl = ["dep:postgres-openssl", "dep:openssl"]
+#default = [ ]
+default = ["tls"]
+tls = ["dep:postgres-native-tls", "dep:native-tls"]
+#openssl = ["dep:postgres-openssl", "dep:openssl"]
 
 [package.metadata.deb]
-depends = "postgresql-client, curl"
+depends = "postgresql-client, curl, openssl"
 maintainer = "DBinvent <support@dbinvent.com>"
 maintainer-scripts = "deb-scripts"
 assets= [
@@ -103,3 +115,5 @@ assets= [
 
 [package.metadata.generate-rpm.requires]
 curl = "*"
+postgresql-client = "*"
+openssl = "3"

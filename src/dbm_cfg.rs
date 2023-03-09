@@ -12,6 +12,7 @@ use std::env;
 use crate::dbm_yml::{safe_sql, str2bool};
 #[allow(unused, warnings)]
 use chrono::{Utc, Duration};
+use slog::Logger;
 use crate::license::LicenseDate;
 
 #[derive(Debug, Clone)]
@@ -256,6 +257,12 @@ impl ConfigMap {
         }
     }
 
+    pub fn debug(&self, log: &Logger) {
+        debug!(log, "{}", self);
+        for (k,v) in &self.map {
+            debug!(log, "{}: {}", k, v)
+        }
+    }
 }
 
 impl Display for ConfigMap {

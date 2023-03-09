@@ -28,6 +28,11 @@ sed -i "0,/local_build/s/local_build/$vv/" src/i18n/*_clc.yaml
 sed -i "0,/version.*/s//version = \"$vv\"/" Cargo.toml
 grep version Cargo.toml
 ./ul.sh
+
+#cargo +stable build --release --bin rdbm --features=tls
+#strip -s target/release/rdbm
+#mv target/release/rdbm target/release/rdbmtls
+
 cargo +stable build --release
 strip -s target/release/rdbm
 echo "Build: $(./target/release/rdbm -V)"

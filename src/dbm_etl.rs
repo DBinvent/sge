@@ -4,6 +4,7 @@ use std::{fmt, fs};
 use std::cmp::{max, Ordering};
 use std::fs::File;
 use std::path::Path;
+use chrono::{DateTime, Utc};
 use csv::{Reader, StringRecord};
 use postgres::{Client, Row, Transaction};
 use postgres::types::Type;
@@ -71,7 +72,7 @@ fn as_string(row: &Row, idx: usize, t: &YTable) -> Result<String, String> {
                 None => "".to_string(),
                 Some(x) => x.to_string()
             },
-            &Type::TIMESTAMPTZ => match row.get::<_, Option<time::OffsetDateTime>>(idx){
+            &Type::TIMESTAMPTZ => match row.get::<_, Option<DateTime<Utc>>>(idx){
                 None => "".to_string(),
                 Some(x) => x.to_string()
             },
@@ -98,7 +99,7 @@ fn as_string(row: &Row, idx: usize, t: &YTable) -> Result<String, String> {
             &Type::DATE => row.get::<_, chrono::NaiveDate>(idx).to_string(),
             &Type::TIME => row.get::<_, chrono::NaiveTime>(idx).to_string(),
             &Type::TIMESTAMP => row.get::<_, chrono::NaiveDateTime>(idx).to_string(),
-            &Type::TIMESTAMPTZ => row.get::<_, time::OffsetDateTime>(idx).to_string(),
+            &Type::TIMESTAMPTZ => row.get::<_, DateTime<Utc>>(idx).to_string(),
             t @ _ => row.try_get::<_, String>(idx)
                 .map_err(|e| format!("converting type [{}] to string: {}", t.name(), e))?
         }
@@ -1122,9 +1123,9 @@ Boston,United States,\"4628910\"\"\"
     #[test]
     fn w_test() {
         let log = logger(true);
-        #[cfg(feature = "openssl")]
+        #[cfg(feature = "tls")]
         let file = "/tmp";
-        #[cfg(not(feature = "openssl"))]
+        #[cfg(not(feature = "tls"))]
         let file = "./target";
         let file = format!("{}/{}.csv", file, uuid());
         let data = "r,active,starts_at,ends_at,cap\n\

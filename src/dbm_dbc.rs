@@ -165,7 +165,7 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
         #[cfg(debug_assertions)]
         {
             if column_name == "id" {
-                println!("{}.id= {}", table_name, column_default.unwrap_or("NA"));
+                // println!("{}.id= {}", table_name, column_default.unwrap_or("NA"));
             }
         }
         let column_data = SColumnDfn::new(column_name, data_type,

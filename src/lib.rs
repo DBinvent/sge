@@ -17,13 +17,14 @@ use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
 use crate::dbm_yml::*;
 
-#[cfg(feature = "openssl")]
-use openssl::{
-    ssl::{SslConnector, SslMethod},
-    error::ErrorStack
-};
-#[cfg(feature = "openssl")]
-use postgres_openssl::MakeTlsConnector;
+// #[cfg(feature = "tls")]
+// use ssl::{
+//     ssl::{SslConnector, SslMethod},
+//     error::ErrorStack
+// };
+
+// #[cfg(feature = "tls")]
+// use postgres_openssl::MakeTlsConnector;
 
 use postgres::{Client, NoTls, Transaction};
 use slog::Logger;
@@ -555,9 +556,9 @@ fn connect(
     let db = format!("postgresql:///{}?{}", dbname, url);
     debug!(log, "{}: connecting: {} {}", module, log_url, dbname);
     match if cfg.is_ssl() {
-        #[cfg(not(feature = "openssl"))]
-        return Err(format!(" No openssl on Windows yet to connect to: {}", db));
-        #[cfg(feature = "openssl")]
+        #[cfg(not(feature = "tls"))]
+        return Err(format!("No openssl on this build yet to connect to: {}", db));
+        #[cfg(feature = "tls")]
         Client::connect(db.as_str(), match make_tls_connector(&cfg.get(prefix)) {
             Ok(c) => c,
             Err(e) => {
@@ -677,12 +678,22 @@ fn create_role(
 }
 
 #[inline]
-#[cfg(feature = "openssl")]
+#[cfg(feature = "tls")]
+fn make_tls_connector(cert: &String) -> Result<postgres_native_tls::MakeTlsConnector, String> {
+    let cert = fs::read(cert).map_err(|e| format!("reading {} Error: {}", cert, e))?;
+    let cert = native_tls::Certificate::from_pem(&cert).map_err(|e| e.to_string())?;
+    let connector = native_tls::TlsConnector::builder()
+        .add_root_certificate(cert)
+        .build().map_err(|e| e.to_string())?;
+    Ok( postgres_native_tls::MakeTlsConnector::new(connector))
+}
+
+/* openssl
 fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     builder.set_ca_file(cert)?;
     Ok(MakeTlsConnector::new(builder.build()))
-}
+} */
 
 #[inline]
 pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
