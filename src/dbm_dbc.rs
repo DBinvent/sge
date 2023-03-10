@@ -1,7 +1,7 @@
 extern crate postgres;
 use postgres::Client;
 use serde::Serialize;
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{HashMap, BTreeMap, HashSet};
 use std::result::Result;
 
 /// information schema types: schema, table, column
@@ -22,7 +22,26 @@ pub(crate) struct STable {
     pub triggers: HashMap<String, String>,
     pub sort_order: usize,
     pub table_comment: Option<String>,
+    pub owner: Option<String>,
+    // pub grant: HashMap<String, String>,
 }
+
+const _PRIVILEGES: [&str; 14] = [
+"SELECT",
+"INSERT",
+"UPDATE",
+"DELETE",
+"TRUNCATE",
+"REFERENCES",
+"TRIGGER",
+"CREATE",
+"CONNECT",
+"TEMPORARY",
+"EXECUTE",
+"USAGE",
+"SET",
+"ALTER SYSTEM"
+];
 
 /// information schema column data
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +55,7 @@ pub(crate) struct SColumnDfn {
     pub nullable: bool,
     pub sort_order: usize,
     pub column_comment: Option<String>,
+    // pub grant: list<String>,
 }
 
 /// FK information loaded from DB
@@ -43,11 +63,22 @@ pub(crate) struct SColumnDfn {
 pub(crate) struct FKTable {
     pub schema: String,
     pub table: String,
-    pub column: String,
+    pub column: HashSet<String>,
     pub name: String,
     pub sql: String,
 }
-
+impl FKTable {
+    pub(crate) fn columns(&self) -> String {
+        let mut cs = String::new();
+        for c in &self.column {
+            if cs.len() > 0 {
+                cs.push_str(", ");
+            }
+            cs.push_str(c.as_str())
+        }
+        cs
+    }
+}
 impl SColumnDfn {
     fn new(column_name: &str, column_type: String, column_def: &str, nullable: bool, sort_order: usize) -> Self {
         SColumnDfn {
@@ -61,6 +92,28 @@ impl SColumnDfn {
             sort_order,
             column_comment: None
         }
+    }
+
+    pub(crate) fn def(&self, ignore_pk: bool) -> String {
+        let mut sql = format!("{} {}", self.column_name, self.column_type);
+        if self.pk && !ignore_pk {
+            sql.push_str(" primary key");
+        }
+        if !self.nullable {
+            sql.push_str(" not null");
+        }
+        if let Some(def) = &self.column_default {
+            if def.len() > 0 {
+                sql.push_str(" default ");
+                sql.push_str(def.as_str());
+            }
+        }
+        if let Some(ssql) = &self.sql {
+            if ssql.len() > 0 {
+                sql.push_str(ssql.as_str());
+            }
+        }
+        sql
     }
 }
 
@@ -112,7 +165,7 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
         #[cfg(debug_assertions)]
         {
             if column_name == "id" {
-                println!("{}.id= {}", table_name, column_default.unwrap_or("NA"));
+                // println!("{}.id= {}", table_name, column_default.unwrap_or("NA"));
             }
         }
         let column_data = SColumnDfn::new(column_name, data_type,
@@ -155,11 +208,23 @@ fn load_info_cc(db_name: &str, db: &mut Client) -> Result<InfoSchemaType, String
     ) as ist WHERE ist.table_comment is not null order by 1,2", tables).as_str(), &[&db_name])
                 .map_err(|e| format!("on loading table_comment from information_schema [{}]: {}", db_name, e))?;
             for r in result {
-                // let table_schema: &str = r.get(1);
-                let table_name: &str = r.get(2);
-                let table_comment: &str = r.get(3);
+                // let table_schema: &str = r.get(0);
+                let table_name: &str = r.get(1);
+                let table_comment: &str = r.get(2);
                 if let Some(t) = tbls.get_mut(table_name) {
                     t.table_comment = Some(table_comment.to_string());
+                }
+            }
+
+            let result = db.query("SELECT schemaname, tablename, tableowner from pg_tables where schemaname = $1 ",
+                                  &[&schema])
+                .map_err(|e| format!("on loading table_owner from information_schema [{}]: {}", db_name, e))?;
+            for r in result {
+                // let table_schema: &str = r.get(0);
+                let table_name: &str = r.get(1);
+                let table_owner: &str = r.get(2);
+                if let Some(t) = tbls.get_mut(table_name) {
+                    t.owner = Some(table_owner.to_string());
                 }
             }
 
@@ -171,10 +236,10 @@ WHERE cols.table_schema not in ('pg_catalog', 'information_schema')  AND cols.ta
 ) as iss where iss.column_comment is not null", tables).as_str(), &[&db_name])
                 .map_err(|e| format!("on loading table_comment from information_schema [{}]: {}", db_name, e))?;
             for r in result {
-                // let table_schema: &str = r.get(1);
-                let table_name: &str = r.get(2);
-                let column_name: &str = r.get(3);
-                let column_comment: &str = r.get(4);
+                // let table_schema: &str = r.get(0);
+                let table_name: &str = r.get(1);
+                let column_name: &str = r.get(2);
+                let column_comment: &str = r.get(3);
                 if let Some(t) = tbls.get_mut(table_name) {
                     if let Some(c) = t.columns.get_mut(column_name) {
                         c.column_comment = Some(column_comment.to_string());
@@ -305,13 +370,25 @@ fn load_info_fk(db_name: &str, db: &mut Client, data: &mut InfoSchemaType) -> Re
                                 sql.clone()
                             ));
                         }
-                        hd.fks.insert(column_name.into(), FKTable {
-                            schema: foreign_schema_name.to_string(),
-                            table: foreign_table_name.to_string(),
-                            column: foreign_column_name.to_string(),
-                            name: constraint_name.to_string(),
-                            sql
-                        });
+                        let constraint_name = constraint_name.to_string();
+                        
+                        match hd.fks.get_mut(&constraint_name) {
+                            None => {
+                                let mut column = HashSet::new();
+                                column.insert(foreign_column_name.to_string());
+                                hd.fks.insert(column_name.into(), FKTable {
+                                    schema: foreign_schema_name.to_string(),
+                                    table: foreign_table_name.to_string(),
+                                    column,
+                                    name: constraint_name.to_string(),
+                                    sql
+                                });
+                            }
+                            Some(fks) => {
+                                fks.column.insert(foreign_column_name.to_string());
+                            }
+                        }
+                       
                     }
                 }
             }
@@ -351,6 +428,20 @@ where t.table_schema = $1 and t.table_catalog = $2 ", &[&schema_name, &db_name])
     }
 }
 
+impl Default for STable {
+    fn default() -> Self {
+        STable {
+            table_name: "".to_string(),
+            columns: Default::default(),
+            fks: Default::default(),
+            triggers: Default::default(),
+            sort_order: 0,
+            table_comment: None,
+            owner: None,
+        }
+    }
+}
+
 impl STable {
     /// pre loaded on information_schema.columns
     #[inline]
@@ -360,13 +451,12 @@ impl STable {
         STable {
             table_name: table.into(),
             columns: cls,
-            fks: HashMap::new(),
-            triggers: HashMap::new(),
             sort_order,
-            table_comment: None
+            ..STable::default()
         }
     }
 
+    /// should not called
     #[inline]
     fn newt(table: &str, trig: &str, trig_data: String, sort_order: usize) -> Self {
         let mut tgs = HashMap::new();
@@ -374,10 +464,31 @@ impl STable {
         STable {
             table_name: table.into(),
             triggers: tgs,
-            fks: HashMap::new(),
-            columns: HashMap::new(),
             sort_order,
-            table_comment: None
+            ..STable::default()
+        }
+    }
+
+    /// проверяет колонки на РК, если несколько, то выдает готовый кусок SQL,
+    /// если одна колонка, то будет написано в def() колонке
+    /// возвращает только, если 2 колонки
+    pub(crate) fn pks(&self) -> Option<String> {
+        let mut pks = ", PRIMARY KEY (".to_string();
+        let mut cnt = 0;
+        for c in self.columns.values() {
+            if c.pk {
+                cnt += 1;
+                if cnt > 1 {
+                    pks.push_str(", ");
+                }
+                pks.push_str(c.column_name.as_str());
+            }
+        }
+        if cnt > 1 {
+            pks.push_str(") ");
+            Some(pks)
+        } else {
+            None
         }
     }
 }

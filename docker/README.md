@@ -1,0 +1,1 @@
+instead of mrust use  https://github.com/clux/muslrust

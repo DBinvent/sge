@@ -12,6 +12,7 @@ use std::env;
 use crate::dbm_yml::{safe_sql, str2bool};
 #[allow(unused, warnings)]
 use chrono::{Utc, Duration};
+use slog::Logger;
 use crate::license::LicenseDate;
 
 #[derive(Debug, Clone)]
@@ -213,22 +214,22 @@ impl ConfigMap {
     #[cfg(not(debug_assertions))]
     #[inline]
     pub fn now(&self) -> LicenseDate  {
-        Utc::today().naive_utc()
+        Utc::now().naive_utc().date()
     }
 
     #[cfg(debug_assertions)]
     #[inline]
     pub fn now(&self) -> LicenseDate  {
         match self.get_opt("TEST_DAYS") {
-            None => Utc::today().naive_utc(),
+            None => Utc::now().naive_utc().date(),
             Some(test) => match test.parse::<i64>() {
                 Ok(t) => {
-                    let now: LicenseDate = Utc::today().naive_utc();
+                    let now: LicenseDate = Utc::now().naive_utc().date();
                     now + Duration::days(t as i64)
                 },
                 Err(e) => {
                     println!("CFG:TEST_DAYS: {} : {}", test, e);
-                    Utc::today().naive_utc()
+                    Utc::now().naive_utc().date()
                 }
             },
         }
@@ -247,6 +248,21 @@ impl ConfigMap {
         self.get_opt("logdb_name").is_some()
     }
 
+/// Is logDB set
+    #[inline]
+    pub(crate) fn is_retry(&self) -> bool {
+        match self.map.get("schema_transaction") {
+            None => false,
+            Some(x) => x.as_str() == "retry"
+        }
+    }
+
+    pub fn debug(&self, log: &Logger) {
+        debug!(log, "{}", self);
+        for (k,v) in &self.map {
+            debug!(log, "{}: {}", k, v)
+        }
+    }
 }
 
 impl Display for ConfigMap {

@@ -32,7 +32,7 @@ Test plan:
 
 #[test]
 fn migration_ver_tests1() -> Result<(), String> {
-    match init::prepare_db("/tmp/tests", "test") {
+    match init::prepare_db() {
         Ok(pg) => {
             let res = run_all(&pg);
             thread::sleep(Duration::from_secs(1));
@@ -42,8 +42,7 @@ fn migration_ver_tests1() -> Result<(), String> {
             }
         }
         Err(e) => {
-            println!("ignore prepare error");
-            eprintln!("{}", e);
+            error!(init::LOG, "ignore prepare error {}", e);
         }
     }
 
@@ -70,7 +69,7 @@ fn run(ver: usize, d: &String, pg: &PgInstance) -> Result<(), String> {
             "etl", "ignore" //"skip",
         ]);
 
-    println!("\n\nStarting test case ver[1.{}] from {}", ver, d);
+    info!(init::LOG, "\n\nStarting test case ver[1.{}] from {}", ver, d);
 
     migrate(cfg.clone(), false, &init::LOG)?;
     init::compare_with(&format!("{}/case{}", d, ver), "test.result", init::dump_db(&pg)?)?;

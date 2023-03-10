@@ -28,6 +28,11 @@ sed -i "0,/local_build/s/local_build/$vv/" src/i18n/*_clc.yaml
 sed -i "0,/version.*/s//version = \"$vv\"/" Cargo.toml
 grep version Cargo.toml
 ./ul.sh
+
+#cargo +stable build --release --bin rdbm --features=tls
+#strip -s target/release/rdbm
+#mv target/release/rdbm target/release/rdbmtls
+
 cargo +stable build --release
 strip -s target/release/rdbm
 echo "Build: $(./target/release/rdbm -V)"
@@ -41,8 +46,12 @@ dpkg -I target/debian/*.deb
 dpkg --contents  target/debian/*.deb
 mt=x86_64-unknown-linux-musl
 echo "Rebuild as $mt"
-docker image build -t mrust docker
-docker run --rm -i -v "$(pwd)":/home/rust/src mrust bash -e mu-build.sh
+#docker image build -t mrust docker
+#docker run --rm -i -v "$(pwd)":/home/rust/src mrust bash -e mu-build.sh
+#use https://github.com/clux/muslrust
+docker run -v $PWD:/volume --rm -t clux/muslrust:stable cargo build --release --bin rdbm
+sudo chmod a+rw -R target/$mt
+sudo chmod a+rw -R target/release
 cp -f target/$mt/release/rdbm target/release/.
 strip -s target/release/rdbm
 cargo generate-rpm --auto-req no

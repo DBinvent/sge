@@ -239,6 +239,8 @@ args:
           - file: (default) execute the (S)chema file in a single transaction. This is a guarantee to be sure all or no changes applied by the file marked as OK.
           
           - table: perform all changes for each table per transaction.
+          
+          - retry: retry alter changes if can not obtain lock for oen second, than repeat upto 100 times  
            
           The value pass in parameter will override a value set in (S)chema file on a migration execution.
     - version_transaction:

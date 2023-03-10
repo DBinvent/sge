@@ -1,3 +1,41 @@
+
+---
+uri: grant
+schema:
+  type: object
+  # grant those privileges to user(s)
+  items:
+    select:
+      type: string
+    insert:
+      type: string
+    update:
+      type: string
+    delete:
+      type: string
+    truncate:
+      type: string
+    references:
+      type: string
+    trigger:
+      type: string
+    create:
+      type: string
+    connect:
+      type: string
+    temporary:
+      type: string
+    execute:
+      type: string
+    usage:
+      type: string
+    # optional WITH GRANT OPTION
+    with_grant_option:
+      type: boolean
+    # optional GRANTED BY
+    by:
+      type: string
+
 ---
 uri: column
 schema:
@@ -90,6 +128,12 @@ schema:
             $ref: trigger
         etl:
           $ref: etl
+        owner:
+          type: string
+#        grant:
+#          type: array
+#          items:
+#            $ref: grant
 
 ---
 uri: schema

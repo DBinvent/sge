@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="CMakePresetLoader">{
+  &quot;useNewFormat&quot;: true
+}</component>
   <component name="CMakeRunConfigurationManager" shouldGenerate="true" shouldDeleteObsolete="true">
     <generated />
   </component>
   <component name="CMakeSettings">
     <configurations>
-      <configuration PROFILE_NAME="Debug" CONFIG_NAME="Debug" ENABLED="true" />
+      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" />
     </configurations>
   </component>
   <component name="CargoProjects">
@@ -13,25 +19,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/src/sl.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/test_rdbm.license.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/rdbm.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/rdbm.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docker/cargo-config-l.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Makefile.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Makefile.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_dbc.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_dbc.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_log.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_log.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_yml.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_yml.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/license.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/license.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/scripts/P1_1__data.sql" beforeDir="false" afterPath="$PROJECT_DIR$/tests/scripts/P1_1__data.sql" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/scripts/R1_1__data.sql" beforeDir="false" afterPath="$PROJECT_DIR$/tests/scripts/R1_1__data.sql" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/scripts/S1__schema.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/scripts/S1__schema.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/scripts/V1_1__sample_ddl.sql" beforeDir="false" afterPath="$PROJECT_DIR$/tests/scripts/V1_1__sample_ddl.sql" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_cfg.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_cfg.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/build.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/docker/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker/cargo-config.toml" beforeDir="false" afterPath="$PROJECT_DIR$/docker/cargo-config.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mu-build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/mu-build.sh" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -49,6 +43,11 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="GitSEFilterConfiguration">
@@ -59,10 +58,50 @@
       <filtered-out-file-type name="COMMIT_BY_MESSAGE" />
     </file-type-list>
   </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$USER_HOME$/.cargo/registry/src/github.com-1ecc6299db9ec823/semver-0.11.0/src/version.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$USER_HOME$/.cargo/registry/src/github.com-1ecc6299db9ec823/tokio-postgres-0.7.1/src/error/sqlstate.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$USER_HOME$/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/std/src/collections/hash/map.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/azure-pipelines.yml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/evaluation.license" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/dbm_cfg.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/dbm_dbc.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/dbm_log.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/dbm_yml.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/hl_table.yaml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/lib.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/license.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/main.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/schema.yaml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/src/sl.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/init/mod.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/integration-test.rs" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/postgres.sh" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_rdbm.license.yaml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case0/test.result" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case0/test.result.yaml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case1/P1_1__data.sql" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case1/R1_1__data.sql" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case1/S1__schema.yaml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case1/V1_1__sample_ddl.sql" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case1/test.cfg" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case1/test.result" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case1/test.result.yaml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case2/D2__test_schema_test_ref_table.csv" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case2/S1_2__schema.yaml" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/tests/test_scen/case2/V1_2__sample_ddl.sql" root0="FORCE_HIGHLIGHTING" />
+  </component>
   <component name="MacroExpansionManager">
     <option name="directoryName" value="r70g4k0g" />
   </component>
+  <component name="MarkdownSettingsMigration">
+    <option name="stateVersion" value="1" />
+  </component>
   <component name="ProjectId" id="1rbBNYUL6UTu9LWlgoXKLvqjo1C" />
+  <component name="ProjectLevelVcsManager">
+    <OptionsSetting value="false" id="Update" />
+  </component>
   <component name="ProjectViewState">
     <option name="autoscrollFromSource" value="true" />
     <option name="autoscrollToSource" value="true" />
@@ -70,32 +109,50 @@
     <option name="showLibraryContents" value="true" />
     <option name="showMembers" value="true" />
   </component>
-  <component name="PropertiesComponent">
-    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
-    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
-    <property name="RunOnceActivity.cidr.known.project.marker" value="true" />
-    <property name="WebServerToolWindowFactoryState" value="false" />
-    <property name="cf.first.check.clang-format" value="false" />
-    <property name="cidr.known.project.marker" value="true" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$/tests" />
-    <property name="org.rust.cargo.project.model.PROJECT_DISCOVERY" value="true" />
-  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "WebServerToolWindowFactoryState": "false",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "last_opened_file_path": "/home/vk/git/rdbm",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "settings.editor.selected.configurable": "language.rust.build.tool.cargo",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
+      <recent name="$PROJECT_DIR$" />
+      <recent name="$PROJECT_DIR$/docker" />
       <recent name="$PROJECT_DIR$/tests" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/tests" />
     </key>
   </component>
-  <component name="RunManager" selected="Cargo.Test license::tests">
+  <component name="RunManager" selected="Cargo.Run rdbm">
+    <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
     <configuration name="Run rdbm" type="CargoCommandRunConfiguration" factoryName="Cargo Command">
       <option name="command" value="run --package rdbm --bin rdbm -- -c local_test_cfg.yaml license" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$/tests" />
+      <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
       <option name="backtrace" value="SHORT" />
       <envs />
       <option name="isRedirectInput" value="false" />
@@ -107,10 +164,12 @@
     <configuration name="Test license::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="command" value="test --package rdbm --bin rdbm license::tests" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
       <option name="backtrace" value="SHORT" />
       <envs />
       <option name="isRedirectInput" value="false" />
@@ -122,10 +181,29 @@
     <configuration name="Test license::tests::test_date" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
       <option name="command" value="test --package rdbm --bin rdbm license::tests::test_date -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test license::tests::test_header_lic" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package rdbm --lib license::tests::test_header_lic -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
       <option name="emulateTerminal" value="false" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
       <option name="backtrace" value="SHORT" />
       <envs />
       <option name="isRedirectInput" value="false" />
@@ -135,12 +213,14 @@
       </method>
     </configuration>
     <configuration name="Test main::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package rdbm --bin rdbm tests" />
+      <option name="command" value="test" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
       <option name="backtrace" value="SHORT" />
       <envs />
       <option name="isRedirectInput" value="false" />
@@ -149,61 +229,41 @@
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
       </method>
     </configuration>
-    <configuration name="Test sl::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package rdbm --bin sl tests" />
+    <configuration name="Test migration_tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package rdbm --test integration-test4 migration_tests -- --exact" />
       <option name="workingDirectory" value="file://$PROJECT_DIR$" />
+      <option name="emulateTerminal" value="false" />
       <option name="channel" value="DEFAULT" />
       <option name="requiredFeatures" value="true" />
       <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="buildTarget" value="REMOTE" />
       <option name="backtrace" value="SHORT" />
       <envs />
       <option name="isRedirectInput" value="false" />
       <option name="redirectInputPath" value="" />
       <method v="2">
         <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="Test tests::init_lic" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
-      <option name="command" value="test --package rdbm --bin sl tests::init_lic -- --exact" />
-      <option name="workingDirectory" value="file://$PROJECT_DIR$" />
-      <option name="channel" value="DEFAULT" />
-      <option name="requiredFeatures" value="true" />
-      <option name="allFeatures" value="false" />
-      <option name="emulateTerminal" value="false" />
-      <option name="backtrace" value="SHORT" />
-      <envs />
-      <option name="isRedirectInput" value="false" />
-      <option name="redirectInputPath" value="" />
-      <method v="2">
-        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
-      </method>
-    </configuration>
-    <configuration default="true" type="GradleAppRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true">
-      <method v="2">
-        <option name="com.jetbrains.cidr.cpp.gradle.execution.GradleNativeBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
       </method>
     </configuration>
     <list>
       <item itemvalue="Cargo.Run rdbm" />
-      <item itemvalue="Cargo.Test sl::tests" />
-      <item itemvalue="Cargo.Test tests::init_lic" />
+      <item itemvalue="Cargo.Test license::tests::test_header_lic" />
       <item itemvalue="Cargo.Test main::tests" />
-      <item itemvalue="Cargo.Test license::tests::test_date" />
       <item itemvalue="Cargo.Test license::tests" />
+      <item itemvalue="Cargo.Test license::tests::test_date" />
+      <item itemvalue="Cargo.Test migration_tests" />
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Cargo.Test license::tests" />
-        <item itemvalue="Cargo.Test license::tests::test_date" />
+        <item itemvalue="Cargo.Test license::tests::test_header_lic" />
         <item itemvalue="Cargo.Test main::tests" />
-        <item itemvalue="Cargo.Test sl::tests" />
-        <item itemvalue="Cargo.Test tests::init_lic" />
       </list>
     </recent_temporary>
   </component>
   <component name="RustProjectSettings">
     <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+    <option name="version" value="2" />
   </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
@@ -214,61 +274,207 @@
       <option name="presentableId" value="Default" />
       <updated>1619234872426</updated>
       <workItem from="1619234877037" duration="82637000" />
+      <workItem from="1637511010035" duration="607000" />
+      <workItem from="1637518737410" duration="1209000" />
+      <workItem from="1637526289269" duration="2734000" />
+      <workItem from="1637639839175" duration="24979000" />
+      <workItem from="1638335558602" duration="60148000" />
+      <workItem from="1638886200357" duration="2064000" />
+      <workItem from="1639061481709" duration="1109000" />
+      <workItem from="1639242931397" duration="12337000" />
+      <workItem from="1640736809103" duration="1297000" />
+      <workItem from="1640778907103" duration="592000" />
+      <workItem from="1642636722304" duration="7265000" />
+      <workItem from="1643515506455" duration="706000" />
+      <workItem from="1644083047727" duration="768000" />
+      <workItem from="1644099848923" duration="1316000" />
+      <workItem from="1644551045334" duration="640000" />
+      <workItem from="1645377452997" duration="128000" />
+      <workItem from="1645542574796" duration="665000" />
+      <workItem from="1647550757134" duration="963000" />
+      <workItem from="1648504181058" duration="637000" />
+      <workItem from="1655257996521" duration="48000" />
+      <workItem from="1656553166252" duration="788000" />
+      <workItem from="1656792738823" duration="832000" />
+      <workItem from="1657934913606" duration="87000" />
+      <workItem from="1657999896495" duration="7325000" />
+      <workItem from="1658030823902" duration="2858000" />
+      <workItem from="1658081091717" duration="1917000" />
+      <workItem from="1663882615214" duration="3388000" />
+      <workItem from="1664293378406" duration="1741000" />
+      <workItem from="1664329602589" duration="315000" />
+      <workItem from="1664329941560" duration="2074000" />
+      <workItem from="1664371256029" duration="1222000" />
+      <workItem from="1665671914780" duration="40000" />
+      <workItem from="1665679728371" duration="1367000" />
+      <workItem from="1665953010783" duration="1940000" />
+      <workItem from="1666489945037" duration="599000" />
+      <workItem from="1668397778352" duration="612000" />
+      <workItem from="1669305738755" duration="2454000" />
+      <workItem from="1669905858393" duration="599000" />
+      <workItem from="1671491252479" duration="53000" />
+      <workItem from="1671762776311" duration="25000" />
+      <workItem from="1671762821128" duration="50000" />
+      <workItem from="1671827886203" duration="25000" />
+      <workItem from="1677716592018" duration="4351000" />
+      <workItem from="1677898966749" duration="1424000" />
+      <workItem from="1677956797421" duration="11540000" />
+      <workItem from="1678059826402" duration="1437000" />
+      <workItem from="1678077377683" duration="1841000" />
+      <workItem from="1678242197575" duration="4388000" />
+      <workItem from="1678322799154" duration="133000" />
+      <workItem from="1678326877241" duration="1255000" />
+      <workItem from="1678332038637" duration="2010000" />
+      <workItem from="1678367812278" duration="598000" />
+      <workItem from="1678408337392" duration="1350000" />
     </task>
+    <task id="LOCAL-00001" summary="fix create DB AND USER at same run">
+      <created>1637798495596</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1637798495596</updated>
+    </task>
+    <task id="LOCAL-00002" summary="fix create DB AND USER at same run for P14&#10;fix debug messages on verbose">
+      <created>1637803383121</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1637803383121</updated>
+    </task>
+    <task id="LOCAL-00003" summary="fix duplicate of after.sql execution">
+      <created>1637902170627</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1637902170627</updated>
+    </task>
+    <task id="LOCAL-00004" summary="fix after.sql to execute after migration committed">
+      <created>1637976908052</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1637976908052</updated>
+    </task>
+    <task id="LOCAL-00005" summary="fix rdbm_history name and schema override&#10;deploy debug logs added">
+      <created>1638160536073</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1638160536073</updated>
+    </task>
+    <task id="LOCAL-00006" summary="fix csv sorting">
+      <created>1638505280859</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1638505280859</updated>
+    </task>
+    <task id="LOCAL-00007" summary="man added">
+      <created>1638594646427</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1638594646427</updated>
+    </task>
+    <task id="LOCAL-00008" summary="fixed ETL with view">
+      <created>1638738246378</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1638738246378</updated>
+    </task>
+    <task id="LOCAL-00009" summary="fixed test case for etl">
+      <created>1638741178410</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1638741178410</updated>
+    </task>
+    <task id="LOCAL-00010" summary="etl:skip fixes">
+      <created>1638804629186</created>
+      <option name="number" value="00010" />
+      <option name="presentableId" value="LOCAL-00010" />
+      <option name="project" value="LOCAL" />
+      <updated>1638804629186</updated>
+    </task>
+    <task id="LOCAL-00011" summary="etl:clean/force fixes on tables list">
+      <created>1638816427825</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1638816427825</updated>
+    </task>
+    <task id="LOCAL-00012" summary="#9 it pass">
+      <created>1678043834804</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1678043834804</updated>
+    </task>
+    <task id="LOCAL-00013" summary="#9 it pass - fix alter owner">
+      <created>1678058461290</created>
+      <option name="number" value="00013" />
+      <option name="presentableId" value="LOCAL-00013" />
+      <option name="project" value="LOCAL" />
+      <updated>1678058461290</updated>
+    </task>
+    <task id="LOCAL-00014" summary="#9 IT: ignore REVOKE USAGE">
+      <created>1678060059646</created>
+      <option name="number" value="00014" />
+      <option name="presentableId" value="LOCAL-00014" />
+      <option name="project" value="LOCAL" />
+      <updated>1678060059646</updated>
+    </task>
+    <task id="LOCAL-00015" summary="#9 IT: ignore GRANT_ALL">
+      <created>1678063213571</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1678063213571</updated>
+    </task>
+    <task id="LOCAL-00016" summary="#9 IT final fixes">
+      <created>1678322917594</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1678322917594</updated>
+    </task>
+    <task id="LOCAL-00017" summary="#9 IT fixes after serge yaml update">
+      <created>1678327968428</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1678327968428</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/lib.rs</url>
-          <line>484</line>
-          <option name="timeStamp" value="1" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_yml.rs</url>
-          <line>833</line>
-          <option name="timeStamp" value="2" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_log.rs</url>
-          <line>384</line>
-          <option name="timeStamp" value="3" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_log.rs</url>
-          <line>381</line>
-          <option name="timeStamp" value="4" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_log.rs</url>
-          <line>336</line>
-          <option name="timeStamp" value="5" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_log.rs</url>
-          <line>390</line>
-          <option name="timeStamp" value="6" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_yml.rs</url>
-          <line>824</line>
-          <option name="timeStamp" value="7" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_yml.rs</url>
-          <line>655</line>
-          <option name="timeStamp" value="10" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="com.jetbrains.cidr.execution.debugger.OCBreakpointType">
-          <url>file://$PROJECT_DIR$/src/dbm_yml.rs</url>
-          <line>554</line>
-          <option name="timeStamp" value="13" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="fix create DB AND USER at same run" />
+    <MESSAGE value="fix create DB AND USER at same run for P14&#10;fix debug messages on verbose" />
+    <MESSAGE value="fix duplicate of after.sql execution" />
+    <MESSAGE value="fix after.sql to execute after migration committed" />
+    <MESSAGE value="fix rdbm_history name and schema override&#10;deploy debug logs added" />
+    <MESSAGE value="fix csv sorting" />
+    <MESSAGE value="man added" />
+    <MESSAGE value="fixed ETL with view" />
+    <MESSAGE value="fixed test case for etl" />
+    <MESSAGE value="etl:skip fixes" />
+    <MESSAGE value="etl:clean/force fixes on tables list" />
+    <MESSAGE value="#9 it pass" />
+    <MESSAGE value="#9 it pass - fix alter owner" />
+    <MESSAGE value="#9 IT: ignore REVOKE USAGE" />
+    <MESSAGE value="#9 IT: ignore GRANT_ALL" />
+    <MESSAGE value="#9 IT final fixes" />
+    <MESSAGE value="#9 IT fixes after serge yaml update" />
+    <option name="LAST_COMMIT_MESSAGE" value="#9 IT fixes after serge yaml update" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
   </component>
 </project>

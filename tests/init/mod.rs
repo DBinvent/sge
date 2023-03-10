@@ -24,7 +24,7 @@ lazy_static! {
     // pub static ref  DBM: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
 
     pub static ref DB: Arc<RwLock<bool>> = {
-        println!("===> Starting DB...");
+        info!(LOG, "===> Starting DB...");
         thread::spawn(move || {
 //
         });
@@ -71,6 +71,10 @@ impl PgInstance {
 }
 
 const TESTS_DIR: &str = "./tests";
+#[cfg(not(target_os = "linux"))]
+const TMP_TEST_DIR: &str = "./tmp_tests";
+#[cfg(target_os = "linux")]
+const TMP_TEST_DIR: &str = "/tmp/tests";
 
 /*
   echo " 2: working dir for postgres DB (like 'data')"
@@ -80,7 +84,7 @@ const TESTS_DIR: &str = "./tests";
 
 */
 ///work_dir: &str, port: u16, db_name: &str,
-pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
+pub fn prepare_db() -> Result<PgInstance, String> {
     if let Ok(ev) = env::var("RDBM_IT") {
         if ev.as_str() == "ignore" {
            return Err(format!("migration_tests RDBM_IT set to: {}", ev));
@@ -93,7 +97,7 @@ pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
         .unwrap();
 
     // let work_dir = uuid();
-    let work_dir = format!("{}/dd{}", dir, uuid());
+    let work_dir = format!("{}/dd{}", TMP_TEST_DIR, uuid());
 
     let port = pseudo_rnd(5555, 7777);
     let db_name = format!("db{}", uuid());
@@ -101,7 +105,7 @@ pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
 
     fs::create_dir_all(work_dir.as_str());
 
-    println!("Starting DB on ./postgres.sh start {} {} {} {} {} ... ", work_dir, port, ver, db_name, db_pwd);
+    info!(LOG, "Starting DB on ./postgres.sh start {} {} {} {} {} ... ", work_dir, port, ver, db_name, db_pwd);
 
     let mut pc = Command::new("./postgres.sh");
         pc.current_dir(TESTS_DIR)
@@ -136,7 +140,7 @@ pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
         match &*res {
             Ok(e) => {
                 if e.len() > 0 {
-                    println!("{}", e);
+                    info!(LOG, "{}", e);
                     break;
                 } else {
                     print!(".");
@@ -161,7 +165,7 @@ pub fn prepare_db(dir: &str, user: &str) -> Result<PgInstance, String> {
 }
 
 pub fn cleanup_db(pg: PgInstance) {
-    println!("\n\nCleanup on {}", pg.work_dir);
+    info!(LOG, "\n\nCleanup on {}", pg.work_dir);
     match Command::new("./postgres.sh")
         .current_dir("./tests")
         .arg("stop")
@@ -169,10 +173,10 @@ pub fn cleanup_db(pg: PgInstance) {
         .arg(pg.port.to_string())
         .output().map_err(|e| format!("{}", e)) {
         Ok(pc) => {
-            println!("stop: [{}] {} {}", pc.status.success(), String::from_utf8_lossy(&pc.stderr), String::from_utf8_lossy(&pc.stdout));
+            info!(LOG, "stop: [{}] {} {}", pc.status.success(), String::from_utf8_lossy(&pc.stderr), String::from_utf8_lossy(&pc.stdout));
         }
         Err(e) => {
-            println!("stop: {}", e);
+            info!(LOG, "stop: {}", e);
         }
     }
 
@@ -180,7 +184,7 @@ pub fn cleanup_db(pg: PgInstance) {
 
 /// pg_dump -s
 pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
-    println!("Dumping:  pg_dump -s -h localhost -p {} {}", pg.port, pg.db_name);
+    info!(LOG, "Dumping:  pg_dump -s -h localhost -p {} {}", pg.port, pg.db_name);
     let p = Command::new("pg_dump").arg("-s")
         .arg("-h").arg("localhost")
         .arg("-p").arg(pg.port.to_string().as_str())
@@ -203,18 +207,33 @@ pub fn dump_db(pg: &PgInstance) -> Result<String, String> {
     }
 }
 
+pub const ALTER_SCHEMA: &str = "ALTER SCHEMA";
+pub const OWNER_TO: &str = "OWNER TO";
+pub const REVOKE_USAGE: &str = "REVOKE USAGE ON SCHEMA";
+pub const GRANT_ALL : &str = "GRANT ALL ON SCHEMA ";
+
+fn fix_owner(x: &str) -> bool {
+    (x.contains(ALTER_SCHEMA) && x.contains(OWNER_TO))
+    || x.contains(REVOKE_USAGE)
+    || x.contains(GRANT_ALL)
+}
 
 pub fn compare_with(d: &String, dump: &str, b: String) -> Result<(), String> {
     let u = env::var("USER").unwrap();
     let a = fs::read_to_string(format!("{}/{}", d, dump).as_str())
             .map_err(|e| format!("reading [{}/{}] {}", d, dump, e))?;
     fs::write(format!("{}/{}.out", d, dump), &b); // dump the dump
-    let a:Vec<String> = a.split("\n").map(|l| l.replace("$USER", u.as_str())).collect();
-    let b:Vec<&str> = b.split("\n").collect();
+    let a:Vec<String> = a.split("\n")
+        .map(|l| l.replace("$USER", u.as_str()))
+        .filter(|x| !fix_owner(x.as_str()))
+        .collect();
+    let b:Vec<&str> = b.split("\n")
+        .filter(|x| !fix_owner(*x))
+        .collect();
     let mut i = 0usize;
     loop {
-        let x = if a.len() == 0 {""} else { a[min(a.len() - 1, i)].as_str() };
-        let y = if b.len() == 0 {""} else { b[min(b.len() - 1, i)] };
+        let x = if a.len() == 0 {""} else { a[min(a.len() - 1, i)].trim() };
+        let y = if b.len() == 0 {""} else { b[min(b.len() - 1, i)].trim() };
         if x != y
         {
             return Err(format!("not equals at line({}/{}) [{}/{}:{}]: \n[{}]\n[{}]", d, dump, i+1, a.len(), b.len(), x, y));
@@ -230,7 +249,7 @@ pub fn compare_with(d: &String, dump: &str, b: String) -> Result<(), String> {
 
 /// diff with $1 $1.dump
 pub fn diff(d: &String, dump: &str, ) -> Result<(), String> {
-    println!("DIFF at {} {} vs .dump", d, dump);
+    info!(LOG, "DIFF at {} {} vs .dump", d, dump);
     let p = Command::new("diff")
         .arg(format!("{}/{}", d,  dump).as_str())
         .arg(format!("{}/{}.dump", d,  dump).as_str())
