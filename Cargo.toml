@@ -29,9 +29,9 @@ doc = false
 #required-features = ["tls"]
 
 [profile.release]
-opt-level = 'z'  # Optimize for size.
-lto = true
-codegen-units = 1
+#opt-level = 'z'  # Optimize for size.
+#lto = true
+#codegen-units = 1
 panic = 'abort'
 
 [[bin]]
@@ -64,7 +64,7 @@ linked-hash-map="^0.5.4"
 
 rust-crypto = "^0.2.36"
 rand = "^0.8.3"
-base64 = "^0.21.0"
+base64 = "^0.13.0"
 clap = {version = "2.33.3", features = ["yaml"]}
 
 rsa = "^0.4.0"
@@ -82,11 +82,14 @@ yaml-validator = { git = "https://github.com/vkrinitsyn/yaml-validator", feature
 postgres-native-tls = { version = "^0.5.0", optional = true }
 native-tls = { version = "^0.2.11", optional = true }
 
+#openssl = { version = "0.10", features = ["vendored"], optional = true }
+
 [features]
 #default = [ ]
 default = ["tls"]
 tls = ["dep:postgres-native-tls", "dep:native-tls"]
 #openssl = ["dep:postgres-openssl", "dep:openssl"]
+#vendored = []
 
 [package.metadata.deb]
 depends = "postgresql-client, curl, openssl"

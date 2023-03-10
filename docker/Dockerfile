@@ -9,7 +9,7 @@ ARG TOOLCHAIN=stable
 # - https://www.openssl.org/source/
 #
 # ALSO UPDATE hooks/build!
-ARG OPENSSL_VERSION=1.1.1i
+ARG OPENSSL_VERSION=1.1.1t
 
 # Versions for other dependencies. Here are the places to check for new
 # releases:
@@ -25,7 +25,7 @@ ARG OPENSSL_VERSION=1.1.1i
 ARG MDBOOK_VERSION=0.4.6
 ARG CARGO_ABOUT_VERSION=0.2.3
 ARG CARGO_DENY_VERSION=0.8.5
-ARG ZLIB_VERSION=1.2.11
+ARG ZLIB_VERSION=1.2.13
 ARG POSTGRESQL_VERSION=11.11
 
 # Make sure we have basic dev tools for building C libraries.  Our goal here is
@@ -54,6 +54,7 @@ RUN apt-get update && \
         pkgconf \
         sudo \
         xutils-dev \
+        vim \
         && \
     apt-get clean && rm -rf /var/lib/apt/lists/* && \
     useradd rust --user-group --create-home --shell /bin/bash --groups sudo && \
@@ -155,6 +156,8 @@ ADD cargo-config.toml /opt/rust/cargo/config
 # default.
 ENV X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr/local/musl/ \
     X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_STATIC=1 \
+    OPENSSL_DIR=/usr/local/musl/ \
+    OPENSSL_STATIC=1 \
     PQ_LIB_STATIC_X86_64_UNKNOWN_LINUX_MUSL=1 \
     PG_CONFIG_X86_64_UNKNOWN_LINUX_GNU=/usr/bin/pg_config \
     PKG_CONFIG_ALLOW_CROSS=true \
@@ -170,6 +173,7 @@ ENV X86_64_UNKNOWN_LINUX_MUSL_OPENSSL_DIR=/usr/local/musl/ \
 RUN env CARGO_HOME=/opt/rust/cargo cargo install -f cargo-audit && \
     env CARGO_HOME=/opt/rust/cargo cargo install -f cargo-deb && \
     env CARGO_HOME=/opt/rust/cargo cargo install -f mdbook-graphviz && \
+    env CARGO_HOME=/opt/rust/cargo cargo install -f cargo-zigbuild && \
     chown -R rust:rust /opt/rust && \
     rm -rf /opt/rust/cargo/registry/
 
@@ -186,6 +190,11 @@ RUN mkdir -p /home/rust/libs /home/rust/src /home/rust/.cargo && \
     ln -s /opt/rust/cargo/config /home/rust/.cargo/config && \
     git config --global credential.https://github.com.helper ghtoken
 
+#ADD cargo-config-l.toml /opt/rust/cargo/config
+#ADD cargo-config-l.toml /opt/rust/cargo/configl
+
 # Expect our source code to live in /home/rust/src.  We'll run the build as
 # user `rust`, which will be uid 1000, gid 1000 outside the container.
 WORKDIR /home/rust/src
+
+ENTRYPOINT ["/home/rust/src/mu-build.sh"]

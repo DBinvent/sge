@@ -19,12 +19,13 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="">
+      <change afterPath="$PROJECT_DIR$/docker/cargo-config-l.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/init/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/init/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case0/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case0/test.result.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case1/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case1/test.result.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/build.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/docker/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docker/cargo-config.toml" beforeDir="false" afterPath="$PROJECT_DIR$/docker/cargo-config.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mu-build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/mu-build.sh" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -108,29 +109,30 @@
     <option name="showLibraryContents" value="true" />
     <option name="showMembers" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
-    &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
-    &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/vk/git/rdbm/tests&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;org.rust.cargo.project.model.PROJECT_DISCOVERY&quot;: &quot;true&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;language.rust.build.tool.cargo&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.OpenProjectViewOnStart": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "WebServerToolWindowFactoryState": "false",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "last_opened_file_path": "/home/vk/git/rdbm",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "org.rust.cargo.project.model.PROJECT_DISCOVERY": "true",
+    "settings.editor.selected.configurable": "language.rust.build.tool.cargo",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
-      <recent name="$PROJECT_DIR$/tests" />
       <recent name="$PROJECT_DIR$" />
+      <recent name="$PROJECT_DIR$/docker" />
+      <recent name="$PROJECT_DIR$/tests" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
       <recent name="$PROJECT_DIR$/tests" />
@@ -321,7 +323,10 @@
       <workItem from="1678077377683" duration="1841000" />
       <workItem from="1678242197575" duration="4388000" />
       <workItem from="1678322799154" duration="133000" />
-      <workItem from="1678326877241" duration="1063000" />
+      <workItem from="1678326877241" duration="1255000" />
+      <workItem from="1678332038637" duration="2010000" />
+      <workItem from="1678367812278" duration="598000" />
+      <workItem from="1678408337392" duration="1350000" />
     </task>
     <task id="LOCAL-00001" summary="fix create DB AND USER at same run">
       <created>1637798495596</created>
@@ -435,7 +440,14 @@
       <option name="project" value="LOCAL" />
       <updated>1678322917594</updated>
     </task>
-    <option name="localTasksCounter" value="17" />
+    <task id="LOCAL-00017" summary="#9 IT fixes after serge yaml update">
+      <created>1678327968428</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1678327968428</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -458,7 +470,8 @@
     <MESSAGE value="#9 IT: ignore REVOKE USAGE" />
     <MESSAGE value="#9 IT: ignore GRANT_ALL" />
     <MESSAGE value="#9 IT final fixes" />
-    <option name="LAST_COMMIT_MESSAGE" value="#9 IT final fixes" />
+    <MESSAGE value="#9 IT fixes after serge yaml update" />
+    <option name="LAST_COMMIT_MESSAGE" value="#9 IT fixes after serge yaml update" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
