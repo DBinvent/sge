@@ -48,6 +48,7 @@ mt=x86_64-unknown-linux-musl
 echo "Rebuild as $mt"
 #docker image build -t mrust docker
 #docker run --rm -i -v "$(pwd)":/home/rust/src mrust bash -e mu-build.sh
+#use https://github.com/clux/muslrust
 docker run -v $PWD:/volume --rm -t clux/muslrust:stable cargo build --release --bin rdbm
 sudo chmod a+rw -R target/$mt
 sudo chmod a+rw -R target/release
