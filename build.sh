@@ -50,6 +50,7 @@ echo "Rebuild as $mt"
 #docker run --rm -i -v "$(pwd)":/home/rust/src mrust bash -e mu-build.sh
 docker run -v $PWD:/volume --rm -t clux/muslrust:stable cargo build --release --bin rdbm
 sudo chmod a+rw -R target/$mt
+sudo chmod a+rw -R target/release
 cp -f target/$mt/release/rdbm target/release/.
 strip -s target/release/rdbm
 cargo generate-rpm --auto-req no
