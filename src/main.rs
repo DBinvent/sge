@@ -1,10 +1,6 @@
 extern crate slog;
 
 use clap::App;
-use slog::Logger;
-use sloggers::terminal::{Destination, TerminalLoggerBuilder};
-use sloggers::types::{Format, Severity, SourceLocation};
-use sloggers::Build;
 
 use rdbm::dbm_cfg::ConfigMap;
 

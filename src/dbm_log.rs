@@ -71,7 +71,7 @@ pub(crate) struct LogVer {
 }
 
 mod my_date_format {
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, NaiveDateTime, Utc};
     use serde::{self, Deserialize, Deserializer, Serializer};
 
     const FORMAT: &'static str = "%Y-%m-%d %H:%M:%S";
@@ -90,8 +90,9 @@ mod my_date_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        Utc.datetime_from_str(&s, FORMAT)
+        NaiveDateTime::parse_from_str(&s, FORMAT)
             .map_err(serde::de::Error::custom)
+            .map(|d| d.and_utc())
     }
 }
 
