@@ -22,24 +22,29 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="moved and merged">
+      <change afterPath="$PROJECT_DIR$/docs/S1_0__schema.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/S1_0__schema_alise.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/S1_0__schema_john.yaml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/V1_0__schema_alise.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/docs/V1_0__schema_john.sql" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/src/schema.yaml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/evaluation.license" beforeDir="false" afterPath="$PROJECT_DIR$/evaluation.license" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/snapcraft.yaml" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/dbm_cfg.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_cfg.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_dbc.rs" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_etl.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_etl.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_log.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_log.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_yml.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_files.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/i18n.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/i18n.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp0.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp1.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp2.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp3.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp4.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp5.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp6.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp7.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp8.pub" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/keys/corp9.pub" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/license.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/license.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/license.rs" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/schema.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/S1_2__schema.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/S1_2__schema.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sl.rs" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -64,6 +69,7 @@
       </map>
     </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+    <option name="SIGN_OFF_COMMIT" value="true" />
   </component>
   <component name="GitSEFilterConfiguration">
     <file-type-list>
@@ -410,7 +416,7 @@
       <workItem from="1715390351546" duration="1144000" />
       <workItem from="1769824420574" duration="69000" />
       <workItem from="1770926140184" duration="5871000" />
-      <workItem from="1770942600522" duration="3100000" />
+      <workItem from="1770942600522" duration="3410000" />
     </task>
     <task id="LOCAL-00001" summary="fix create DB AND USER at same run">
       <created>1637798495596</created>
@@ -531,7 +537,15 @@
       <option name="project" value="LOCAL" />
       <updated>1678327968428</updated>
     </task>
-    <option name="localTasksCounter" value="18" />
+    <task id="LOCAL-00018" summary="moved and merged">
+      <option name="closed" value="true" />
+      <created>1770946600076</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1770946600076</updated>
+    </task>
+    <option name="localTasksCounter" value="19" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -555,7 +569,8 @@
     <MESSAGE value="#9 IT: ignore GRANT_ALL" />
     <MESSAGE value="#9 IT final fixes" />
     <MESSAGE value="#9 IT fixes after serge yaml update" />
-    <option name="LAST_COMMIT_MESSAGE" value="#9 IT fixes after serge yaml update" />
+    <MESSAGE value="moved and merged" />
+    <option name="LAST_COMMIT_MESSAGE" value="moved and merged" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

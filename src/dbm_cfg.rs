@@ -17,7 +17,6 @@ use sloggers::Build;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::{Format, Severity, SourceLocation};
 use crate::dbm_log::StatementLog;
-use crate::license::LicenseDate;
 
 #[derive(Debug, Clone)]
 pub struct ConfigMap {
@@ -231,30 +230,6 @@ impl ConfigMap {
             result = result && mode.as_str() == "require"
         }
         result
-    }
-
-    #[cfg(not(debug_assertions))]
-    #[inline]
-    pub fn now(&self) -> LicenseDate  {
-        Utc::now().naive_utc().date()
-    }
-
-    #[cfg(debug_assertions)]
-    #[inline]
-    pub fn now(&self) -> LicenseDate  {
-        match self.get_opt("TEST_DAYS") {
-            None => Utc::now().naive_utc().date(),
-            Some(test) => match test.parse::<i64>() {
-                Ok(t) => {
-                    let now: LicenseDate = Utc::now().naive_utc().date();
-                    now + Duration::days(t as i64)
-                },
-                Err(e) => {
-                    println!("CFG:TEST_DAYS: {} : {}", test, e);
-                    Utc::now().naive_utc().date()
-                }
-            },
-        }
     }
 
 /// The define the logDB use as primary OR copy.

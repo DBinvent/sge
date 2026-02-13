@@ -47,17 +47,10 @@ fn act(cmd: &str, cfg: ConfigMap, ) -> Result<(), String> {
     }
     let log = cfg.log.clone();
     match cmd {
-        "migrate" => {
-            if rdbm::license::is_ok(&cfg, &cfg.log)? {
-                rdbm::migrate(cfg, false, &log)
-            } else {
-                Err(rdbm::TR.t7ea("cl", "invalid", &[], &[]))
-            }
-        }
+        "migrate" => rdbm::migrate(cfg, false, &log),
         "prepare" => rdbm::migrate(cfg, true, &log),
         "snapshot" => rdbm::load(true, cfg, &log),
         "info" => rdbm::load(false, cfg, &log),
-        "license" => rdbm::license::license(&cfg, &log, None),
         c @ _ => Err(rdbm::TR.t7ea("cl", "unknown", &["{cmd}"], &[&c.to_string()])),
     }
 }

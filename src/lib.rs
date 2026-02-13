@@ -8,7 +8,6 @@ extern crate yaml_rust;
 pub mod dbm_cfg;
 mod dbm_log;
 mod dbm_files;
-pub mod license;
 pub mod i18n;
 pub mod dbm_etl;
 
