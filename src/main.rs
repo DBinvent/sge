@@ -8,21 +8,6 @@ use sloggers::Build;
 
 use rdbm::dbm_cfg::ConfigMap;
 
-#[inline]
-pub fn logger(debug: bool) -> Logger {
-    let mut builder = TerminalLoggerBuilder::new();
-    builder.channel_size(1024);
-    builder.destination(Destination::Stdout);
-    builder.format(Format::Compact);
-    builder.source_location(SourceLocation::None);
-    builder.level(if debug {
-        Severity::Debug
-    } else {
-        Severity::Info
-    });
-    builder.build().unwrap()
-}
-
 fn main() {
     let yaml = clap::YamlLoader::load_from_str(rdbm::i18n::cl_config()).unwrap();
     let app = App::from_yaml(&yaml[0]).get_matches();
@@ -47,7 +32,6 @@ fn main() {
             cfg.insert(ks, app.value_of(ks).unwrap_or(""));
         }
     }
-
     std::process::exit(match act (cmd.as_str(), cfg) {
         Ok(_) => 0,
         Err(e) => {
@@ -58,14 +42,13 @@ fn main() {
 }
 
 fn act(cmd: &str, cfg: ConfigMap, ) -> Result<(), String> {
-    let v = cfg.get_bool("verbose", false);
-    let log = logger(v);
-    #[cfg(debug_assertions)] if v {
-        cfg.debug(&log);
+    #[cfg(debug_assertions)] if cfg.get_bool("verbose", false) {
+        cfg.debug(&cfg.log);
     }
+    let log = cfg.log.clone();
     match cmd {
         "migrate" => {
-            if rdbm::license::is_ok(&cfg, &log)? {
+            if rdbm::license::is_ok(&cfg, &cfg.log)? {
                 rdbm::migrate(cfg, false, &log)
             } else {
                 Err(rdbm::TR.t7ea("cl", "invalid", &[], &[]))

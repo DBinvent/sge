@@ -39,7 +39,7 @@ The app intend to be a microservice ready with multi-database (microservice conf
 
 ### Schema/Table deploy by definition restriction notice
 
- - Schemas and tables definition allowed only in YAML format (JSON file format coming soon) 
+ - Schemas and tables definition allowed only in YAML format 
  - Adding sql & constraint on existing column/tables won't produce an ALTER TABLE SQL (except FK but sql)
  - The composite primary key (multi columns) only on create table 
  

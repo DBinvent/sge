@@ -1,17 +1,22 @@
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Display;
 use std::{fmt, fs};
-use std::cmp::{max, Ordering};
+use std::cmp::Ordering;
 use std::fs::File;
 use std::path::Path;
 use chrono::{DateTime, Utc};
 use csv::{Reader, StringRecord};
-use postgres::{Client, Row, Transaction};
+use postgres::{Row, Transaction};
 use postgres::types::Type;
+use schema_guard::loader::InfoSchemaType;
+use schema_guard::schema::Schema;
+use schema_guard::table::Table;
+use schema_guard::utils::{Named, OrderedHashMap};
 use semver::Version;
 use slog::Logger;
-use crate::{ConfigMap, FileFilter, FileVersion, InfoSchemaType, LoadResult, LogSchemaType, Named, OrderedHashMap, StatementLog, YEtl, YSchema, YTable};
+use crate::{ConfigMap,  FileVersion, LoadResult, LogSchemaType, StatementLog};
 use serde::Serialize;
+use crate::dbm_files::FileFilter;
 
 /// | `chrono::NaiveDateTime`         | TIMESTAMP                           |
 /// | `chrono::DateTime<Utc>`         | TIMESTAMP WITH TIME ZONE            |
@@ -25,7 +30,7 @@ use serde::Serialize;
 /// | `time::Time`                    | TIME                                |
 /// https://docs.rs/postgres/0.19.2/postgres/types/struct.Type.html
 #[inline]
-fn as_string(row: &Row, idx: usize, t: &YTable) -> Result<String, String> {
+fn as_string(row: &Row, idx: usize, t: &Table) -> Result<String, String> {
     let c = &row.columns()[idx];
     let nullable = match t.columns.get(&c.name().to_string()) {
         None => {return Err(format!("column {} not found during data load. try to run again", c.name()));}
@@ -271,11 +276,11 @@ impl Etl {
 
     /// no schema
     #[inline]
-    fn find_set<'a>(&self, slf: &'a mut LoadResult, table: &String) -> Result<(String, String, String, &'a YTable), String> {
+    fn find_set<'a>(&self, slf: &'a mut LoadResult, table: &String) -> Result<(String, String, String, &'a Table), String> {
         for s in slf.database.iter_mut() {
             if let Some(t) = s.tables.get_mut(table) {
                 let dump_to = self.dump_to(format!("{}_{}.csv", s.schema_name, table))?;
-                t.etl = Some(YEtl{ file: Some(dump_to.clone()), view: None });
+                t.data_file = Some(dump_to.clone());
                 return Ok((dump_to, s.schema_name.clone(), table.clone(), t));
             }
         }
@@ -284,14 +289,14 @@ impl Etl {
 
     /// with schema
     #[inline]
-    fn find_sets<'a>(&self, slf: &'a mut LoadResult, schema: &str, table: &String) -> Result<(String, String, String, &'a YTable), String> {
+    fn find_sets<'a>(&self, slf: &'a mut LoadResult, schema: &str, table: &String) -> Result<(String, String, String, &'a Table), String> {
         for s in slf.database.iter_mut() {
             if s.schema_name.as_str() == schema {
                 return match s.tables.get_mut(&table) {
                     None => Err(format!("Table or schema not found: {}.{}", schema, table)),
                     Some(t) => {
                         let dump_to = self.dump_to(format!("{}_{}.csv", s.schema_name, table))?;
-                        t.etl = Some(YEtl{ file: Some(dump_to.clone()), view: None });
+                        t.data_file = Some(dump_to.clone());
                         Ok((dump_to, s.schema_name.clone(), table.clone(), t))
                     }
                 }
@@ -302,7 +307,7 @@ impl Etl {
     // LoadResult
 
     /// same as  COPY ttest TO '/tmp/ttest_dn.csv' csv;
-    pub(crate) fn extract(&self, slf: &mut LoadResult, db_client: &mut Client, log: &Logger) -> Result<(), String> {
+    pub(crate) fn extract(&self, slf: &mut LoadResult, db_client: &mut Transaction, log: &Logger) -> Result<(), String> {
         for t in &self.tables.list {
             if t.table.len() > 0 {
                 let (file, schema, table, yt) = match &t.schema {
@@ -405,7 +410,7 @@ impl Etl {
 
     /// with schema
     #[inline]
-    fn find(&self, schema: &String, table: &YTable) -> bool {
+    fn find(&self, schema: &String, table: &Table) -> bool {
         let tn = format!("{}.{}", schema, table.table_name);
         match self.tables.get(&tn) {
             None => match self.tables.get(&table.table_name) {
@@ -419,7 +424,7 @@ impl Etl {
 
     pub(crate) fn deploy_all(
         self,
-        ysv: &HashMap<String, YSchema>,
+        ysv: &OrderedHashMap<Schema>,
         logs: &LogSchemaType,
         dbc: &InfoSchemaType,
         db: &mut Transaction,
@@ -431,69 +436,61 @@ impl Etl {
         let mut datas = DataTableMap::new();
         let fp = FileFilter::newt(".csv");
         let mut do_persist = false;
-        for (s, ys) in ysv {
+        for ys in &ysv.list {
             for yt in &ys.tables.list {
-                if let Some(data) = &yt.etl {
-                    match &data.file {
-                        Some(data_file) => {
-                            let file = format!("{}{}", self.dir, data_file);
-                            let update = match self.rule {
-                                EtlRule::Ignore => {
-                                    if !Path::new(file.as_str()).exists() {
-                                        warn!(log, "ETL: {} table ignore non existing file {}", yt.table_name, file);
-                                        return Ok(false);
-                                    }
-                                    false
-                                }
-                                EtlRule::Skip => {
-                                    if self.tables.len() == 0 {
-                                        info!(log, "ETL: skipped on file {} (and all other)", file);
-                                        return Ok(false);
-                                    } else if self.find(s, yt) {
-                                        info!(log, "ETL: skip file {} for table {}", file, yt.table_name);
-                                        continue;
-                                    }
-                                    false
-                                }
-                                EtlRule::Clean | EtlRule::Force => {
-                                    if self.tables.len() == 0 {
-                                        true
-                                    } else {
-                                        let update = self.find(s, yt);
-                                        if update {
-                                            debug!(log, "ETL: [{}] set for table {} ({})", self.rule, yt.table_name, file);
-                                        } else {
-                                            info!(log, "ETL: [{}] is not set for table: {} ({}), therefore 'apply' will use instead", self.rule, yt.table_name, file);
-                                        }
-                                        update
-                                    }
-                                },
-                                EtlRule::Apply => false
-                            };
-                            let readable = { File::open(&file).map_err(|e| format!("Can't read file: {}: {}", file, e))?; true };
-                            if readable {
-                                let data_file_ver = DataFileVersion::new(data_file, &fp, Some(yt));
-                                let dstl = stl.instance('D', &data_file_ver.v.s, &self.dir, data_file);
-                                {
-                                    if let Some((_sl_file, checks)) = logs.get(&data_file_ver.file) {
-                                        if checks == &dstl.checksum {
-                                            info!(log, "ETL: skip unchanged file {} for table {} [{}]", file, yt.table_name, data_file_ver.file);
-                                            continue;
-                                        }
-                                    };
-                                }
-                                datas.insert(data_file_ver, (&s, yt, update, file, dstl));
+                if let Some(data_file) = &yt.data_file {
+                    let file = format!("{}{}", self.dir, data_file);
+                    let update = match self.rule {
+                        EtlRule::Ignore => {
+                            if !Path::new(file.as_str()).exists() {
+                                warn!(log, "ETL: {} table ignore non existing file {}", yt.table_name, file);
+                                return Ok(false);
+                            }
+                            false
+                        }
+                        EtlRule::Skip => {
+                            if self.tables.len() == 0 {
+                                info!(log, "ETL: skipped on file {} (and all other)", file);
+                                return Ok(false);
+                            } else if self.find(&ys.schema_name, yt) {
+                                info!(log, "ETL: skip file {} for table {}", file, yt.table_name);
+                                continue;
+                            }
+                            false
+                        }
+                        EtlRule::Clean | EtlRule::Force => {
+                            if self.tables.len() == 0 {
+                                true
                             } else {
-                                return Err(format!("ETL: data file {} for table {} is not readable", data_file, yt.table_name));
+                                let update = self.find(&ys.schema_name, yt);
+                                if update {
+                                    debug!(log, "ETL: [{}] set for table {} ({})", self.rule, yt.table_name, file);
+                                } else {
+                                    info!(log, "ETL: [{}] is not set for table: {} ({}), therefore 'apply' will use instead", self.rule, yt.table_name, file);
+                                }
+                                update
                             }
-
+                        },
+                        EtlRule::Apply => false
+                    };
+                    let readable = { File::open(&file).map_err(|e| format!("Can't read file: {}: {}", file, e))?; true };
+                    if readable {
+                        let data_file_ver = DataFileVersion::new(data_file, &fp, Some(yt));
+                        let dstl = stl.instance('D', &data_file_ver.v.s, &self.dir, data_file);
+                        {
+                            if let Some((_sl_file, checks)) = logs.get(&data_file_ver.file) {
+                                if checks == &dstl.checksum {
+                                    info!(log, "ETL: skip unchanged file {} for table {} [{}]", file, yt.table_name, data_file_ver.file);
+                                    continue;
+                                }
+                            };
                         }
-                        None => { // no CSV file
-                            if let Some(view) = &data.view {
-                                return Err(format!("ETL: generate data for table {} by view {} is not implemented yet", yt.table_name, view));
-                            }
-                        }
+                        datas.insert(data_file_ver, (&ys.schema_name, yt, update, file, dstl));
+                    } else {
+                        return Err(format!("ETL: data file {} for table {} is not readable", data_file, yt.table_name));
                     }
+
+
                 }
             }
         }
@@ -503,6 +500,7 @@ impl Etl {
         }
 
         for (schema_name, yt, update, file, dstl) in datas.values() {
+            debug!(log, "ETL: uploading file: {}", file);
             let mut r = csv::Reader::from_path(file)
                 .map_err(|e| format!("ETL: Reading {}: {}", file, e))?;
             match EtlComposer::new(&self, dbc, *schema_name, *yt, *update, file, &mut r, log)?
@@ -544,7 +542,7 @@ struct DataFileVersion {
 
 impl DataFileVersion {
     // TODO FIXME NOW test
-    fn new(data_file: &String, fp: &FileFilter, yto: Option<&YTable>) -> Self {
+    fn new(data_file: &String, fp: &FileFilter, yto: Option<&Table>) -> Self {
         let x = match data_file.rfind("/") {
             None => 0,
             Some(x) => x + 1
@@ -569,7 +567,7 @@ impl DataFileVersion {
             v: FileVersion::new(vv, key),
            w: match yto {
                None => 0,
-               Some(yt) => max(yt.weight, yt.pseudo_weight())
+               Some(yt) => pseudo_weight(yt)
            }
         }
     }
@@ -588,6 +586,18 @@ impl DataFileVersion {
             r @ _ => r
         }
     }
+}
+
+pub fn pseudo_weight(yself: &Table) -> u8 {
+    let mut w = 0;
+    for c in &yself.columns.list {
+        if let Some(x) = &c.constraint {
+            if x.foreign_key.is_some() {
+                w += 1;
+            }
+        }
+    }
+    w
 }
 
 impl Eq for DataFileVersion {}
@@ -610,7 +620,7 @@ impl Ord for DataFileVersion {
     }
 }
 
-type DataTableMap<'a> = BTreeMap<DataFileVersion, (&'a String, &'a YTable, bool, String, StatementLog)>;
+type DataTableMap<'a> = BTreeMap<DataFileVersion, (&'a String, &'a Table, bool, String, StatementLog)>;
 
 type ColumnSet = BTreeSet<u16>;
 
@@ -653,7 +663,7 @@ const SETE_NULL:&str = " = NULL";
 fn add_sequence(
     pk_defaults: &mut BTreeMap<String, String>,
     schema_name: &String,
-    yaml_table: &YTable,
+    yaml_table: &Table,
     column_name: &String,
     column_type: &String,
     column_default: &Option<String>
@@ -677,7 +687,7 @@ impl <'a> EtlComposer <'a>  {
         etl_cmd: &'a Etl,
         db_info_schema: &'a InfoSchemaType,
         schema_name: &'a String,
-        yaml_table: &'a YTable,
+        yaml_table: &'a Table,
         do_force_update: bool,
         src_file: &String, // to use for logging only
         csv_reader: &mut Reader<File>,
@@ -1004,11 +1014,11 @@ fn escp_append(sql: &mut String, input: &str, with_field: bool){
 #[allow(unused, warnings)]
 mod tests {
     use csv::ReaderBuilder;
+    use schema_guard::column::Column;
     use sloggers::Build;
     use sloggers::terminal::*;
     use sloggers::types::*;
     use uuid::Uuid;
-    use crate::YColumn;
     use super::*;
 
     fn logger(debug: bool) -> Logger {
@@ -1093,14 +1103,14 @@ Boston,United States,\"4628910\"\"\"
         }
     }
 
-    fn yt_test() -> YTable {
+    fn yt_test() -> Table {
         let mut columns = OrderedHashMap::new();
-        columns.append(YColumn::newt("r", "serial", true, false));
-        columns.append(YColumn::newt("active", "", false, true));
-        columns.append(YColumn::newt("starts_at", "date", false, true));
-        columns.append(YColumn::newt("ends_at", "date", false, true));
-        columns.append(YColumn::newt("cap", "varchar", false, true));
-        YTable {
+        columns.append(Column::newt("r", "serial", true, false));
+        columns.append(Column::newt("active", "", false, true));
+        columns.append(Column::newt("starts_at", "date", false, true));
+        columns.append(Column::newt("ends_at", "date", false, true));
+        columns.append(Column::newt("cap", "varchar", false, true));
+        Table {
             table_name: "rdict".to_string(),
             description: "".to_string(),
             transaction: "".to_string(),
@@ -1108,9 +1118,10 @@ Boston,United States,\"4628910\"\"\"
             constraint: "".to_string(),
             columns,
             triggers: OrderedHashMap::new(),
-            etl: None,
+            data_file: None,
             owner: "".to_string(),
-            weight: 0
+            data: vec![],
+            grant: vec![],
         }
     }
 

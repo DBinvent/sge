@@ -12,8 +12,7 @@ database:
                 constraint:
                   foreignKey:
                     references: test_ref_table
-          etl:
-            file: D1__test.csv
+          data_file: D1__test.csv
 
       - table:
           tableName: test_ref_table
@@ -28,5 +27,4 @@ database:
             - column:
                 name: test
                 type: varchar(20)
-          etl:
-            file: D1__test_ref.csv
+          data_file: D1__test_ref.csv

@@ -41,7 +41,7 @@ const MIN_VER: usize = 1usize;
 const PG: &str = "postgres";
 const LH: &str = "localhost";
 const STAR: &str = "*";
-pub const ENCRYPT: &str = "encrypt";
+const ENCRYPT: &str = "encrypt";
 
 fn get_license_file(cfg: &ConfigMap) -> String {
     cfg.get_def(LICENSE_FILE, if Path::new(EVALUATION_LICENSE).is_file() {
@@ -148,7 +148,7 @@ impl ApiRequest {
     }
 
     #[inline]
-    pub fn m_tr(&self) -> String {
+    fn m_tr(&self) -> String {
         match &self {
                 ApiRequest::Create(_) => TR.t7ea("license", "call_create", &[], &[]),
                 ApiRequest::Pull(_) => TR.t7ea("license", "call_check", &[], &[]),
@@ -234,7 +234,7 @@ fn api_host() -> String {
 
 /// Request to register user and issue an license (by email)
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct CreateUpdateRequest {
+struct CreateUpdateRequest {
     pub personal: bool,
     /// use only on create request, on update ignore and will use license DB field
     pub encrypt: bool,
@@ -251,7 +251,7 @@ fn append_name(name: &String, ip:bool, list: &mut Vec<String>) {
     if name.len() > 0 && name.as_str() != "*"
         && ( (ip  && !is_ip(name) )
         || (!ip && name != &user && name != &"postgres".to_string()
-         && name == &crate::dbm_yml::safe_sql(name.clone())) )
+         && name == &schema_guard::utils::safe_sql_name(name.clone())) )
     {
         list.push(name.clone());
     }
@@ -288,7 +288,7 @@ impl CreateUpdateRequest {
 
     #[inline]
     #[allow(dead_code)]
-    pub fn validate(&self) -> Option<String> {
+    fn validate(&self) -> Option<String> {
         if self.email.len() < 5 {
             Some("invalid email address".into())
         } else {
@@ -373,7 +373,7 @@ struct LicenseCreateResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiMessage {
+struct ApiMessage {
     pub code: i32,
     pub message: String
 }
@@ -384,7 +384,7 @@ fn as_err(errors: &Vec<ApiMessage>) -> String {
     } else { "".to_string() }
 }
 
-#[cfg(debug_assertions)]
+#[cfg(not(license))]
 /// use with: "FORCE_CHECK:any" and "TEST_DAYS:int"
 pub fn is_ok(cfg: &ConfigMap, log: &Logger) -> Result<bool, String> {
     match cfg.get_opt("FORCE_CHECK") {
@@ -393,14 +393,14 @@ pub fn is_ok(cfg: &ConfigMap, log: &Logger) -> Result<bool, String> {
     }
 }
 
-#[cfg(not(debug_assertions))]
+#[cfg(license)]
 #[inline]
 /// on migrate action
 pub fn is_ok(cfg: &ConfigMap, log: &Logger) -> Result<bool, String> {
     Ok(do_check(cfg, log)? >= 0)
 }
 
-pub fn do_check(cfg: &ConfigMap, _log: &Logger) -> Result<i64, String> {
+fn do_check(cfg: &ConfigMap, _log: &Logger) -> Result<i64, String> {
     let l = License::load(get_license_file(cfg).as_str())?;
     l.verify()?;
     Ok(match l.find(

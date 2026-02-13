@@ -9,15 +9,20 @@ use serde::Serialize;
 use slog::Logger;
 
 use crate::dbm_cfg::ConfigMap;
-use crate::dbm_dbc::{STable, SColumnDfn};
-use crate::dbm_yml::{semver_parse, FilesMap, OrderedHashMap, YColumn, YSchema, YTable};
+use crate::loader::{PgColumnDfn};
 use crate::*;
 use chrono::{DateTime, Utc};
 use semver::Version;
 use std::fs::{File, OpenOptions};
 use std::time::Instant;
 use crypto::digest::Digest;
+use schema_guard::column::{Column, Constr, ForeignKey};
+use schema_guard::loader::PgTable;
+use schema_guard::schema::Schema;
+use schema_guard::table::Table;
+use schema_guard::utils::OrderedHashMap;
 use crate::dbm_etl::Etl;
+use crate::dbm_files::semver_parse;
 
 /// loaded from DB or stored to DB, see [STATEMENT_LOG_TBL] and [STATEMENT_LOG_TABLE_YML] for table defenition
 #[derive(Debug, Clone, Serialize)]
@@ -613,21 +618,21 @@ fn hash_md5<R: Read>(reader: &mut R) -> String {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct LoadResult {
-    pub database: Vec<YSchema>,
+    pub database: Vec<Schema>,
 }
 
 impl LoadResult {
-    pub(crate) fn load(etl: &Etl, db_client: &mut Client, log: &Logger) -> Result<Self, String> {
-        let input = crate::dbm_dbc::load_info_schema(etl.db_name.as_str(), db_client)?;
-        let owners = crate::dbm_dbc::load_info_schema_owner(etl.db_name.as_str(),db_client)?;
+    pub(crate) fn load(etl: &Etl, db_client: &mut Transaction, log: &Logger) -> Result<Self, String> {
+        let input = crate::loader::load_info_schema(etl.db_name.as_str(), db_client)?;
+        let owners = crate::loader::load_info_schema_owner(etl.db_name.as_str(), db_client)?;
 
         let mut schemas = Vec::new();
         for (schema, tables) in input {
-            let mut tables = tables.values().cloned().collect::<Vec<STable>>();
+            let mut tables = tables.values().cloned().collect::<Vec<PgTable>>();
             tables.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
             let mut ytables = OrderedHashMap::new();
             for  table in &tables {
-                let mut yt = YTable {
+                let mut yt = Table {
                     table_name: table.table_name.clone(),
                     description: table.table_comment.clone().unwrap_or("".to_string()),
                     transaction: "".to_string(),
@@ -635,32 +640,34 @@ impl LoadResult {
                     constraint: "".to_string(),
                     columns: OrderedHashMap::new(),
                     triggers: OrderedHashMap::new(),
-                    etl: None,
+                    data_file: None,
                     owner: table.owner.clone().unwrap_or("".to_string()),
-                    weight: 0,
+                    data: vec![],
+                    grant: vec![],
                 };
-                let mut columns = table.columns.values().cloned().collect::<Vec<SColumnDfn>>();
+                let mut columns = table.columns.values().cloned().collect::<Vec<PgColumnDfn>>();
                 columns.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
                 for c in columns {
-                    let yc = YColumn {
+                    let yc = Column {
                         name: c.column_name.into(),
                         column_type: c.column_type.clone(),
                         default_value: c.column_default.clone(),
-                        constraint: if !c.nullable || c.pk || c.fk.is_some() { Some(YConstr {
+                        constraint: if !c.nullable || c.pk || c.fk.is_some() { Some(Constr {
                             primary_key: if c.pk { Some(true) } else { None },
                             nullable: c.nullable,
                             foreign_key: c.fk.clone()
-                                .map( |f| YForeignKey{ references: f.0.clone(), sql: f.1.clone() })
+                                .map( |f| ForeignKey{ references: f.0.clone(), sql: f.1.clone() })
                         }) }
                         else { None },
                         description: c.column_comment.clone().unwrap_or("".to_string()),
                         sql: "".to_string(),
+                        index: None,
                     };
                     let _ = yt.columns.append(yc);
                 }
                 let _ = ytables.append(yt);
             }
-            let ys = YSchema {
+            let ys = Schema {
                 schema_name: schema.clone(),
                 owner: match owners.get(&schema) {
                     None => "".to_string(),

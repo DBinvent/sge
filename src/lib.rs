@@ -6,16 +6,13 @@ extern crate semver;
 extern crate yaml_rust;
 
 pub mod dbm_cfg;
-mod dbm_dbc;
 mod dbm_log;
-pub mod dbm_yml;
+mod dbm_files;
 pub mod license;
 pub mod i18n;
 pub mod dbm_etl;
 
-use crate::dbm_dbc::InfoSchemaType;
 use crate::dbm_log::*;
-use crate::dbm_yml::*;
 
 // #[cfg(feature = "tls")]
 // use ssl::{
@@ -36,10 +33,14 @@ use crate::dbm_cfg::ConfigMap;
 use postgres::error::SqlState;
 use std::collections::HashMap;
 use std::fmt::Write;
+use schema_guard::*;
+use schema_guard::loader::{InfoSchemaType, load_info_schema};
+use schema_guard::table::Table;
+use crate::dbm_files::{FilesMap, FileVersion, load_all};
 
 const STATEMENT_LOG_TABLE_YML: &'static str = include_str!("hl_table.yaml");
 
-static YAML_SCHEMA: &'static str = include_str!("schema.yaml");
+// static YAML_SCHEMA: &'static str = include_str!("../sg/src/schema.yaml");
 
 /// TODO:  static JSON_SCHEMA: &'static str = include_str!("schema.json");
 
@@ -52,12 +53,12 @@ pub(crate) const SRC_T_M_LEN: usize = 250;
 pub(crate) const SLT_C_LEN: usize = 80;
 
 lazy_static! {
-    pub static ref STATEMENT_LOG_TBL: crate::dbm_yml::YTable =
+    pub static ref STATEMENT_LOG_TBL: Table =
         match YamlLoader::load_from_str(STATEMENT_LOG_TABLE_YML) {
             Ok(y) => {
                 if y.len() > 0 {
                     let y = &y[0];
-                    YTable::new(&y, y["tableName"].as_str().unwrap(), None, None).unwrap()
+                    Table::new(&y, y["tableName"].as_str().unwrap(), None).unwrap()
                 } else {
                     panic!("zero config");
                 }
@@ -92,7 +93,7 @@ lazy_static! {
             }
         };
 
-    pub static ref SCHEMA_YAML: Vec<yaml_rust::Yaml> = YamlLoader::load_from_str(crate::YAML_SCHEMA).expect("wrong schema");
+    // pub static ref SCHEMA_YAML: Vec<yaml_rust::Yaml> = YamlLoader::load_from_str(crate::YAML_SCHEMA).expect("wrong schema");
 
     pub static ref TR: crate::i18n::Translate = crate::i18n::Translate::new();
 }
@@ -106,7 +107,7 @@ pub fn migrate(cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), S
         trace!(log, "migrate connecting COPYLOG ...");
         Some(connect("logdb_", &cfg, None, "copylog", log)?)
     } else { None};
-
+    schema_guard::set_logger(log.clone());
     let result = { migrate_db(&mut client, &mut copy_log, &cfg, prepare_only, log) };
     match client.close() {
         Ok(_) => {}
@@ -150,10 +151,10 @@ fn migrate_db(
     } else {
         cfg.get("db_name")
     };
-    let mut dbc = crate::dbm_dbc::load_info_schema(log_db_name.as_str(), log_client)?;
-    let files = crate::dbm_yml::load_all(cfg, log)?;
+    let mut dbc = load_info_schema(log_db_name.as_str(), &mut log_client.transaction().map_err(|e| e.to_string())?)?;
+    let files = load_all(cfg, log)?;
     let mut t = log_client.transaction().unwrap(); // begin self install if not exists
-    let mut err = YTable::baseline_deploy(&mut dbc, &mut t, &schema, cfg, "primary", log);
+    let mut err = baseline_deploy(&mut dbc, &mut t, &schema, cfg, "primary", log);
 
     let mut ct = match copy_log_client {
         None => {None}
@@ -161,10 +162,11 @@ fn migrate_db(
             if err.is_none() {
                 // debug!(log, "begin self install if not exists on log copy instance");
                 // TODO reuse loaded?
-                let mut dbc = crate::dbm_dbc::load_info_schema(cfg.get("logdb_name").as_str(), lc)?;
-                let mut t = lc.transaction().unwrap();
+                let mut t = lc.transaction().map_err(|e| e.to_string())?;
+                let mut dbc = load_info_schema(cfg.get("logdb_name").as_str(), &mut t)?;
+                // let mut t = lc.transaction().unwrap();
                 if !cfg.is_primary() {
-                    err = YTable::baseline_deploy(&mut dbc, &mut t, &schema, cfg, "copy", log);
+                    err = baseline_deploy(&mut dbc, &mut t, &schema, cfg, "copy", log);
                 }
                 Some(t)
             } else { None }
@@ -187,7 +189,7 @@ fn migrate_db(
         let db_name = cfg.get("db_name");
         let mut dbc = if log_db_name != db_name {
             let mut client = connect("db_", &cfg, None, "loading info schema",log)?;
-            let dbc = crate::dbm_dbc::load_info_schema(db_name.as_str(),&mut client)?;
+            let dbc = load_info_schema(db_name.as_str(), &mut client.transaction().unwrap())?;
             let _ = client.close();
             debug!(log, "loading info schema disconnected");
             dbc
@@ -248,6 +250,40 @@ fn migrate_db(
         let _ = fs::remove_file(pgsrv.as_str());
     }
     ret
+}
+
+pub(crate) fn baseline_deploy(
+    dbc: &mut InfoSchemaType,
+    t: &mut Transaction,
+    schema: &String,
+    cfg: &ConfigMap,
+    cause: &str,
+    log: &Logger,
+) -> Option<String> {
+    debug!(log, "starting with self deploy {} for {}", BASELINE, cause);
+    let mut baseline = crate::STATEMENT_LOG_TBL.clone();
+    baseline.table_name = cfg.history_table_name();
+    let dr = |input| cfg.dry_run(input);
+    match baseline.deploy(dbc, t, &schema, cfg.is_retry(), BASELINE,
+      if cfg.get_bool("dry_run", false) { Some(&dr) } else {None}
+    ) {
+        Ok(exec) => {
+            if exec {
+                debug!(log, "self deploy of: {} complete", BASELINE);
+                if let Err(e) = StatementLog::new(cfg)
+                    .instance('S', &BASELINE.into(), &"".into(), &BASELINE.into())
+                    .persist(None, Some(t), &mut None)
+                {
+                    Some(e)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        Err(e) => Some(e),
+    }
 }
 
 /// version level ordering
@@ -368,15 +404,23 @@ fn deploy_all_schemas(
         let etl = dbm_etl::Etl::from(cfg)?;
         let table_tr = cfg.get("schema_transaction") == "table" || cfg.is_retry();
         let mut do_persist = false;
+        let dry_run = cfg.get_bool("dry_run", false);
+        let dry_run_fn = |input| cfg.dry_run(input);
         // for (ver, (file, ysv)) in &files.schemas
+        // debug!(log, "looking key={} obj[{:?}] in keys [{:?}]", ver, ver, files.schemas.keys());
         if let Some((file, ysv)) = &files.schemas.get(ver) {
+            // debug!(log, "deploying Schema {} [{}]", file, ysv.len());
             match client.transaction() {
                 Ok(mut t) => {
                     // let mut t = client.transaction().unwrap();
-                    for (s, ys) in ysv {
+                    for //(s,
+                        ys in &ysv.list {
                         for yt in &ys.tables.list {
-                            match yt.deploy(dbc, &mut t, &s, &cfg, &ys.file, log) {
+                            // debug!(log, "deploying Table [{}]: {}", file, yt.table_name);
+                            match yt.deploy(dbc, &mut t, &ys.schema_name, cfg.is_retry(), &ys.file,
+                                    if dry_run { Some(&dry_run_fn) } else {None}) {
                                 Ok(ok) => {
+                                    debug!(log, "deployed {}.{}: [{}] from {} dry_run?{}", ys.schema_name, yt.table_name, if ok {"ok"}else{"NOT OK"}, file, dry_run);
                                     if ok {
                                         do_persist = true;
                                         if yt.is_table_transaction() || table_tr {
@@ -384,7 +428,7 @@ fn deploy_all_schemas(
                                                 do_persist = true;
                                                 err = Some(format!(
                                                     "committing change on {}.{} with {}",
-                                                    s, yt.table_name, ec
+                                                    ys.schema_name, yt.table_name, ec
                                                 ));
                                                 break;
                                             }
@@ -392,6 +436,7 @@ fn deploy_all_schemas(
                                     }
                                 }
                                 Err(e) => {
+                                    // error!(log, "deploying Table [{}]: {} {}", file, yt.table_name, e);
                                     do_persist = true;
                                     err = Some(e);
                                     break;
@@ -403,9 +448,14 @@ fn deploy_all_schemas(
                     if let None = &err {
                         // deploy FK
                         // for (ver, (file, ysv)) in &yschemas.schemas {
-                        for (s, ys) in ysv {
+                        for // (s,
+                            ys in &ysv.list {
                             for yt in &ys.tables.list {
-                                match yt.deploy_fk(ver, &files, dbc, &mut t, &s, &cfg, &ys.file, log)
+                                if let Some((_a, xfiles)) = files.schemas.get(&ver) {
+                                match yt.deploy_fk(//ver,
+                                   xfiles, dbc, &mut t, &ys.schema_name, cfg.is_retry(), &ys.file,
+                                   if dry_run { Some(&dry_run_fn) } else { None }
+                                )
                                 {
                                     Ok(ok) => {
                                         if ok {
@@ -415,7 +465,7 @@ fn deploy_all_schemas(
                                                     do_persist = true;
                                                     err = Some(format!(
                                                         "committing change on {}.{} with {}",
-                                                        s, yt.table_name, ec
+                                                        ys.schema_name, yt.table_name, ec
                                                     ));
                                                     break;
                                                 }
@@ -428,13 +478,14 @@ fn deploy_all_schemas(
                                     }
                                 }
                             }
+                            }
                             if let Some(_) = &err {
                                 break;
                             }
                         }
                     }
                     if err.is_none() {
-                        match etl.deploy_all(&ysv, logs, dbc, &mut t, lt, clog_t, &stl, log) {
+                        match etl.deploy_all(ysv, logs, dbc, &mut t, lt, clog_t, &stl, log) {
                             Ok(p) => do_persist = do_persist || p,
                             Err(e) => {
                                 do_persist = true;
@@ -444,16 +495,20 @@ fn deploy_all_schemas(
                     }
 
                     if !do_persist {
+                        error!(log, "rollback");
                         let _ = t.rollback(); // done with transaction anyway
                     } else {
                         match &err {
                             // err means was persist
-                            Some(_) => {
+                            Some(e) => {
+                                error!(log, "rollback: {}", e);
                                 let _ = t.rollback();
                             }
                             None => {
+                                info!(log, "commit: {}", do_persist);
                                 if do_persist {
                                     if let Err(e) = t.commit() {
+                                        error!(log, "commit: {}", e);
                                         err = Some(format!("committing change for {} {}", file, e))
                                     }
                                 }
@@ -699,12 +754,14 @@ fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
 pub fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     let mut log_client = connect("logdb_", &cfg, None, "loading logs",log)?;
     let mut db_client = connect("db_", &cfg, None, "loading data",log)?;
+    let mut db = db_client.transaction().map_err(|e| e.to_string())?;
     let etl = dbm_etl::Etl::from(&cfg)?;
     let result = if dump {
-        LoadResult::load(&etl, &mut db_client, log)?.format(etl.yaml_format)
+        LoadResult::load(&etl, &mut db, log)?.format(etl.yaml_format)
     } else {
         StatementLog::load_formatted(&cfg, &mut log_client)
     };
+    drop(db);
     let _ = db_client.close();
     let _ = log_client.close();
     etl.dump_loaded(result)

@@ -9,10 +9,14 @@ use std::io::{BufRead, BufReader};
 use std::result::Result;
 use std::env;
 
-use crate::dbm_yml::{safe_sql, str2bool};
 #[allow(unused, warnings)]
 use chrono::{Utc, Duration};
+use schema_guard::utils::{safe_sql_name, str2bool};
 use slog::Logger;
+use sloggers::Build;
+use sloggers::terminal::{Destination, TerminalLoggerBuilder};
+use sloggers::types::{Format, Severity, SourceLocation};
+use crate::dbm_log::StatementLog;
 use crate::license::LicenseDate;
 
 #[derive(Debug, Clone)]
@@ -21,6 +25,22 @@ pub struct ConfigMap {
     file: String,
     file_total_lines: usize,
     file_loaded_lines: usize,
+    pub log: Logger
+}
+
+#[inline]
+pub fn logger(debug: bool) -> Logger {
+    let mut builder = TerminalLoggerBuilder::new();
+    builder.channel_size(1024);
+    builder.destination(Destination::Stdout);
+    builder.format(Format::Compact);
+    builder.source_location(SourceLocation::None);
+    builder.level(if debug {
+        Severity::Debug
+    } else {
+        Severity::Info
+    });
+    builder.build().unwrap()
 }
 
 impl ConfigMap {
@@ -52,11 +72,13 @@ impl ConfigMap {
                 }
             }
         }
+        let log = logger(str2bool(cfg.get("verbose").unwrap_or(&"".to_string()), false));
         Ok(ConfigMap {
             map: cfg,
             file: filename.to_string(),
             file_total_lines,
             file_loaded_lines,
+            log
         })
     }
 
@@ -182,12 +204,12 @@ impl ConfigMap {
 
     #[inline]
     pub(crate) fn schema(&self) -> String {
-        safe_sql(self.get("schema"))
+        safe_sql_name(self.get("schema"))
     }
 
     #[inline]
     pub(crate) fn history_table_name(&self) -> String {
-        safe_sql(self.get_def("table", crate::STATEMENT_LOG_TBL.table_name.clone()))
+        safe_sql_name(self.get_def("table", crate::STATEMENT_LOG_TBL.table_name.clone()))
     }
 
     #[inline]
@@ -262,6 +284,11 @@ impl ConfigMap {
         for (k,v) in &self.map {
             debug!(log, "{}: {}", k, v)
         }
+    }
+
+    pub fn dry_run(&self, input: Vec<String>) -> Result<(), String> {
+        StatementLog::dry_store(self.get_opt("dry_run_to"), input.into_iter().collect(), &self.log)
+            .map(|_| ())
     }
 }
 
@@ -435,6 +462,7 @@ mod tests {
             file: "".to_string(),
             file_total_lines: 0,
             file_loaded_lines: 0,
+            log: logger(true),
         }
     }
         // DateTime::naive_local()

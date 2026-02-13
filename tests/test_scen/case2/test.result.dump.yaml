@@ -96,8 +96,7 @@ database:
       - column:
           name: test
           type: varchar(20)
-      etl:
-        file: ./tests/test_scen/case2/D2__test_schema_test_ref_table.csv
+      data_file: ./tests/test_scen/case2/D2__test_schema_test_ref_table.csv
       owner: $USER
   - table:
       tableName: test_table
@@ -118,6 +117,5 @@ database:
             nullable: true
             foreignKey:
               references: test_schema.test_ref_table
-      etl:
-        file: ./tests/test_scen/case2/D2__test_schema_test_table.csv
+      data_file: ./tests/test_scen/case2/D2__test_schema_test_table.csv
       owner: $USER

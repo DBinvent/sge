@@ -3,7 +3,7 @@ use yaml_rust::{YamlLoader, Yaml};
 
 /// TODO: --schema_transaction:
 //     - (column-TBD): perform all changes on a column per transaction.
-//     - (retry-TBD): try to obtain a lock perform changes repeatably - suitable on high load systems src/dbm_yml.rs:1308
+//     - (retry-TBD): try to obtain a lock perform changes repeatably - suitable on high load systems src/schema_guard:1308
 
 pub const CONFIGS: [&'static str; 4] = [
 "en", include_str!("i18n/en_clc.yaml"),
