@@ -1135,7 +1135,7 @@ Boston,United States,\"4628910\"\"\"
     #[inline]
     fn uuid() -> String {
         let x = Uuid::new_v4();
-        x.to_hyphenated().to_string()[..8].into()
+        x.hyphenated().to_string()[..8].into()
     }
 
     #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "schema_guard"
-version = "2.0.0"
+version = "2.0.1"
 authors = ["DBinvent <support@dbinvent.com>"]
 edition = "2018"
 license = "MIT"
@@ -60,7 +60,10 @@ linked-hash-map="^0.5.4"
 # already builds. Not rust-crypto: unmaintained, and it brought rustc-serialize and
 # time 0.1 with their advisories
 md-5 = "^0.11"
-clap = {version = "4.6.7", features = ["yaml"], optional = true}
+# clap 4 reads no YAML (its "yaml" feature is gone): main.rs builds the command line
+# from i18n/*_clc.yaml (clap 2's schema) with yaml-rust2; "string" for the names and
+# texts it reads there
+clap = {version = "4.6.7", features = ["string"], optional = true}
 base64 = "^0.23.1"
 
 uuid = {version="^1.28.0", features = ["v4"]}

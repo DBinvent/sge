@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, HashMap, BTreeSet, HashSet};
 use std::fs;
 
-use semver::{SemVerError, Version};
+use semver::{Error as SemVerError, Version};
 
 
 use serde::{Serialize, Serializer};

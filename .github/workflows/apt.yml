@@ -5,17 +5,11 @@ name: Publish sge .deb
 on:
   workflow_dispatch:
   push:
+    # main only: a push to another branch - a Dependabot update's - is no release
+    branches: [main]
     paths:
       - "src/**"
       - "Cargo.toml"
-      - "Cargo.lock"
-      - "deb-scripts/**"
-      - "examples.1"
-      - "lib-licenses.txt"
-      - "LICENSE"
-      - "COPYRIGHT"
-      - "dist/**"
-      - ".github/workflows/apt.yml"
 
 concurrency:
   group: deploy

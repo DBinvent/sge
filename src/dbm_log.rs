@@ -631,7 +631,8 @@ fn hash_md5<R: Read>(reader: &mut R) -> String {
             break;
         }
     }
-    base64::encode(&hasher.finalize()[..]) // an MD5 is 16 bytes
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.encode(&hasher.finalize()[..]) // an MD5 is 16 bytes
 }
 
 
