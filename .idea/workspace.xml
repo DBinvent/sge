@@ -22,13 +22,9 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="adding audit">
-      <change beforePath="$PROJECT_DIR$/.github/workflows/apt.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/apt.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_etl.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_etl.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_files.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_files.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_log.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_log.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="apply audit changes">
+      <change afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -590,7 +586,8 @@
     <MESSAGE value="schema_guard_tokio integration" />
     <MESSAGE value="pre cleanup" />
     <MESSAGE value="adding audit" />
-    <option name="LAST_COMMIT_MESSAGE" value="adding audit" />
+    <MESSAGE value="apply audit changes" />
+    <option name="LAST_COMMIT_MESSAGE" value="apply audit changes" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
