@@ -60,7 +60,7 @@ linked-hash-map="^0.5.4"
 # already builds. Not rust-crypto: unmaintained, and it brought rustc-serialize and
 # time 0.1 with their advisories
 md-5 = "^0.11"
-base64 = "^0.13.0"
+base64 = "^0.23.1"
 clap = {version = "2.33.3", features = ["yaml"], optional = true}
 
 uuid = {version="^1.28.0", features = ["v4"]}
