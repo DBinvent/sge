@@ -1,0 +1,9 @@
+Origin: DBinvent
+Label: Schema Guard Enterprise
+Codename: schema-guard
+Architectures: amd64
+Components: main
+Description: Schema Guard Enterprise APT repository
+# DBinvent's apt key, the one ytcluster_dist/repo-conf/distributions signs with;
+# set the same value as this repo's GPG_KEY secret
+SignWith: D9988976429AE53380B9E08C47C722E2BC8094E8

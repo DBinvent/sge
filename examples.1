@@ -1,0 +1,227 @@
+[examples]
+.PP
+Each case below is also a runnable test case in the sge sources:
+.br
+.UR https://github.com/DBinvent/sge/tree/main/examples
+.UE
+.PP
+Options go on the command line, or into a config file given with \fB\-c\fR:
+one \fIname\fR=\fIvalue\fR per line, the name without its leading \fB\-\-\fR,
+and \fB#\fR for a comment.
+The command line wins over the file, and an option set in neither is read
+from the environment, by its name in upper case: \fBDB_NAME\fR for
+\fB\-\-db_name\fR.
+.SS "1. Migrate a database"
+.EX
+sge \-c app.cfg migrate
+.EE
+.PP
+with \fIapp.cfg\fR:
+.PP
+.EX
+db_host=localhost
+db_name=app
+db_user=app
+db_password=secret
+source_dir=./sql
+.EE
+.PP
+sge reads the scripts in \fB\-\-source_dir\fR, sub\-directories included
+(\fB\-\-source_recur=no\fR stops that), and applies them version by version,
+recording each one in the \fIsge_history\fR table.
+A file name carries the script type, the version and a name:
+\fIV1_2__orders.sql\fR is version 1.2.
+Within a version the types run in this order:
+.TP
+.B P
+pre\-deploy SQL, run once
+.TP
+.B S
+schema YAML (12): compared with the database, and the difference applied;
+its data loads with it (11)
+.TP
+.B V
+versioned SQL, run once
+.TP
+.B R
+re\-runnable SQL, run again whenever its file changes
+.TP
+.B after
+\fIafter_each.sql\fR after each version and \fIafter.sql\fR after the whole
+migration, every time and not recorded (\fB\-\-after_each\fR and
+\fB\-\-after\fR name them)
+.PP
+A P or V script fails the migration when its file changed after it ran;
+\fB\-\-checksum=no\fR turns that check off.
+.SS "2. See the SQL first"
+.EX
+sge \-c app.cfg \-\-dry_run=yes \-\-dry_run_to=plan.sql migrate
+.EE
+.PP
+Writes every statement to \fIplan.sql\fR and runs none of them, except
+\fBCREATE DATABASE\fR and \fBCREATE ROLE\fR when \fB\-\-createdb\fR is set.
+\fB\-\-dry_run\fR takes a value: given alone, it would take the next word,
+\fBmigrate\fR, as that value.
+.SS "3. Create the database and its owner"
+.EX
+sge \-c app.cfg \-\-createdb=yes \-\-createdb_user=postgres \e
+    \-\-createdb_pwd=secret prepare
+.EE
+.PP
+Connects as \fB\-\-createdb_user\fR, creates the role \fB\-\-db_user\fR and
+the database \fB\-\-db_name\fR when they are missing, and creates the history
+table.
+\fBprepare\fR runs no script; \fB\-\-createdb\fR works with \fBmigrate\fR too.
+.SS "4. Migrate up to a version"
+.EX
+sge \-c app.cfg \-\-target=1 migrate
+sge \-c app.cfg \-\-target=2 migrate
+.EE
+.PP
+The first run stops after version 1, the second takes the database on to
+version 2.
+Without \fB\-\-target\fR, whose default is \fB*\fR, sge applies every version
+it finds.
+.SS "5. Connect from the environment or by URL"
+.EX
+DB_HOST=localhost DB_NAME=app DB_USER=app DB_PASSWORD=secret sge prepare
+sge \-\-db_url=postgresql://app:secret@localhost:5432/app migrate
+.EE
+.SS "6. Scripts from git"
+.EX
+sge \-c app.cfg \-\-source_git=https://example.com/team/db.git \e
+    \-\-source_git_ref=v1.4 \-\-source_git_dir=sql migrate
+.EE
+.PP
+Clones the repository into a local cache (\fB\-\-source_git_cache\fR), checks
+out \fIv1.4\fR and reads the scripts from its \fIsql\fR directory.
+The commit it resolved is recorded as each script's tag, unless
+\fB\-\-script_tag\fR is set.
+.SS "7. Where the history goes, and how a run is labelled"
+.EX
+sge \-c app.cfg \-\-schema=ops \-\-table=deploy_log \e
+    \-\-script_tag=release\-42 \-\-executed_by=ci migrate
+.EE
+.PP
+Keeps the history in \fIops.deploy_log\fR instead of \fIpublic.sge_history\fR,
+and stamps each script this run applies with the tag and the executor;
+\fB\-\-db_target\fR and \fB\-\-db_catalog\fR label it further.
+.SS "8. The history in another database"
+.EX
+sge \-c app.cfg \-\-logdb_name=ops migrate
+sge \-c app.cfg \-\-logdb=primary \-\-logdb_name=ops migrate
+.EE
+.PP
+The first writes the history to \fIops\fR as well as to \fIapp\fR
+(\fB\-\-logdb=copy\fR, the default); the second writes it to \fIops\fR only.
+A \fB\-\-logdb_\fR\fIxxx\fR option left unset takes its \fB\-\-db_\fR\fIxxx\fR
+value.
+.SS "9. What is deployed"
+.EX
+sge \-c app.cfg info
+.EE
+.PP
+Prints, by \fB\-\-db_target\fR and \fB\-\-db_catalog\fR, the version each
+database is at, whether the last run succeeded, its tag and who ran it: as
+YAML, or as JSON with \fB\-\-snapshot_format=json\fR.
+.SS "10. Snapshot a database"
+.EX
+sge \-c app.cfg \-\-snapshot_to=./schema snapshot
+sge \-c app.cfg \-\-snapshot_format=json \-\-snapshot_to=schema.json snapshot
+sge \-c app.cfg \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./schema snapshot
+.EE
+.PP
+Writes the database schema in the S file format (12), or as JSON; with
+\fB\-\-snapshot_data\fR, the rows of the tables it lists go to CSV files too,
+ready for an ETL load (11).
+Not every column property is read back from the catalog, and some types,
+arrays among them, are not supported, so a snapshot can differ from the YAML
+it was deployed from.
+.SS "11. Load data with the schema (ETL)"
+.PP
+A table in an S file can name a CSV file, with a header row, to load into it:
+\fBdata_file: D1__customer.csv\fR.
+\fB\-\-etl\fR picks the rule, for the tables \fB\-\-snapshot_data\fR lists or,
+without it, for all of them:
+.TP
+.B apply
+the default: insert the rows whose key is not in the table yet
+.TP
+.B force
+insert, and update the rows whose key is already there
+.TP
+.B clean
+as force, and delete the rows the file does not have
+.TP
+.B ignore
+as apply, but a missing file is no error
+.TP
+.B skip
+load nothing
+.PP
+.EX
+sge \-c app.cfg \-\-etl=clean \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./data migrate
+.EE
+.PP
+Loads \fIshop.customer\fR by the clean rule and every other table by apply,
+reading the CSV files from \fI./data\fR.
+.SS "12. A schema file"
+.PP
+\fIS1__shop.yaml\fR declares two tables in the SchemaGuard YAML format.
+sge creates what is missing and alters what differs, and drops nothing the
+file merely leaves out:
+.PP
+.EX
+database:
+  \- schemaName: shop
+    tables:
+      \- table:
+          tableName: customer
+          description: who buys
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: email
+                type: varchar(250)
+                constraint:
+                  nullable: false
+                index:
+                  unique: true
+      \- table:
+          tableName: orders
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: customer_id
+                type: int
+                constraint:
+                  foreignKey:
+                    references: shop.customer
+            \- column:
+                name: created_on
+                type: timestamp
+                defaultValue: now()
+.EE
+.PP
+\fBreferences\fR names a \fIschema.table\fR, and the key points at its primary
+key.
+The format is described in the SchemaGuard YAML reference, and every field it
+accepts is in its validation schema:
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/yaml.md
+.UE
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/src/schema.yaml
+.UE
+.PP
+\fBsge help migrate\fR and \fBsge help\fR describe every option.

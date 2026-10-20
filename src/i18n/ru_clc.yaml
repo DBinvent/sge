@@ -1,0 +1,394 @@
+name: sge
+version: "local_build"
+author: DBinvent
+about: |
+ Программа контроля и учета выполненных SQL файлов на базе данных PostgreSQL, а так-же изменение схемы базы по определению в YAML формате.
+ Пожалуйста используйте: ./sge help migrate, для более подробной инструкции.
+usage: 'Пожалуйста начните знакомство с ./sge help migrate'
+
+subcommands:
+    - migrate:
+        about: Осуществление миграции схемы базы PostgreSQL до определенной версии или выполнение всех подходящих скриптов
+        help: |
+          Perform a DB migration to a version set in '--target' OR,
+          in the argument for a particular phase: '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy'
+          of scripts located in '--source' (without a sub-folder scan if '--source_recur' is disabled)
+          into the DB name set in '--db_name', with execution log saved into '--logdb_name' and/or '--db_name' if '--logdb_name' not set and '--logdb' configured.
+          The DB and DB user will be created if needed, and if '--createdb' set, and '--createdb_xxx' user credential properly configured, regardless of '--dry_run'.
+          The migration executor will be logged by '--executed_by' value
+          Also '--script_tag', '--db_target' and '--db_catalog' will set if present in params or configs. These values are useful in a microservice architecture (see dbinvent.com/sge for more information) and environment orchestration.
+
+          The execution order is: (P)->(S)->(V)->(R)->(after)
+
+          i.e. (P)reDeploy SQL, (S)chema YAML, (V)ersion SQL, (R)e-runable SQL, (a)fter (each) migration SQL.
+          The (P)reDeploy SQL is to be executed before (S)chema YAML.
+          The (S)chema YAML will try to scan an information DB and apply changes required.
+          The (V)ersion SQL is intended to be a major set of files for DB upgrade and will be executed only one time and be stored into a history log table.
+          The (R)e-runnable SQL is very useful for handling stored procedure upgrades and with a '--script_tag' is very easily trackable.
+          The (P) and (V) will check the version and execute if the version is absent in target DB up to a target version.
+          The (P) and (V) scripts will also check for consistency and fail if the script changed and '--checksum' is set.
+          The (S) script will check for a target version and try to apply changes if they are absent in the target DB.
+          The (R) script will check a file hashsum and run it if the file was changed and was not run yet on DB.
+          The 'after.sql' and 'after_each.sql' (names are configurable) and will try always to execute, but won't record in the history.
+          The '--config_file' or '-c' is used to put all params by name (without -- prefix) into a text file. The arguments passed in the command line will override those from the config file.
+          Use '--snapshot_data' and '--etl' to ETL(load) data with YAML schema.
+
+          Example for use with ETL Rules a YAML file with two tables: table_a and table_b with 'table.etl.file' fields set to CSV file:
+           > sge --etl=skip --snapshot_data=table_a --source_dir=./sql migrate
+           >> Do not use CSV for table_a. Apply table_b.etl.file from ./sql/ directory.
+
+           > sge --etl=clean --snapshot_data=table_a --source_dir=./sql --snapshot_to=./data  migrate
+           >> Use 'clean' ETL rule for table_a (delete extras), and 'apply' for table_b. Use ./data/ directory to locate CSV files.
+
+           > sge --etl=force --snapshot_data=table_a  migrate
+           >> Use 'force' ETL rule for table_a (update if exist), and 'apply' for table_b. Use ./ directory to locate YAML and CSV files.
+
+           > sge --etl=ignore migrate
+           >> Do not fail, if required file is absent, otherwise use 'apply' rule.
+
+           > sge --etl=skip migrate
+           >> Do not perform any ETL task for all tables
+
+           > sge migrate
+           >> Default ETL rule 'apply' will use for table_a and table_b.
+           >> Records from CSV files fromn table.etl.file and relative to current directory.
+           >> The CSV file required to have a header.
+
+          Use '--dry_run' to avoid DB change.
+
+          See more options in 'sge help' command.
+
+          Check https://www.dbinvent.com/sge for more information and best practices.
+
+    - prepare:
+        about: Создание таблицы для отслеживания выполнения скриптов
+        help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'.  '--dry_run' to avoid DB change."
+    - snapshot:
+        about: Создание снимка схемы базы в --snapshot_to файл в yaml или json формате.
+        help: |
+          Perform a DB schema dump into a '--snapshot_to' file (or dir) in yaml or json format.
+          Use '--snapshot_version' to define a D<number>__db_name.yaml.
+          See '--snapshot_data' to define list of tables to dump for ETL(extract) with YAML schema.
+          The '--etl' along with '--snapshot_data' can use in 'sge migrate' to perform ETL(load) into target database.
+          Notice: There is a limited amount of column information that will be converted from pg_catalog and information_schema
+          to fully match an input format of the manual yaml schema created.
+          Therefore, the dump schema snapshot and yaml input file may differ in some cases.
+          Some types such as arrays are not support for a snapshot.
+          See more options in 'sge help' command.
+    - info:
+        about: Return the deployment status and tag a version in JSON format. See '--info_format'.
+        help: Return the deployment status and tag a version in JSON format. See '--info_format'.
+args:
+    - db_url:
+        long: db_url
+        takes_value: true
+        help: |
+            The url will be parsed to name, host etc. If any of these are already set (include env), then they will be used instead.
+            Format is: 'postgres://' (see https://www.postgresql.org/docs/current/libpq-connect.html) OR space separated key=value
+    - db_name:
+        long: db_name
+        default_value: $USER
+        help: Postgres database name
+    - db_host:
+        long: db_host
+        default_value: /var/run/postgresql
+        help: Postgres host
+    - db_port:
+        long: db_port
+        default_value: "5432"
+        help: Postgres port
+    - db_user:
+        long: db_user
+        default_value: $USER
+        help: DB user, the default value is the current user $USER
+    - db_password:
+        long: db_password
+        takes_value: true
+        help: Password or SSL certificates (see db_sslxxx params)
+    - db_sslmode:
+        long: db_sslmode
+        default_value: verify-full
+        help: sslmode
+    - db_sslrootcert:
+        long: db_sslrootcert
+        takes_value: true
+        help: /path/to/server-ca.crt
+    - db_sslcert:
+        long: db_sslcert
+        takes_value: true
+        help: /path/to/client.crt
+    - db_sslkey:
+        long: db_sslkey
+        takes_value: true
+        help: /path/to/client.key
+    - logdb:
+        long: logdb
+        default_value: "copy"
+        possible_values: [primary, copy]
+        help: The define the logDB use as primary OR copy. If primary set, than log table wont create on main target DB and log DB be used instead.
+    - logdb_url:
+        long: logdb_url
+        takes_value: true
+        help: The url will be parsed to name, host etc. If they are already set, then those values will be used instead
+    - logdb_name:
+        long: logdb_name
+        takes_value: true
+        help: History Log database name. If not set, then use 'db_***' configuration
+    - logdb_host:
+        long: logdb_host
+        default_value: /var/run/postgresql
+        help: History Log database host. If not set, then use 'db_***' configuration
+    - logdb_port:
+        long: logdb_port
+        default_value: "5432"
+        help: History Log database port. If not set, then use 'db_***' configuration
+    - logdb_user:
+        long: logdb_user
+        takes_value: true
+        help: History Log database user. If not set, then use 'db_***' configuration
+    - logdb_password:
+        long: logdb_password
+        takes_value: true
+        help: History Log database Password or SSL certificates (see xx_sslxxx params)
+    - logdb_sslmode:
+        long: logdb_sslmode
+        default_value: verify-full
+        takes_value: true
+        help: History Log database SSL Mode. If not set, then use 'db_***' configuration
+    - logdb_sslrootcert:
+        long: logdb_sslrootcert
+        takes_value: true
+        help: "History Log database SSL root Cert, ex: /path/to/server-ca.crt . If not set, then use 'db_***' configuration"
+    - logdb_sslcert:
+        long: logdb_sslcert
+        takes_value: true
+        help: "History Log database SSL crt file, ex: /path/to/client.crt . If not set, then use 'db_***' configuration"
+    - logdb_sslkey:
+        long: logdb_sslkey
+        takes_value: true
+        help: "History Log database SSL key file: /path/to/client.key. If not set, then use 'db_***' configuration"
+    - target:
+        long: target
+        default_value: "*"
+        help: Scans for files to perform migration. Use this as default value for '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy'.
+    - pre_deploy:
+        long: pre_deploy
+        default_value: "*"
+        help: |
+            Scans for files to perform (P)re Deploy scripts. Find files with suitable versions and will check for absent files during its execution. It runs before the (S)chema file.
+            Use '--target' to set the default value for the migration.
+    - schema_deploy:
+        long: schema_deploy
+        default_value: "*"
+        help: |
+            Scan for files to perform deploy (S)chema scripts, i.e. target schema files to deploy, up to the target version (* - means all).
+            Yaml schema files will be parsed, compared with DB information schema and tables will append with missing columns.
+            Existing columns will not change or be deleted.
+            Use '--target' to set the default value for the migration.
+    - checksum:
+        long: checksum
+        default_value: "true"
+        help: Fail on deploy if scripts checksum mismatch for (P)re and (V)ersion between files already deployed and logged, and the the script found in source folder. This helps to keep file to be consistent between environments.
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - rr_deploy:
+        long: rr_deploy
+        default_value: "*"
+        help: |
+            Scan for files to perform deploy (R)e-runable scripts. Files found with suitable versions will then have their hashsum checked and if the file is absent or changes are detected, then the script will execute.
+            Use '--target' to set the default value for the migration.
+    - schema:
+        long: schema
+        default_value: public
+        help: The deployment history 'table' schema location
+    - schema_transaction:
+        long: schema_transaction
+        default_value: file
+        help: |
+          The value to override (S)chema file database.schema.table.transaction option
+          - file: (default) execute the (S)chema file in a single transaction. This is a guarantee to be sure all or no changes applied by the file marked as OK.
+          - table: perform all changes for each table per transaction. 
+          The value pass in parameter will override a value set in (S)chema file on a migration execution.
+    - version_transaction:
+        long: version_transaction
+        takes_value: true
+        help: |
+          The value to override (V)ersion file execution option in psql
+          - single: (default) execute the (V)ersion file with a --single-transaction psql option.
+          - statement: execute psql without --single-transaction option. This is also available by setting the first line in file to 'false' like: --single-transaction=false        
+    - table:
+        long: table
+        default_value: sge_history
+        help: The deployment history table name in 'schema'
+    - source_dir:
+        long: source_dir
+        default_value: "./"
+        help: Directory scripts location, use <source_recur> to scan sub dir
+    - source_git:
+        long: source_git
+        takes_value: true
+        help: "Git repository URL as the script source; empty uses <source_dir> on disk"
+    - source_git_ref:
+        long: source_git_ref
+        takes_value: true
+        help: "Branch, tag or commit to deploy from; default is the remote HEAD"
+    - source_git_dir:
+        long: source_git_dir
+        takes_value: true
+        help: "Sub-directory inside the repository holding the scripts"
+    - source_git_cache:
+        long: source_git_cache
+        takes_value: true
+        help: "Where clones are kept; default <tmp>/sge-git"
+    - source_git_depth:
+        long: source_git_depth
+        takes_value: true
+        default_value: "1"
+        help: "Shallow clone depth; 0 fetches the full history"
+    - source_git_ssh_key:
+        long: source_git_ssh_key
+        takes_value: true
+        help: "Identity file for a git-over-ssh URL; empty leaves ssh-agent in charge"
+    - source_git_known_hosts:
+        long: source_git_known_hosts
+        takes_value: true
+        help: "known_hosts file for git-over-ssh; default is one beside <source_git_cache>"
+    - source_git_credentials:
+        long: source_git_credentials
+        takes_value: true
+        help: "Path to a git credential file (the format `git credential-store` writes) for an http(s) source. A PATH, never a token: argv is readable by every local user."
+    - source_recur:
+        long: source_recur
+        default_value: "true"
+        help: Scan Directory recursively
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - executed_by:
+        long: executed_by
+        takes_value: true
+        help: The user name of the user running the migration
+    - script_tag:
+        long: script_tag
+        takes_value: true
+        help: Set the Tag to applied scripts (rows)
+    - db_target:
+        long: db_target
+        takes_value: true
+        help: The DB target value is a database name, it's an empty string (if the log history table on same database); OR environment(dev|prod)+host(node)+database for orchestration configuration.
+    - db_catalog:
+        long: db_catalog
+        takes_value: true
+        help: The name of a set of DB schemas / modules / microservices.
+    - version_deploy:
+        long: version_deploy
+        default_value: "*"
+        help: Perform Deploy (V)ersion files up to the target version (* means all)
+    - dry_run:
+        long: dry_run
+        default_value: "false"
+        help: |
+          Generate all SQL, but do not run on DB (EXCEPT 'CREATE DATABASE' / 'CREATE ROLE'), also log all attempts to run the script file.
+          To avoid 'CREATE DATABASE'/'CREATE ROLE' SQL execution please remove '--createdb' parameter or set it to false.
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - dry_run_to:
+        long: dry_run_to
+        takes_value: true
+        help: The name of file to dump the generated SQL script
+    - out_format:
+        long: snapshot_format
+        default_value: yaml
+        possible_values: [yaml, json]
+        help: "The format of generated information of DB schema by the 'snapshot' command, also see '--snapshot_to' parameter."
+    - snapshot_to:
+        long: snapshot_to
+        takes_value: true
+        help: |
+          The name of file to dump the database structure. Used by snapshot command.
+          Use '--snapshot_version' to override 'D<next>__' number in the generated file name.
+          If the value set to a directory, then file name will be a: 'D<next>__<database_name>.yaml in that directory.'
+    - snapshot_version:
+        long: snapshot_version
+        help: |
+          Override version number of '--snapshot_to' and '--snapshot_data' generated file name.
+        takes_value: true
+    - snapshot_data:
+        long: snapshot_data
+        takes_value: true
+        help: |
+          Comma separated names of tables to dump.
+          The file name will be a: 'D<next>__<schema_name>_<table_name>.csv'.
+          The file will be stored into a 'snapshot_data' directory or current directory.
+          Wildcard (*) is allowed for a table name.
+          Use '--snapshot_version' to override 'D<next>__' number in the generated file name.
+          See '--etl' for migration configuration.
+          Optional, appended with a colon separated view to call instead of table.
+          Example: table_a,schema.table_b,table_c:view_c,schema.table_d:schema.view_d
+    - etl:
+        long: etl
+        help: |
+          Set the ETL task action on migration to load data from CSV file name set on 'table.etl.file' field in YAML schema file.
+          If '--snapshot_data' set than the ETL Rule will override for those tables.
+
+          Data files specified in YAML 'table.etl.file' field expected to be a relative files names in CSV format.
+          Files will be searched at '--snapshot_to', or at '--source_dir', if '--snapshot_to' is not set.
+          ETL wont perform an action if the data file was not change from previous successful migration.
+
+          Rules:
+          - clean: Insert OR Update field if the record identified by primary key is present,
+              remove from table those records which are not in the file.
+          - force: Insert OR Update field if the record identified by primary key is present. If no PK then insert only fields which absent.
+          - apply: Insert OR Ignore if the record identified by primary key is present.
+          - ignore: Do not fail, if required file is absent, otherwise use 'apply' rule.
+          - skip: Do not perform data load at all.
+        default_value: apply
+        takes_value: true
+        possible_values: [clean, force, apply, ignore, skip]
+# todo add extended CSV format
+# todo add etl - transform on load i.e. obfuscate rules file as mapping (table)field -> pwd_rule | email_rule | etc OR call python script
+    - config_file:
+        long: config
+        short: c
+        takes_value: true
+        help: |
+            Load all params from config file (: or = separated)
+            any command line params will override parameters loaded from the file.
+            If neither is set, then environment variables (with CAPITALIZED names) will be searched to use.
+            If still not found, then default values will be used (if set).
+            Support: YAML, Properties, conf, cfg, JSON, env etc formats of text files with a string ':' or '=' separated to key-value pair.
+            The 'key' will be lowercase and the 'value' will be unquoted. Please avoid multiline comments wrapped on first and last lines only!
+            Notice: please see '--db_url' and '--logdb_url' for additional hierarchy"
+    - after:
+        long: after
+        default_value: "after.sql"
+        takes_value: true
+        help: Try to find and run the script after the successful migration execution and history log committed. The program will not fail if the script is not found. This script execution will not log into the history table.
+    - after_each:
+        long: after_each
+        default_value: "after_each.sql"
+        takes_value: true
+        help: Try to find and run the script after each version execution. The program will not fail if the script is not found. This script execution will not log into the history table.
+    - createdb:
+        long: createdb
+        default_value: "false"
+        help: Create DB if the db_name/log_dbname does not exist, then it will try to create with the same credentials with db postgres
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - verbose:
+        long: verbose
+        default_value: "false"
+        help: Turn DEBUG logging ON.
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - createdb_user:
+        long: createdb_user
+        default_value: postgres
+        help: The DB user to use during 'Create DB' step.
+    - createdb_pwd:
+        long: createdb_pwd
+        takes_value: true
+        help: The DB user's password to use during 'Create DB' step. If this is not set, then will be use db_sslxxx.
+    - createdblog_user:
+        long: createdblog_user
+        default_value: postgres
+        help: The DB user to use during 'Create LOGDB' step.  Use LOGDB if logdb_name set.
+    - createlogdb_pwd:
+        long: createlogdb_pwd
+        takes_value: true
+        help: DB user's password to use during 'Create LOGDB' step. If this is not set, then use logdb_sslxxx.
+

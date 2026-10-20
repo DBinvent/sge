@@ -1,0 +1,36 @@
+# Declarative database schema definition in an easy to read YAML format will produce the corresponding SQL code on the fly
+
+# Schema version 2
+database:
+  - schema:
+    schemaName: test_schema
+    owner: postgres
+    tables:
+      - table:
+          tableName: test_ref_table
+          columns:
+          # Here we add a new column to v.1
+          # You can copy the columns from the previous version or just type the new columns here
+            - column:
+                name: extra
+                type: varchar(250)
+
+      # This table has no changes in v.2:
+      - table:
+          tableName: test_table
+          columns:
+            - column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+                  nullable: false
+            - column:
+                name: test
+                type: varchar(250)
+            - column:
+                name: tr
+                type: int
+                constraint:
+                  foreignKey:
+                    references: test_ref_table

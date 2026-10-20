@@ -1,0 +1,10 @@
+#install on prod to APT repo by repo.sh
+
+#ubuntu distro:
+impish
+hirsute
+focal
+
+#debian distro:
+bullseye
+buster

@@ -1,0 +1,3 @@
+cl:
+  unknown: "Неизвестная команда: {cmd}. {$usage_hint}"
+  usage_hint: "Команды и параметры: 'sge help'."

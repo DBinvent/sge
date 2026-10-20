@@ -1,0 +1,111 @@
+[package]
+name = "schema_guard"
+version = "2.0.0"
+authors = ["DBinvent <support@dbinvent.com>"]
+edition = "2018"
+license = "MIT"
+description = "Schema Guard Enterprise: Relation DataBase Schema Management tool"
+homepage = "https://www.dbinvent.com/sge"
+readme = "README.md"
+
+
+# https://doc.rust-lang.org/reference/linkage.html
+[lib]
+name = "sge"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sge"
+path = "src/main.rs"
+bench = false
+doc = false
+# the command line is the binary's alone: a crate using sge as a library (ytserv)
+# leaves clap 2 and its yaml-rust 0.3 out with default-features = false
+required-features = ["cli"]
+
+[profile.release]
+
+panic = 'abort'
+
+
+[dependencies]
+#std = {default-features=false, features=["panic_immediate_abort"]}
+
+slog = { version = "^2.7.0", features=["max_level_debug"] }
+slog-async = "^2.6.0"
+slog-envlogger = "^2.2.0"
+slog-stdlog = "^4.1.0"
+slog-term = "^2.8.0"
+sloggers = "^2.0.0"
+lazy_static = "^1.4.0"
+# [sg-tokio] async client, matching schema_guard_tokio's own tokio-postgres ^0.7
+tokio-postgres = { version = "^0.7", features=["with-chrono-0_4"] }
+tokio = { version = "^1.36", features = ["rt-multi-thread", "macros", "time", "fs", "io-util"] }
+
+chrono="^0.4.19"
+time = "^0.3.36"
+serde = { version = "^1.0", features = ["derive"] }
+
+serde_json = "^1.0.64"
+# [yaml] the YAML sge prints (dbm_log.rs to_yaml). Not serde_yaml: deprecated, and its
+# unsafe-libyaml is unmaintained (RUSTSEC-2024-0449). serde-saphyr has no unsafe code;
+# ^1.3 as etcds and diff-doc
+serde-saphyr = "^1.3"
+# the Yaml type schema_guard_tokio 2 takes; its default features add only encoding_rs
+yaml-rust2 = { version = "^0.13", default-features = false }
+semver = "^0.11.0"
+linked-hash-map="^0.5.4"
+
+# [md5] the script checksum (dbm_log.rs): RustCrypto's, the md-5 postgres-protocol
+# already builds. Not rust-crypto: unmaintained, and it brought rustc-serialize and
+# time 0.1 with their advisories
+md-5 = "^0.11"
+base64 = "^0.13.0"
+clap = {version = "2.33.3", features = ["yaml"], optional = true}
+
+uuid = {version="^0.8.1", features = ["v4"]}
+csv = "1.1.6"
+smallvec = "1.6.1"
+
+schema_guard_tokio = { version = "^2", features = ["slog"] }
+
+#postgres-openssl = { version = "^0.5.0", optional = true }
+#openssl = { version = "^0.10.33", optional = true }
+
+postgres-native-tls = { version = "^0.5.0", optional = true }
+native-tls = { version = "^0.2.11", optional = true }
+
+#openssl = { version = "0.10", features = ["vendored"], optional = true }
+
+[features]
+default = ["cli"]
+cli = ["dep:clap"]
+tls = ["dep:postgres-native-tls", "dep:native-tls"]
+#openssl = ["dep:postgres-openssl", "dep:openssl"]
+
+[package.metadata.deb]
+depends = "postgresql-client, curl, openssl"
+maintainer = "DBinvent <support@dbinvent.com>"
+maintainer-scripts = "deb-scripts"
+assets= [
+    ["target/release/sge", "usr/bin/", "755"],
+    ["sge.1.gz", "usr/share/man/man1/sge.1.gz", "644"],
+    ["lib-licenses.txt", "usr/share/doc/schema-guard/lib-licenses.txt", "644"],
+    ["COPYRIGHT", "usr/share/doc/schema-guard/copyright", "644"],
+    ["LICENSE", "usr/share/doc/schema-guard/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+license = "MIT"
+assets= [
+    {source = "target/release/sge", dest = "/usr/bin/sge", mode ="755"},
+    {source = "sge.1.gz", dest = "/usr/share/man/man1/", mode = "644"},
+    {source = "lib-licenses.txt", dest = "/usr/share/doc/schema_guard/lib-licenses.txt", mode = "644", doc = true},
+    {source = "COPYRIGHT", dest = "/usr/share/doc/schema_guard/copyright", mode = "644", doc = true},
+    {source = "LICENSE", dest = "/usr/share/doc/schema_guard/LICENSE", mode = "644", doc = true},
+]
+
+[package.metadata.generate-rpm.requires]
+curl = "*"
+postgresql-client = "*"
+openssl = "*"

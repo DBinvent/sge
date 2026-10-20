@@ -1,0 +1,40 @@
+name: Publish sge .deb
+
+# Path-scoped, like trust-atria-srv's: only what can change the package should
+# cut a release, not a README edit.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "deb-scripts/**"
+      - "examples.1"
+      - "lib-licenses.txt"
+      - "LICENSE"
+      - "COPYRIGHT"
+      - "dist/**"
+      - ".github/workflows/apt.yml"
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # Pinned to a tag, not @main - bump deliberately, so an edit in infra_apt
+    # cannot silently change this pipeline.
+    uses: DBinvent/infra_apt/.github/workflows/publish-apt.yml@v2
+    with:
+      project: sge
+      # the .deb's package name (cargo-deb's, from the crate schema_guard) and the
+      # Codename in dist/repo-conf/distributions: publish-deb uses it as both
+      package: schema-guard
+      # a reprepro root of its own: the publish step overwrites conf/distributions
+      repo_dir: /media/lab/repo-sge
+      build_script: ./dist/build.sh
+      conf_dir: ./dist/repo-conf
+      cleanup_docker: false   # nothing here builds in docker
+    secrets:
+      gpg_key: ${{ secrets.GPG_KEY }}

@@ -1,0 +1,7 @@
+Schema Guard Enterprise (sge) - the relational database schema management tool.
+
+Copyright (c) 2020-2026 DBinvent
+
+Licensed under the MIT license, as Schema Guard is: see LICENSE (installed as
+/usr/share/doc/sge/LICENSE). The libraries it is built with, and their licenses,
+are listed in lib-licenses.txt.

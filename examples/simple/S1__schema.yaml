@@ -1,0 +1,34 @@
+# Declarative database schema definition in an easy to read YAML format will produce the corresponding SQL code on the fly
+
+database:
+  - schema:
+    schemaName: test_schema
+    owner: postgres
+    tables:
+      - table:
+          tableName: test_table
+          description: The new table
+          constraint: -- Сonstraints like primaryKey, nullable etc
+          sql: -- Some SQL related to CREATE TABLE
+          columns:
+            - column:
+                name: id
+                type: serial
+                defaultValue:
+                constraint:
+                  primaryKey: true
+                  nullable: false
+                  foreignKey:
+                    references: --fk_table
+                    sql: -- Сonstraint-related like ON DELETE, NO ACTION, ON UPDATE etc.
+                description:
+                sql: -- Сolumn-related things like UNIQUE
+            - column:
+                name: test
+                type: varchar(250)
+          triggers:
+            - trigger:
+                name: uniq_name_of_trigger -- will explain in storedproc
+                event: before update
+                when: for each row
+                proc:

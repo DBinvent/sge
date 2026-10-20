@@ -1,0 +1,64 @@
+rd=$1
+BuildId=$2
+if [ ${#rd} -lt 1 ]; then
+  echo "No target directory set"
+  exit 4
+fi
+if [ $# -ne 2 ]; then
+  echo "No build version set"
+  exit 4
+fi
+source $HOME/.cargo/env
+echo $HOME
+rustup && rustup -V
+rustup update
+cargo install cargo-make cargo-deb cargo-generate-rpm cross
+rm -rf target/*
+#sign
+#      cargo test -- -Z unstable-options --format json --report-time | tee test_results_debug.json
+cargo +stable test --release
+v=$(grep -m 1 version Cargo.toml)
+IFS='.' read -r -a va <<< "${v:11:10}"
+vv="${va[0]}.${va[1]}.$BuildId"
+echo $vv > sge.version
+sed -i "0,/local_build/s/local_build/$vv/" src/i18n/*_clc.yaml
+sed -i "0,/version.*/s//version = \"$vv\"/" Cargo.toml
+grep version Cargo.toml
+./ul.sh
+
+#cargo +stable build --release --bin sge --features=tls
+#strip -s target/release/sge
+#mv target/release/sge target/release/sgetls
+
+cargo +stable build --release
+strip -s target/release/sge
+echo "Build: $(./target/release/sge -V)"
+
+echo "Building DEB..."
+help2man -o sge.1 -i examples.1 target/release/sge
+sed -i 's/ \[d/\n \[d/g' sge.1
+gzip sge.1
+cargo deb
+dpkg -I target/debian/*.deb
+dpkg --contents  target/debian/*.deb
+mt=x86_64-unknown-linux-musl
+echo "Rebuild as $mt"
+#docker image build -t mrust docker
+#docker run --rm -i -v "$(pwd)":/home/rust/src mrust bash -e mu-build.sh
+#use https://github.com/clux/muslrust
+docker run -v $PWD:/volume --rm -t clux/muslrust:stable cargo build --release --bin sge
+sudo chmod a+rw -R target/$mt
+sudo chmod a+rw -R target/release
+cp -f target/$mt/release/sge target/release/.
+strip -s target/release/sge
+cargo generate-rpm --auto-req no
+rpm -qiRp target/generate-rpm/*.rpm
+
+mkdir -p $rd
+rm -rf "${rd:?}"/*
+cp target/release/sge $rd/
+cp target/debian/*.deb $rd/
+cp target/generate-rpm/*.rpm $rd/
+cp -t $rd/ LICENSE lib-licenses.txt deploy.sh repo.sh distro.lst distro.apt sge.version
+
+echo "Prepared to drop: $(ls $rd)"
