@@ -346,6 +346,11 @@ impl FileFilter {
 
 #[inline]
 pub(crate) fn semver_parse(input: &str) -> Result<Version, String> {
+    // [flyway] no version - Flyway's repeatable `R__name.sql` - is version 0, applied at
+    // every target; dbm_log reads a history version it cannot parse as 0 the same way
+    if input.is_empty() {
+        return Ok(Version::new(0, 0, 0));
+    }
     let fd = match input.find(".") {
         None => 0,
         Some(i) => i,
@@ -371,6 +376,23 @@ pub(crate) fn semver_parse(input: &str) -> Result<Version, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [flyway] Flyway's own file names: `V1_2__init.sql` is version 1.2, and the
+    /// unversioned repeatable `R__view.sql` version 0 - which a target never filters out
+    #[test]
+    fn flyway_file_names_parse() {
+        let v = |f: &FileFilter, name: &str, pos: usize| f.parse_type(&name.to_string(), pos).unwrap().map(|(v, _)| v);
+        let any = FileFilter { filter: None, file_type: ".sql".into() };
+        assert_eq!(v(&any, "V1_2__init.sql", 0), Some(Version::new(1, 2, 0)));
+        assert_eq!(v(&any, "V3__more.sql", 0), Some(Version::new(3, 0, 0)));
+        assert_eq!(v(&any, "R__view.sql", 0), Some(Version::new(0, 0, 0)));
+        assert_eq!(v(&any, "sql/R__view.sql", 4), Some(Version::new(0, 0, 0)), "in a directory");
+        let upto = FileFilter { filter: Some(Version::new(1, 0, 0)), file_type: ".sql".into() };
+        assert_eq!(v(&upto, "V1_2__init.sql", 0), None, "past the target");
+        assert_eq!(v(&upto, "R__view.sql", 0), Some(Version::new(0, 0, 0)));
+        assert_eq!(semver_parse("").unwrap(), Version::new(0, 0, 0));
+        assert!(semver_parse("x.y").is_err(), "a version that is not one is still an error");
+    }
     #[test]
     fn iter_test() {
         let list = vec![

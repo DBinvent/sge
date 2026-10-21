@@ -32,7 +32,7 @@ It is microservice-ready: several databases (one per microservice) and several e
  - use psql client for script execution, include native psql script support
  - no JVM nor Python required to run
  - lightweight (just about 10MB)
- - full replacement of flyway
+ - full replacement of flyway: its file names as they are - `V1_2__name.sql`, and `R__name.sql` repeatables
  - transactional changes with rollback OR use configurable non-transactional mode
  - dry run and diff with existing DB
  - no license key, no activation, no expiry
