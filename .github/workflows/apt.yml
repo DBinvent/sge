@@ -31,6 +31,8 @@ jobs:
       codename: yt-cluster
       repo_dir: /media/lab/repo
       build_script: ./dist/build.sh
+      # lab3's labels: the self-hosted runner that holds the signing key and /media/lab/repo
+      runner: '["self-hosted", "Linux", "X64"]'
       conf_dir: ./dist/repo-conf
       cleanup_docker: false   # nothing here builds in docker
     secrets:
