@@ -19,14 +19,17 @@ jobs:
   build:
     # Pinned to a tag, not @main - bump deliberately, so an edit in infra_apt
     # cannot silently change this pipeline.
-    uses: DBinvent/infra_apt/.github/workflows/publish-apt.yml@v2
+    uses: DBinvent/infra_apt/.github/workflows/publish-apt.yml@v3
     with:
       project: sge
-      # the .deb's package name (cargo-deb's, from the crate schema_guard) and the
-      # Codename in dist/repo-conf/distributions: publish-deb uses it as both
+      # the .deb's package name (cargo-deb's, from the crate schema_guard): its old
+      # build is removed from the distribution before the new one goes in
       package: schema-guard
-      # a reprepro root of its own: the publish step overwrites conf/distributions
-      repo_dir: /media/lab/repo-sge
+      # into YT Cluster's distribution of apt.dbinvent.com, /media/lab/repo - one
+      # sources.list line for both (dbinvent.com's sge page): the publish step copies
+      # dist/repo-conf/distributions over that root's, so it is that root's own
+      codename: yt-cluster
+      repo_dir: /media/lab/repo
       build_script: ./dist/build.sh
       conf_dir: ./dist/repo-conf
       cleanup_docker: false   # nothing here builds in docker

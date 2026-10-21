@@ -87,8 +87,11 @@ tls = ["dep:postgres-native-tls", "dep:native-tls"]
 #openssl = ["dep:postgres-openssl", "dep:openssl"]
 
 [package.metadata.deb]
-depends = "postgresql-client, curl, openssl"
+# psql, which sge runs (dbm_log.rs); curl and openssl went with the licensing harness
+depends = "postgresql-client"
 maintainer = "DBinvent <support@dbinvent.com>"
+# reprepro takes no package without one ("No section given ... skipping"), as yt-cluster's
+section = "database"
 maintainer-scripts = "deb-scripts"
 assets= [
     ["target/release/sge", "usr/bin/", "755"],
@@ -109,6 +112,5 @@ assets= [
 ]
 
 [package.metadata.generate-rpm.requires]
-curl = "*"
+# psql, as the deb's depends; curl and openssl went with the licensing harness
 postgresql-client = "*"
-openssl = "*"

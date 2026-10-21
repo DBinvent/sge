@@ -1,9 +1,11 @@
-Origin: DBinvent
-Label: Schema Guard Enterprise
-Codename: schema-guard
+# apt.dbinvent.com's own distribution (/media/lab/repo/conf/distributions), the one
+# ytcluster_dist/repo-conf/distributions holds: schema-guard is published into it,
+# and the publish step copies this file over the root's - field for field the same,
+# or apt clients see the Release's Origin and Label change and refuse the update
+Origin: YT Cluster
+Label: YT Cluster
+Codename: yt-cluster
 Architectures: amd64
-Components: main
-Description: Schema Guard Enterprise APT repository
-# DBinvent's apt key, the one ytcluster_dist/repo-conf/distributions signs with;
-# set the same value as this repo's GPG_KEY secret
+Components: restricted
+Description: YT Cluster APT repository
 SignWith: D9988976429AE53380B9E08C47C722E2BC8094E8
