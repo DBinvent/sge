@@ -33,7 +33,7 @@ use crate::dbm_files::FileFilter;
 fn as_string(row: &Row, idx: usize, t: &Table) -> Result<String, String> {
     let c = &row.columns()[idx];
     let nullable = match t.columns.get(&c.name().to_string()) {
-        None => {return Err(format!("column {} not found during data load. try to run again", c.name()));}
+        None => {return Err(tr!("etl.column_missing", column = c.name()));}
         Some(l) => match &l.constraint {
             None => true,
             Some(s) => s.nullable
@@ -82,7 +82,7 @@ fn as_string(row: &Row, idx: usize, t: &Table) -> Result<String, String> {
                 Some(x) => x.to_string()
             },
             t @ _ => match row.try_get::<_, Option<String>>(idx)
-                .map_err(|e| format!("converting type [{}] to string: {}", t.name(), e))? {
+                .map_err(|e| tr!("etl.convert", pg_type = t.name(), err = crate::dbm_pg::pg(&e)))? {
                 None => NULL.to_string(),
                 // do escape
                 Some(v) => match v.as_str() {
@@ -106,7 +106,7 @@ fn as_string(row: &Row, idx: usize, t: &Table) -> Result<String, String> {
             &Type::TIMESTAMP => row.get::<_, chrono::NaiveDateTime>(idx).to_string(),
             &Type::TIMESTAMPTZ => row.get::<_, DateTime<Utc>>(idx).to_string(),
             t @ _ => row.try_get::<_, String>(idx)
-                .map_err(|e| format!("converting type [{}] to string: {}", t.name(), e))?
+                .map_err(|e| tr!("etl.convert", pg_type = t.name(), err = crate::dbm_pg::pg(&e)))?
         }
     };
     Ok(v)
@@ -284,7 +284,7 @@ impl Etl {
                 return Ok((dump_to, s.schema_name.clone(), table.clone(), t));
             }
         }
-        Err(format!("No schema found for table: {}", table))
+        Err(tr!("etl.no_schema_table", table = table))
     }
 
     /// with schema
@@ -293,7 +293,7 @@ impl Etl {
         for s in slf.database.iter_mut() {
             if s.schema_name.as_str() == schema {
                 return match s.tables.get_mut(&table) {
-                    None => Err(format!("Table or schema not found: {}.{}", schema, table)),
+                    None => Err(tr!("etl.not_found", table = format!("{}.{}", schema, table))),
                     Some(t) => {
                         let dump_to = self.dump_to(format!("{}_{}.csv", s.schema_name, table))?;
                         t.data_file = Some(dump_to.clone());
@@ -302,7 +302,7 @@ impl Etl {
                 }
             }
         }
-        Err(format!("No schema found for: {}.{}", schema, table))
+        Err(tr!("etl.no_schema", table = format!("{}.{}", schema, table)))
     }
     // LoadResult
 
@@ -315,32 +315,32 @@ impl Etl {
                     Some(s) => self.find_sets(slf, s.as_str(), &t.table)?
                 };
                 let mut write_header = true;
-                let msg = format!("ETL: CSV File '{}'", file);
+                let write_error = |e: csv::Error| tr!("etl.csv_write", file = file, err = e);
                 let mut w = csv::Writer::from_path(file.as_str())
-                    .map_err(|e| format!("{}, create error: {}", msg, e))?;
+                    .map_err(|e| tr!("etl.csv_create", file = file, err = e))?;
                 let mut c = 0;
                 let source = t.source.clone().unwrap_or(format!("{}.{}", schema, table));
                 let sql = format!("select * from {}", source);
                 for r in db_client.query(sql.as_str(), &[]).await
-                        .map_err(|e| format!("ETL: Load from {}, with error: {}", source, e))? {
+                        .map_err(|e| tr!("etl.extract", source = source, err = crate::dbm_pg::pg(&e)))? {
                     if write_header {
                         for i in 0..r.len() {
                             let c = &r.columns()[i];
-                            w.write_field(c.name()).map_err(|e| format!("{}: write header error: {}", msg, e))?;
+                            w.write_field(c.name()).map_err(write_error)?;
                         }
-                        let _ = w.write_record(None::<&[u8]>).map_err(|e| format!("{}: write EOL header error: {}", msg, e))?;
+                        let _ = w.write_record(None::<&[u8]>).map_err(write_error)?;
                         write_header = false;
                     }
                     for i in 0..r.len() {
-                        let _ = w.write_field(as_string(&r, i, yt)?).map_err(|e| format!("{}: write record error: {}", msg, e))?;
+                        let _ = w.write_field(as_string(&r, i, yt)?).map_err(write_error)?;
                     }
-                    let _ = w.write_record(None::<&[u8]>).map_err(|e| format!("{}: write EOL{} error: {}", msg, c, e))?;
+                    let _ = w.write_record(None::<&[u8]>).map_err(write_error)?;
                     c += 1;
                 }
                 if c == 0 {
-                    info!(log, "ETL: No data for {}.{} by sql [{}] therefor the file {} is empty!", schema, table, sql, file);
+                    info!(log, "{}", tr!("etl.no_data", table = format!("{}.{}", schema, table), sql = sql, file = file));
                 } else {
-                    debug!(log, "ETL: Extracted [{}] records into {}", c, file);
+                    debug!(log, "{}", tr!("etl.extracted", count = c, file = file));
                 }
                 let _ = w.flush();
             }
@@ -356,14 +356,14 @@ impl Etl {
                     None => println!("{}", loaded),
                     Some(file) => {
                         if let Some(i) = file.rfind("/") {
-                            let _ = fs::create_dir_all(&file[..i]).map_err(|e| format!("writing to dir {} : {}", &file, e))?;
+                            let _ = fs::create_dir_all(&file[..i]).map_err(|e| tr!("etl.write_dir", file = file, err = e))?;
                         }
 
                         let file = if Path::new(&file).is_dir() {
                             self.dump_to(format!("{}.yaml", self.db_name))?
                         } else { file.clone() };
 
-                        let _ = fs::write(&file, loaded).map_err(|e| format!("writing to {} : {}", file, e))?;
+                        let _ = fs::write(&file, loaded).map_err(|e| tr!("etl.write", file = file, err = e))?;
                     },
                 }
                 Ok(())
@@ -376,11 +376,11 @@ impl Etl {
     #[inline]
     fn dump_to(&self, ftype: String) -> Result<String, String> {
         let mut i = 0;
-        let _ = fs::create_dir_all(&self.dir).map_err(|e| format!("Creating {} {}", self.dir, e));
+        let _ = fs::create_dir_all(&self.dir).map_err(|e| tr!("etl.read_dir", dir = self.dir, err = e));
         for path in fs::read_dir(&self.dir)
-            .map_err(|e| format!("Reading {} {}", self.dir, e))? {
+            .map_err(|e| tr!("etl.read_dir", dir = self.dir, err = e))? {
 
-            let p = path.map_err(|e| format!("Reading {} {}", self.dir, e))?;
+            let p = path.map_err(|e| tr!("etl.read_dir", dir = self.dir, err = e))?;
             let fi = p.file_name().to_str().unwrap_or("").to_string();
             if fi.len() > 1 && fi.as_bytes()[0] == b'D' && fi.ends_with(&ftype) {
                 if let Some(pr) = fi.split("__").next() {
@@ -447,17 +447,17 @@ impl Etl {
                     let update = match self.rule {
                         EtlRule::Ignore => {
                             if !Path::new(file.as_str()).exists() {
-                                warn!(log, "ETL: {} table ignore non existing file {}", yt.table_name, file);
+                                warn!(log, "{}", tr!("etl.ignore_missing", table = yt.table_name, file = file));
                                 return Ok(false);
                             }
                             false
                         }
                         EtlRule::Skip => {
                             if self.tables.len() == 0 {
-                                info!(log, "ETL: skipped on file {} (and all other)", file);
+                                info!(log, "{}", tr!("etl.skipped_all", file = file));
                                 return Ok(false);
                             } else if self.find(&ys.schema_name, yt) {
-                                info!(log, "ETL: skip file {} for table {}", file, yt.table_name);
+                                info!(log, "{}", tr!("etl.skip_file", file = file, table = yt.table_name));
                                 continue;
                             }
                             false
@@ -468,30 +468,30 @@ impl Etl {
                             } else {
                                 let update = self.find(&ys.schema_name, yt);
                                 if update {
-                                    debug!(log, "ETL: [{}] set for table {} ({})", self.rule, yt.table_name, file);
+                                    debug!(log, "{}", tr!("etl.rule_set", rule = self.rule, table = yt.table_name, file = file));
                                 } else {
-                                    info!(log, "ETL: [{}] is not set for table: {} ({}), therefore 'apply' will use instead", self.rule, yt.table_name, file);
+                                    info!(log, "{}", tr!("etl.rule_not_set", rule = self.rule, table = yt.table_name, file = file));
                                 }
                                 update
                             }
                         },
                         EtlRule::Apply => false
                     };
-                    let readable = { File::open(&file).map_err(|e| format!("Can't read file: {}: {}", file, e))?; true };
+                    let readable = { File::open(&file).map_err(|e| tr!("etl.cannot_read", file = file, err = e))?; true };
                     if readable {
                         let data_file_ver = DataFileVersion::new(data_file, &fp, Some(yt));
                         let dstl = stl.instance('D', &data_file_ver.v.s, &self.dir, data_file);
                         {
                             if let Some((_sl_file, checks)) = logs.get(&data_file_ver.file) {
                                 if checks == &dstl.checksum {
-                                    info!(log, "ETL: skip unchanged file {} for table {} [{}]", file, yt.table_name, data_file_ver.file);
+                                    info!(log, "{}", tr!("etl.unchanged", file = file, table = yt.table_name, key = data_file_ver.file));
                                     continue;
                                 }
                             };
                         }
                         datas.insert(data_file_ver, (&ys.schema_name, yt, update, file, dstl));
                     } else {
-                        return Err(format!("ETL: data file {} for table {} is not readable", data_file, yt.table_name));
+                        return Err(tr!("etl.not_readable", file = data_file, table = yt.table_name));
                     }
 
 
@@ -500,13 +500,13 @@ impl Etl {
         }
 
         if datas.len() > 0 {
-            debug!(log, "ETL: uploading [{}] file(s)", datas.len());
+            debug!(log, "{}", tr!("etl.uploading_count", count = datas.len()));
         }
 
         for (schema_name, yt, update, file, dstl) in datas.values() {
-            debug!(log, "ETL: uploading file: {}", file);
+            debug!(log, "{}", tr!("etl.uploading", file = file));
             let mut r = csv::Reader::from_path(file)
-                .map_err(|e| format!("ETL: Reading {}: {}", file, e))?;
+                .map_err(|e| tr!("etl.read_csv", file = file, err = e))?;
             match EtlComposer::new(&self, dbc, *schema_name, *yt, *update, file, &mut r, log)?
                 .deploy(&mut r, db).await {
                 Ok(ok) => {
@@ -515,14 +515,12 @@ impl Etl {
                         do_persist = !self.dry_run;
                         if self.table_tr && !self.dry_run {
                             if let Err(ec) = db.batch_execute("COMMIT; BEGIN").await {
-                                let _ = dstl.persist(Some(ec.to_string()), Some(lt), clog_t).await?;
-                                return Err(format!(
-                                    "committing data change on {}.{} with {}", schema_name, yt.table_name, ec
-                                ));
+                                let _ = dstl.persist(Some(crate::dbm_pg::pg(&ec)), Some(lt), clog_t).await?;
+                                return Err(tr!("etl.commit", table = format!("{}.{}", schema_name, yt.table_name), err = crate::dbm_pg::pg(&ec)));
                             }
                         }
                     } else {
-                        info!(log, "ETL: no data loaded from {} for table {}", file, yt.table_name);
+                        info!(log, "{}", tr!("etl.nothing_loaded", file = file, table = yt.table_name));
                     }
                 }
                 Err(err) => {
@@ -698,7 +696,7 @@ impl <'a> EtlComposer <'a>  {
         log: &'a Logger,
     ) -> Result<Self, String>
     {
-        let headers = csv_reader.headers().map_err(|e| format!("Reading {}: {}", src_file, e))?.clone();
+        let headers = csv_reader.headers().map_err(|e| tr!("etl.read_csv", file = src_file, err = e))?.clone();
         let mut pks  = BTreeSet::new();
         let mut null_clmn  = BTreeSet::new();
         let mut null_str = BTreeSet::new();
@@ -816,13 +814,13 @@ impl <'a> EtlComposer <'a>  {
             EtlRule::Clean => self.update, // clean only if update
             _ => false
         };
-        info!(self.log, "ETL: Loading data from {} into {} using {}", self.file, self.table, self.etl.rule);
+        info!(self.log, "{}", tr!("etl.loading", file = self.file, table = self.table, rule = self.etl.rule));
         while csv_reader.read_record(&mut record)
-            .map_err(|e| format!("Reading {} {}", self.file, e))?
+            .map_err(|e| tr!("etl.read_csv", file = self.file, err = e))?
         {
             let sql = if self.hidx_pks_clmn.len() == 0 {
                 if clean {
-                    warn!(self.log, "ETL: --etl=clean not allowed for table {} contains no PrimaryKey", self.table);
+                    warn!(self.log, "{}", tr!("etl.clean_no_pk", table = self.table));
                 }
                 self.insert_statement_nopk(&record)
             } else {
@@ -839,7 +837,7 @@ impl <'a> EtlComposer <'a>  {
             self.execute("clean update", format!("DELETE FROM {} WHERE {}{}{} NOT IN ({})", self.table, lb, self.columns_pklst, rb, clean_sql), db).await?
         } else { 0 };
         if cleaned > 0 {
-            info!(self.log, "ETL: Cleaned {} records, from {} by {}", cleaned, self.file, self.table);
+            info!(self.log, "{}", tr!("etl.cleaned", count = cleaned, file = self.file, table = self.table));
         }
         if cnt > 0 {
             for (pk, def) in &self.pk_defaults {
@@ -847,7 +845,7 @@ impl <'a> EtlComposer <'a>  {
                     let _ = self.execute("sequence",sql, db).await?;
                 }
             }
-            info!(self.log, "ETL: Loaded {} records, from {} into {}", cnt, self.file, self.table);
+            info!(self.log, "{}", tr!("etl.loaded", count = cnt, file = self.file, table = self.table));
         }
         Ok(cleaned + cnt > 0)
     }
@@ -859,7 +857,7 @@ impl <'a> EtlComposer <'a>  {
         } else {
             #[cfg(debug_assertions)] debug!(self.log, "ETL_{}: {}", method, sql);
             db.execute(sql.as_str(), &[]).await
-                .map_err(|e| format!("ETL {} execute for {}: raise {}", method, self.table, e))
+                .map_err(|e| tr!("etl.execute", method = method, table = self.table, err = crate::dbm_pg::pg(&e)))
         }
     }
 
@@ -1210,5 +1208,197 @@ Boston,United States,\"4628910\"\"\"
         let df = DataFileVersion::new(&"x/D1__x.csv".to_string(), &ff, None);
         assert_eq!(df.file.as_str(), "D1__x.csv");
 
+    }
+
+    /// a scratch directory of the test's own, with `/` at the end as Etl's dir has it
+    fn scratch(name: &str) -> String {
+        let d = std::env::temp_dir().join(format!("sge-etl-test-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        format!("{}/", d.display())
+    }
+
+    #[test]
+    fn numbers_are_written_bare_and_the_rest_quoted() {
+        for t in [Type::INT2, Type::INT4, Type::INT8, Type::FLOAT4, Type::FLOAT8] {
+            assert!(!is_quoted(&t), "{}", t);
+        }
+        for t in [Type::TEXT, Type::DATE, Type::BOOL] {
+            assert!(is_quoted(&t), "{}", t);
+        }
+    }
+
+    #[test]
+    fn a_rule_reads_and_prints_as_written() {
+        for r in ["clean", "force", "apply", "ignore", "skip"] {
+            assert_eq!(EtlRule::from(r.to_uppercase()).to_string(), r);
+        }
+        assert_eq!(EtlRule::from("anything".to_string()).to_string(), "apply");
+    }
+
+    /// [etl] snapshot_data names the tables to extract - schema-qualified or not, a view
+    /// of its own after a colon; snapshot_to is a directory, or a file in one
+    #[test]
+    fn the_tables_and_where_their_data_goes_read_from_the_configuration() {
+        let dir = scratch("from");
+        let to = dir.trim_end_matches('/').to_string();
+        let e = Etl::from(&ConfigMap::of(&[("snapshot_data", "app.users,orders:app.open_orders"), ("snapshot_to", &to)])).unwrap();
+        let tables: Vec<(String, Option<String>)> = e.tables.list.iter().map(|t| (t.get_name(), t.source.clone())).collect();
+        assert_eq!(tables, [("app.users".to_string(), None), ("orders".to_string(), Some("app.open_orders".to_string()))]);
+        assert_eq!((e.dir.as_str(), e.schema_dump.as_deref()), (dir.as_str(), Some(to.as_str())));
+        assert_eq!(Etl::from(&ConfigMap::of(&[("snapshot_to", "snap.yaml")])).unwrap().dir, "./");
+        let e = Etl::from(&ConfigMap::of(&[("snapshot_to", "out/snap.yaml"), ("out_format", "JSON"), ("etl", "force"),
+            ("schema_transaction", "table"), ("snapshot_version", "1.2"), ("dry_run", "true")])).unwrap();
+        assert_eq!(e.dir, "out/");
+        assert!(!e.yaml_format && e.table_tr && e.dry_run);
+        assert_eq!((e.rule.to_string().as_str(), e.ver.as_deref()), ("force", Some("1.2")));
+        let e = Etl::from(&ConfigMap::of(&[("source_dir", "/scripts/")])).unwrap();
+        assert_eq!(e.dir, "/scripts/");
+        assert!(e.tables.list.is_empty() && e.schema_dump.is_none());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// [etl] a snapshot file is numbered after the last of its kind there, or by
+    /// snapshot_version; the snapshot goes to its file, or into the directory named
+    #[test]
+    fn a_snapshot_file_is_numbered_after_the_last() {
+        let dir = scratch("dump");
+        let mut e = etl_test();
+        e.dir = dir.clone();
+        e.db_name = "app".into();
+        assert_eq!(e.dump_to("t.csv".into()).unwrap(), format!("{}D1__t.csv", dir));
+        for f in ["D7__t.csv", "Dx__t.csv", "D9__other.csv"] {
+            fs::write(format!("{}{}", dir, f), "").unwrap();
+        }
+        assert_eq!(e.dump_to("t.csv".into()).unwrap(), format!("{}D8__t.csv", dir));
+        e.ver = Some("1.2".into());
+        assert_eq!(e.dump_to("t.csv".into()).unwrap(), format!("{}D1_2__t.csv", dir));
+        e.ver = None;
+
+        e.schema_dump = Some(format!("{}sub/snap.yaml", dir));
+        e.dump_loaded(Ok("database: []\n".into())).unwrap();
+        assert_eq!(fs::read_to_string(format!("{}sub/snap.yaml", dir)).unwrap(), "database: []\n");
+        e.schema_dump = Some(dir.trim_end_matches('/').to_string());
+        e.dump_loaded(Ok("x".into())).unwrap();
+        assert_eq!(fs::read_to_string(format!("{}D1__app.yaml", dir)).unwrap(), "x", "a directory: the database's name");
+        assert_eq!(e.dump_loaded(Err("e".into())), Err("e".to_string()));
+        e.schema_dump = None;
+        e.dump_loaded(Ok("to stdout".into())).unwrap();
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    fn schema(name: &str, tables: Vec<Table>) -> Schema {
+        let mut t = OrderedHashMap::new();
+        for x in tables {
+            t.append(x);
+        }
+        Schema { schema_name: name.into(), owner: "".into(), tables: t, file: "".into() }
+    }
+
+    /// [etl] a table to extract is found by its name in any schema, or in the one named;
+    /// a table to load is matched against the list the same way
+    #[test]
+    fn a_table_is_found_in_its_schema() {
+        let dir = scratch("find");
+        let mut e = etl_test();
+        e.dir = dir.clone();
+        let mut lr = LoadResult { database: vec![schema("app", vec![yt_test()])] };
+        let (file, s, t, _) = e.find_set(&mut lr, &"rdict".to_string()).unwrap();
+        assert_eq!((file.clone(), s.as_str(), t.as_str()), (format!("{}D1__app_rdict.csv", dir), "app", "rdict"));
+        assert_eq!(lr.database[0].tables.get(&"rdict".to_string()).unwrap().data_file, Some(file));
+        let (_, s, _, _) = e.find_sets(&mut lr, "app", &"rdict".to_string()).unwrap();
+        assert_eq!(s, "app");
+        assert!(e.find_sets(&mut lr, "app", &"nope".to_string()).unwrap_err().starts_with("SGE-E404 "));
+        assert!(e.find_sets(&mut lr, "nope", &"rdict".to_string()).unwrap_err().starts_with("SGE-E405 "));
+        assert!(e.find_set(&mut lr, &"nope".to_string()).unwrap_err().starts_with("SGE-E403 "));
+
+        // etl_test lists public.rdict
+        let yt = yt_test();
+        assert!(e.find(&"public".to_string(), &yt));
+        assert!(!e.find(&"app".to_string(), &yt), "another schema's table of that name");
+        assert!(!e.is_anytable());
+        e.tables.append(EtlTable { schema: None, table: "rdict".into(), source: None });
+        assert!(e.find(&"app".to_string(), &yt), "listed with no schema: in any");
+        e.tables.append(EtlTable { schema: None, table: "*".into(), source: None });
+        assert!(e.is_anytable());
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    /// [etl] data files load by version, then the tables with fewer foreign keys first -
+    /// the tables they refer to are loaded by then - then by name
+    #[test]
+    fn data_files_load_by_version_then_by_their_foreign_keys() {
+        use schema_guard_tokio::column::{Constr, ForeignKey};
+        let ff = FileFilter::newt(".csv");
+        let plain = yt_test();
+        let mut referring = yt_test();
+        let mut fk = Column::newt("ref", "int", false, true);
+        fk.constraint = Some(Constr { primary_key: None, nullable: true,
+            foreign_key: Some(ForeignKey { references: "other".into(), sql: "".into() }) });
+        referring.columns.append(fk);
+        assert_eq!((pseudo_weight(&plain), pseudo_weight(&referring)), (0, 1));
+        let v = |f: &str, t: Option<&Table>| DataFileVersion::new(&f.to_string(), &ff, t);
+        let mut files = vec![v("D2__a.csv", None), v("D1__b.csv", Some(&referring)), v("D1__c.csv", Some(&plain)),
+            v("D1__a.csv", Some(&plain))];
+        files.sort();
+        let names: Vec<&str> = files.iter().map(|f| f.file.as_str()).collect();
+        assert_eq!(names, ["D1__a.csv", "D1__c.csv", "D1__b.csv", "D2__a.csv"]);
+        assert!(files[0] < files[1] && files[2] > files[1]);
+        assert!(v("D1__a.csv", None) == v("x/D1__a.csv", None));
+        assert!(v("D1__a.csv", None) != v("D1__a.csv", Some(&referring)));
+        // a name with no version: version 0
+        assert_eq!(v("Dx.csv", None).v, FileVersion::new(Version::new(0, 0, 0), "".into()));
+    }
+
+    /// [etl] the database's own columns shape the statements with the file's: its
+    /// primary keys - the default to bump a sequence from - its text columns, quoted,
+    /// and those nullable
+    #[test]
+    fn the_databases_columns_shape_the_statements() {
+        use schema_guard_tokio::loader::{PgColumnDfn, PgTable};
+        let log = logger(false);
+        let file = format!("./target/{}.csv", uuid());
+        fs::write(&file, "id,code,name,note\n1,A,O'Brien,\n2,B,x,NULL\n").unwrap();
+        let mut rdr = ReaderBuilder::new().from_path(&file).unwrap();
+        let col = |name: &str, t: &str, pk: bool, nullable: bool, def: Option<&str>| PgColumnDfn {
+            column_name: name.into(), column_type: t.into(), column_default: def.map(|d| d.into()), sql: None,
+            fk: None, pk, nullable, sort_order: 0, column_comment: None };
+        let mut t = PgTable::default();
+        t.table_name = "items".into();
+        for c in [col("id", "integer", true, false, Some("nextval('items_id_seq'::regclass)")),
+            col("code", "character varying", true, false, None), col("name", "character varying", false, false, None),
+            col("note", "text", false, true, None)] {
+            t.columns.insert(c.column_name.clone(), c);
+        }
+        let mut dbc: InfoSchemaType = Default::default();
+        dbc.insert("app".into(), vec![("items".to_string(), t)].into_iter().collect());
+        let mut yt = yt_test();
+        yt.table_name = "items".into();
+        yt.columns = OrderedHashMap::new();
+        let mut etl = etl_test();
+        etl.rule = EtlRule::Clean;
+        etl.tables.append(EtlTable { schema: Some("app".into()), table: "items".into(), source: None });
+        let schema = "app".to_string();
+        let ec = EtlComposer::new(&etl, &dbc, &schema, &yt, true, &file, &mut rdr, &log).unwrap();
+        assert_eq!(ec.columns_pklst, "id, code");
+        assert!(ec.update, "listed and forced");
+        assert_eq!(ec.pk_defaults.get("id").map(String::as_str), Some("nextval('items_id_seq'::regclass)"));
+
+        let mut record = StringRecord::new();
+        let mut keep = String::new();
+        assert!(rdr.read_record(&mut record).unwrap());
+        assert_eq!(ec.insert_statement_pk(&record), "INSERT INTO app.items (id, code, name, note) VALUES (1, 'A', 'O''Brien', '') \
+            ON CONFLICT (id, code) DO UPDATE SET name='O''Brien', note=''");
+        ec.values_inpk(&record, &mut keep);
+        assert!(rdr.read_record(&mut record).unwrap());
+        ec.values_inpk(&record, &mut keep);
+        assert_eq!(keep, "(1, 'A'), (2, 'B')", "the keys a clean keeps");
+
+        assert_eq!(ec.build_sequence(&"id".to_string(), &"nextval('items_id_seq'::regclass)".to_string()).unwrap(),
+            "SELECT setval('app.items_id_seq', coalesce(max(id), 0)) + 1 FROM app.items");
+        assert_eq!(ec.build_sequence(&"id".to_string(), &"nextval('other.s')".to_string()).unwrap(),
+            "SELECT setval('other.s', coalesce(max(id), 0)) + 1 FROM app.items");
+        assert_eq!(ec.build_sequence(&"code".to_string(), &"'A'::text".to_string()), None);
+        fs::remove_file(&file);
     }
 }

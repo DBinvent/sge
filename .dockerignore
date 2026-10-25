@@ -1,0 +1,8 @@
+# the build context is the source: no build output, no history
+target
+.git
+.idea
+*.deb
+*.rpm
+*.zip
+/sge

@@ -1,0 +1,452 @@
+# [i18n] en_clc.yaml からの未レビューの翻訳です。疑わしい場合は英語版が正です。
+# 修正を歓迎します：https://github.com/DBinvent/sge/tree/main/src/i18n
+name: sge
+version: "local_build"
+author: DBinvent
+about: |
+
+ 実行済み SQL スクリプトを記録し、YAML スキーマ定義に基づいて PostgreSQL データベースをデプロイするツールです。
+ 詳しくは 'sge help migrate' を参照してください。
+
+ この翻訳はレビューされていません。不明な点は英語版（LANG=en sge help）を確認し、
+ 修正を送ってください：https://github.com/DBinvent/sge/tree/main/src/i18n
+usage: |
+  sge [オプション]... [コマンド]
+  まず 'sge help migrate' を、続いて 'sge help' と 'sge help snapshot' を参照してください。
+
+subcommands:
+    - migrate:
+        about: "ETL を伴うデータベースのマイグレーションを指定バージョンまで行い、該当するすべてのスクリプトを実行します。例：https://github.com/DBinvent/sge/tree/main/examples"
+        help: |
+          '--target' で指定したバージョン、または
+          各フェーズのオプション '--pre_deploy'、'--schema_deploy'、'--version_deploy'、'--rr_deploy' で指定したバージョンまで、
+          '--source' にあるスクリプト（'--source_recur' が無効ならサブフォルダは走査しません）で
+          '--db_name' のデータベースをマイグレーションします。実行ログは '--logdb_name' に、'--logdb_name' が未設定で '--logdb' が設定されていれば '--db_name' に保存されます。
+          '--createdb' が設定され、'--createdb_xxx' のユーザー認証情報が正しく設定されていれば、必要に応じてデータベースとユーザーを作成します。これは '--dry_run' に関係なく行われます。
+          マイグレーションの実行者は '--executed_by' の値で記録されます。
+          '--script_tag'、'--db_target'、'--db_catalog' もオプションや設定にあれば記録されます。これらはマイクロサービス構成（詳細は dbinvent.com/sge）や環境のオーケストレーションで役立ちます。
+
+          実行順序：(P)->(S)->(V)->(R)->(after)
+
+          すなわち (P)reDeploy SQL — 事前スクリプト、(S)chema YAML — スキーマ、(V)ersion SQL — バージョンスクリプト、(R)e-runable SQL — 再実行可能スクリプト、(a)fter (each) — （各）マイグレーション後の SQL です。
+          (P)reDeploy SQL は (S)chema YAML より前に実行されます。
+          (S)chema YAML はデータベースの information schema と比較され、不足している変更が適用されます。(D)ata（データ）もここで読み込まれます。
+          (V)ersion SQL はデータベース更新の主要なファイル群で、各ファイルは一度だけ実行され、履歴テーブルに記録されます。
+          (R)e-runnable SQL はストアドプロシージャの更新に便利で、'--script_tag' を使うと追跡が容易です。
+          (P) と (V) はバージョンを確認し、ターゲットデータベースにそのバージョンがなければ、ターゲットバージョンまで実行します。
+          (P) と (V) のスクリプトは整合性も確認され、スクリプトが変更されていて '--checksum' が設定されていればマイグレーションは失敗します。
+          (S) スクリプトはターゲットバージョンを確認し、ターゲットデータベースにない変更を適用します。
+          (R) スクリプトはファイルのチェックサムを確認し、ファイルが変更されていてまだデータベースで実行されていなければ実行します。
+          'after.sql' と 'after_each.sql'（名前は設定可能）は常に実行を試みますが、履歴には記録されません。
+          '--config_file' または '-c'：すべてのオプションを名前で（-- 接頭辞なしで）記述したテキストファイルです。コマンドラインの引数は設定ファイルの値より優先されます。
+          '--snapshot_data' と '--etl' は YAML スキーマとともにデータを読み込みます（ETL）。
+
+          ETL ルールの例：table_a と table_b の 2 つのテーブルを持つ YAML ファイルで、'table.etl.file' フィールドが CSV ファイルを指している場合：
+           > sge --etl=skip --snapshot_data=table_a --source_dir=./sql migrate
+           >> table_a には CSV を使いません。table_b.etl.file は ./sql/ ディレクトリから読み込みます。
+
+           > sge --etl=clean --snapshot_data=table_a --source_dir=./sql --snapshot_to=./data  migrate
+           >> table_a には 'clean' ルール（余分なレコードを削除）、table_b には 'apply' を使います。CSV ファイルは ./data/ ディレクトリで探します。
+
+           > sge --etl=force --snapshot_data=table_a  migrate
+           >> table_a には 'force' ルール（既存なら更新）、table_b には 'apply' を使います。YAML と CSV ファイルは ./ ディレクトリで探します。
+
+           > sge --etl=ignore migrate
+           >> 必要なファイルがなくても失敗しません。ファイルがあれば 'apply' ルールを使います。
+
+           > sge --etl=skip migrate
+           >> どのテーブルにも ETL タスクを実行しません。
+
+           > sge migrate
+           >> table_a と table_b にはデフォルトの ETL ルール 'apply' を使います。
+           >> レコードは table.etl.file の CSV ファイルから、カレントディレクトリを基準に読み込みます。
+           >> CSV ファイルにはヘッダー行が必要です。
+
+          '--dry_run'：データベースを変更しません。
+
+          その他のオプション：'sge help'。
+
+          詳細とベストプラクティス：https://www.dbinvent.com/sge
+
+    - prepare:
+        about: "スクリプトの実行を追跡する履歴テーブルを作成します"
+        help: "'--logdb_name' データベース（未設定なら '--db_name'）の '--schema' スキーマに、履歴テーブル '--table' を作成します。'--dry_run'：データベースを変更しません。その他のオプション：'sge help'。"
+    - snapshot:
+        about: "スキーマのスナップショットを '--snapshot_to' ファイルに yaml または json 形式で出力します。"
+        help: |
+          データベーススキーマのスナップショットを '--snapshot_to' ファイル（またはディレクトリ）に yaml または json 形式で出力します。
+
+          '--snapshot_version' で D<番号>__db_name.yaml の番号を指定します。
+
+          '--snapshot_data' で、YAML スキーマとともにデータを抽出（ETL）するテーブルの一覧を指定します。
+
+          '--etl' と '--snapshot_data' は 'sge migrate' でターゲットデータベースへのデータ読み込み（ETL）に使えます。
+
+          注意：pg_catalog と information_schema から変換される列情報には限りがあり、
+          手書きの YAML スキーマの入力形式と完全には一致しません。
+          そのため、スナップショットと入力の YAML ファイルが異なる場合があります。
+
+          配列など一部の型はスナップショットに対応していません。
+
+          その他のオプション：'sge help'。
+    - info:
+        about: "デプロイの状態とバージョンのタグを JSON 形式で返します。'--info_format' を参照してください。"
+        help: "デプロイの状態とバージョンのタグを JSON 形式で返します。'--info_format' を参照してください。"
+args:
+    - db_url:
+        long: db_url
+        takes_value: true
+        help: |
+            URL はデータベース名、ホストなどに分解されます。いずれかが既に（環境変数を含め）設定されていれば、その値が優先されます。
+            形式：'postgres://'（https://www.postgresql.org/docs/current/libpq-connect.html を参照）、またはスペース区切りの key=value
+    - db_name:
+        long: db_name
+        default_value: $USER
+        help: "PostgreSQL のデータベース名"
+    - db_host:
+        long: db_host
+        default_value: /var/run/postgresql
+        help: "PostgreSQL のホスト"
+    - db_port:
+        long: db_port
+        default_value: "5432"
+        help: "PostgreSQL のポート"
+    - db_user:
+        long: db_user
+        default_value: $USER
+        help: "データベースユーザー。デフォルトは現在のユーザー $USER"
+    - db_password:
+        long: db_password
+        takes_value: true
+        help: "パスワードまたは SSL 証明書（db_sslxxx オプションを参照）"
+    - db_sslmode:
+        long: db_sslmode
+        default_value: verify-full
+        help: "SSL モード（sslmode）"
+    - db_sslrootcert:
+        long: db_sslrootcert
+        takes_value: true
+        help: "サーバーのルート証明書（CA）：/path/to/server-ca.crt"
+    - db_sslcert:
+        long: db_sslcert
+        takes_value: true
+        help: "クライアント証明書：/path/to/client.crt"
+    - db_sslkey:
+        long: db_sslkey
+        takes_value: true
+        help: "クライアントの秘密鍵：/path/to/client.key"
+    - logdb:
+        long: logdb
+        default_value: "copy"
+        possible_values: [primary, copy]
+        help: "履歴データベースの役割：primary または copy。primary の場合、履歴テーブルはメインのターゲットデータベースに作成されず、代わりに履歴データベースが使われます。"
+    - logdb_url:
+        long: logdb_url
+        takes_value: true
+        help: "URL はデータベース名、ホストなどに分解されます。既に設定されている値が優先されます"
+    - logdb_name:
+        long: logdb_name
+        takes_value: true
+        help: "履歴データベース名。未設定の場合は 'db_***' の設定を使います"
+    - logdb_host:
+        long: logdb_host
+        default_value: /var/run/postgresql
+        help: "履歴データベースのホスト。未設定の場合は 'db_***' の設定を使います"
+    - logdb_port:
+        long: logdb_port
+        default_value: "5432"
+        help: "履歴データベースのポート。未設定の場合は 'db_***' の設定を使います"
+    - logdb_user:
+        long: logdb_user
+        takes_value: true
+        help: "履歴データベースのユーザー。未設定の場合は 'db_***' の設定を使います"
+    - logdb_password:
+        long: logdb_password
+        takes_value: true
+        help: "履歴データベースのパスワードまたは SSL 証明書（xx_sslxxx オプションを参照）"
+    - logdb_sslmode:
+        long: logdb_sslmode
+        default_value: "verify-full"
+        takes_value: true
+        help: "履歴データベースの SSL モード。未設定の場合は 'db_***' の設定を使います"
+    - logdb_sslrootcert:
+        long: logdb_sslrootcert
+        takes_value: true
+        help: "履歴データベースの SSL ルート証明書。例：/path/to/server-ca.crt。未設定の場合は 'db_***' の設定を使います"
+    - logdb_sslcert:
+        long: logdb_sslcert
+        takes_value: true
+        help: "履歴データベースの SSL 証明書ファイル。例：/path/to/client.crt。未設定の場合は 'db_***' の設定を使います"
+    - logdb_sslkey:
+        long: logdb_sslkey
+        takes_value: true
+        help: "履歴データベースの SSL 秘密鍵ファイル：/path/to/client.key。未設定の場合は 'db_***' の設定を使います"
+    - target:
+        long: target
+        default_value: "*"
+        help: "マイグレーション対象のファイルを選ぶターゲットバージョン。'--pre_deploy'、'--schema_deploy'、'--version_deploy'、'--rr_deploy' のデフォルト値にもなります。"
+    - pre_deploy:
+        long: pre_deploy
+        default_value: "*"
+        help: |
+            (P)re Deploy ファイル（事前スクリプト）の選択：該当バージョンのファイルを選び、実行時に未実行のものを確認します。(S)chema ファイルより前に実行されます。
+            マイグレーションのデフォルト値は '--target' で設定します。
+    - schema_deploy:
+        long: schema_deploy
+        default_value: "*"
+        help: |
+            (S)chema ファイル（デプロイするスキーマ）の選択。ターゲットバージョンまで（* はすべて）。
+            YAML スキーマファイルを解析してデータベースの information schema と比較し、不足している列をテーブルに追加します。
+            既存の列は変更も削除もされません。
+
+            マイグレーションのデフォルト値は '--target' で設定します。
+    - checksum:
+        long: checksum
+        default_value: "true"
+        help: "(P)re と (V)ersion のスクリプトで、デプロイ済みで記録されたものとソースフォルダにあるもののチェックサムが一致しなければ、デプロイを失敗させます。環境間でファイルを一致させるのに役立ちます。"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - rr_deploy:
+        long: rr_deploy
+        default_value: "*"
+        help: |
+            (R)e-runable ファイル（再実行可能スクリプト）の選択。該当バージョンのファイルのチェックサムを確認し、未実行または変更されていればスクリプトを実行します。
+            マイグレーションのデフォルト値は '--target' で設定します。
+    - schema:
+        long: schema
+        default_value: public
+        help: "デプロイ履歴テーブル（'table'）があるスキーマ"
+    - schema_transaction:
+        long: schema_transaction
+        default_value: file
+        help: |
+          (S)chema ファイルの database.schema.table.transaction オプションを上書きします
+
+          - file：（デフォルト）(S)chema ファイルを単一のトランザクションで実行します。これにより、ファイルが OK と記録されるのは、変更がすべて適用されたときだけ、またはまったく適用されないときだけになります。
+
+          - table：テーブルごとに、そのすべての変更を 1 つのトランザクションで実行します。
+
+          - retry：1 秒以内にロックを取得できなければ ALTER の変更を再試行します（最大 100 回）
+
+          マイグレーション実行時、オプションで渡した値が (S)chema ファイルの値を上書きします。
+    - version_transaction:
+        long: version_transaction
+        takes_value: true
+        help: |
+          psql での (V)ersion ファイルの実行方法を上書きします：
+
+          - single：（デフォルト）psql の --single-transaction オプションで (V)ersion ファイルを実行します。
+
+          - statement：--single-transaction なしで psql を実行します。ファイルの 1 行目を値 'false' にしても同じです。例：--single-transaction=false
+    - table:
+        long: table
+        default_value: sge_history
+        help: "'schema' 内のデプロイ履歴テーブル名"
+    - source_dir:
+        long: source_dir
+        default_value: "./"
+        help: "スクリプトのディレクトリ。サブディレクトリの走査には <source_recur> を使います"
+    - source_git:
+        long: source_git
+        takes_value: true
+        help: "スクリプトの取得元となる git リポジトリの URL。空ならディスク上の <source_dir> を使います"
+    - source_git_ref:
+        long: source_git_ref
+        takes_value: true
+        help: "デプロイするブランチ、タグ、またはコミット。デフォルトはリモートの HEAD"
+    - source_git_dir:
+        long: source_git_dir
+        takes_value: true
+        help: "リポジトリ内でスクリプトを置いたサブディレクトリ"
+    - source_git_cache:
+        long: source_git_cache
+        takes_value: true
+        help: "クローンの保存場所。デフォルトは <tmp>/sge-git"
+    - source_git_depth:
+        long: source_git_depth
+        takes_value: true
+        default_value: "1"
+        help: "シャロークローン（shallow clone）の深さ。0 なら全履歴を取得します"
+    - source_git_ssh_key:
+        long: source_git_ssh_key
+        takes_value: true
+        help: "ssh 経由の git URL 用の鍵ファイル（identity file）。空なら ssh-agent に任せます"
+    - source_git_known_hosts:
+        long: source_git_known_hosts
+        takes_value: true
+        help: "ssh 経由の git 用の known_hosts ファイル。デフォルトは <source_git_cache> の隣"
+    - source_git_credentials:
+        long: source_git_credentials
+        takes_value: true
+        help: "http(s) ソース用の git 認証情報ファイルのパス（`git credential-store` が書き込む形式）。必ずパスを指定し、トークンは指定しないでください：argv はローカルの全ユーザーが読めます。"
+    - source_zip:
+        long: source_zip
+        takes_value: true
+        help: "スクリプトの取得元となる zip アーカイブ：実行中は <source_zip_tmp>/<アーカイブ名>/ に展開され、実行終了時（成功・失敗を問わず）に削除されます。空ならディスク上の <source_dir> を使います"
+    - source_zip_dir:
+        long: source_zip_dir
+        takes_value: true
+        help: "アーカイブ内でスクリプトを置いたサブディレクトリ"
+    - source_zip_tmp:
+        long: source_zip_tmp
+        takes_value: true
+        help: "アーカイブの展開先。デフォルトはシステムの一時ディレクトリ"
+    - source_zip_max_mb:
+        long: source_zip_max_mb
+        takes_value: true
+        default_value: "1024"
+        help: "アーカイブを展開したときの最大サイズ（MiB）"
+    - source_recur:
+        long: source_recur
+        default_value: "true"
+        help: "ディレクトリを再帰的に走査します"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - executed_by:
+        long: executed_by
+        takes_value: true
+        help: "マイグレーションを実行するユーザーの名前"
+    - script_tag:
+        long: script_tag
+        takes_value: true
+        help: "適用したスクリプト（履歴の行）に付けるタグ"
+    - db_target:
+        long: db_target
+        takes_value: true
+        help: "ターゲット（target）の値はデータベース名です。履歴テーブルが同じデータベースにあれば空文字列、またはオーケストレーション用の 環境（dev|prod）+ ホスト（ノード）+ データベース です。"
+    - db_catalog:
+        long: db_catalog
+        takes_value: true
+        help: "データベースのスキーマ / モジュール / マイクロサービスのまとまりの名前。"
+    - version_deploy:
+        long: version_deploy
+        default_value: "*"
+        help: "(V)ersion ファイルをターゲットバージョンまでデプロイします（* はすべて）"
+    - dry_run:
+        long: dry_run
+        default_value: "false"
+        help: |
+          SQL をすべて生成しますが、データベースでは実行しません（'CREATE DATABASE' / 'CREATE ROLE' を除く）。スクリプトファイルの実行の試みもすべて記録します。
+          'CREATE DATABASE'/'CREATE ROLE' を実行させたくない場合は、'--createdb' オプションを外すか false にしてください。
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - dry_run_to:
+        long: dry_run_to
+        takes_value: true
+        help: "生成した SQL スクリプトを書き出すファイル名"
+    - out_format:
+        long: snapshot_format
+        default_value: yaml
+        possible_values: [yaml, json]
+        help: "'snapshot' コマンドが生成するデータベーススキーマ情報の形式。'--snapshot_to' オプションも参照してください。"
+    - snapshot_to:
+        long: snapshot_to
+        takes_value: true
+        help: |
+          データベース構造を書き出すファイル名。snapshot コマンドで使います。
+
+          '--snapshot_version' で、生成されるファイル名の 'D<next>__' の番号を上書きします。
+
+          値がディレクトリなら、その中のファイル名は 'D<next>__<database_name>.yaml' になります。
+    - snapshot_version:
+        long: snapshot_version
+        help: |
+          '--snapshot_to' と '--snapshot_data' が生成するファイル名のバージョン番号を上書きします。
+        takes_value: true
+    - snapshot_data:
+        long: snapshot_data
+        takes_value: true
+        help: |
+          書き出すテーブル名をカンマ区切りで指定します。
+
+          ファイル名：'D<next>__<schema_name>_<table_name>.csv'。
+
+          ファイルは 'snapshot_data' ディレクトリ、またはカレントディレクトリに保存されます。
+
+          テーブル名にはワイルドカード（*）が使えます。
+
+          '--snapshot_version' で、生成されるファイル名の 'D<next>__' の番号を上書きします。
+
+          マイグレーションの設定は '--etl' を参照してください。
+
+          省略可：コロンの後に、テーブルの代わりに読むビューを指定できます。
+#          例：table_a,schema.table_b,table_c:view_c,schema.table_d:schema.view_d
+    - etl:
+        long: etl
+        help: |
+          マイグレーション時の ETL の動作：YAML スキーマファイルの 'table.etl.file' フィールドで指定した CSV ファイルからデータを読み込みます。
+          CSV ファイル名が 'D<番号またはバージョン>__' の形なら、その番号でデータの挿入順序が決まります。これはデプロイのターゲットバージョンではありません。
+
+          '--snapshot_data' が設定されていれば、それらのテーブルの ETL ルールが上書きされます。
+
+          YAML の 'table.etl.file' フィールドのデータファイルは、CSV 形式の相対ファイル名です。
+          ファイルは '--snapshot_to' で、'--snapshot_to' が未設定なら '--source_dir' で探します。
+          前回のマイグレーション成功以降にデータファイルが変更されていなければ、ETL は何もしません。
+
+          ルール：
+
+          - clean：主キーで特定されるレコードがあれば挿入または更新し、ファイルにないレコードをテーブルから削除します。
+
+          - force：主キーで特定されるレコードがあれば挿入または更新します。主キーがなければ、存在しないレコードだけを挿入します。
+
+          - apply：主キーで特定されるレコードがあれば挿入または無視します。
+
+          - ignore：必要なファイルがなくても失敗しません。ファイルがあれば 'apply' ルールを使います。
+
+          - skip：データを一切読み込みません。
+
+        default_value: "apply"
+        takes_value: true
+        possible_values: [clean, force, apply, ignore, skip]
+# todo add extended CSV format
+# todo add etl - transform on load i.e. obfuscate rules file as mapping (table)field -> pwd_rule | email_rule | etc OR call python script
+    - config_file:
+        long: config
+        short: c
+        takes_value: true
+        help: |
+            設定ファイル（: または = 区切り）からすべてのオプションを読み込みます。
+            コマンドラインのオプションはファイルから読み込んだ値より優先されます。
+
+            どちらにも設定されていなければ、環境変数（大文字の名前）を探します。
+
+            それでも見つからなければ、デフォルト値（あれば）を使います。
+
+            対応形式：YAML、Properties、conf、cfg、JSON、env など、キーと値を ':' または '=' で区切ったテキストファイル。
+
+            'キー' は小文字にされ、'値' の引用符は外されます。最初と最後の行だけを引用符で囲んだ複数行の値は避けてください！
+
+            注意：その他の優先順位は '--db_url' と '--logdb_url' を参照してください
+    - after:
+        long: after
+        default_value: "after.sql"
+        takes_value: true
+        help: "マイグレーションが成功し履歴をコミットした後に、このスクリプトを探して実行します。見つからなくても失敗しません。このスクリプトの実行は履歴テーブルに記録されません。"
+    - after_each:
+        long: after_each
+        default_value: "after_each.sql"
+        takes_value: true
+        help: "各バージョンの実行後に、このスクリプトを探して実行します。見つからなくても失敗しません。このスクリプトの実行は履歴テーブルに記録されません。"
+    - createdb:
+        long: createdb
+        default_value: "false"
+        help: "db_name/logdb_name が存在しなければデータベースを作成します。同じ認証情報で postgres データベース経由で作成します"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - verbose:
+        long: verbose
+        default_value: "false"
+        help: "DEBUG ログを有効にします。"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - createdb_user:
+        long: createdb_user
+        default_value: postgres
+        help: "'Create DB'（データベース作成）ステップで使うデータベースユーザー。"
+    - createdb_pwd:
+        long: createdb_pwd
+        takes_value: true
+        help: "'Create DB' ステップで使うユーザーのパスワード。未設定なら db_sslxxx を使います。"
+    - createdblog_user:
+        long: createdblog_user
+        default_value: postgres
+        help: "'Create LOGDB'（履歴データベース作成）ステップで使うデータベースユーザー。logdb_name が設定されているときに使います。"
+    - createlogdb_pwd:
+        long: createlogdb_pwd
+        takes_value: true
+        help: "'Create LOGDB' ステップで使うユーザーのパスワード。未設定なら logdb_sslxxx を使います。"

@@ -1,0 +1,246 @@
+[NAME]
+sge \- учёт SQL-скриптов и развёртывание схемы PostgreSQL по описанию в YAML
+[examples]
+.PP
+Каждый пример ниже есть и среди тестовых примеров в исходниках sge:
+.br
+.UR https://github.com/DBinvent/sge/tree/main/examples
+.UE
+.PP
+Параметры задаются в командной строке или в файле конфигурации, заданном
+через \fB\-c\fR: по одному \fIимя\fR=\fIзначение\fR в строке, имя без
+ведущих \fB\-\-\fR, \fB#\fR \(em комментарий.
+Командная строка важнее файла, а параметр, не заданный ни там, ни там,
+берётся из окружения по имени в верхнем регистре: \fBDB_NAME\fR для
+\fB\-\-db_name\fR.
+.SS "1. Миграция базы данных"
+.EX
+sge \-c app.cfg migrate
+.EE
+.PP
+где \fIapp.cfg\fR:
+.PP
+.EX
+db_host=localhost
+db_name=app
+db_user=app
+db_password=secret
+source_dir=./sql
+.EE
+.PP
+sge читает скрипты из \fB\-\-source_dir\fR вместе с подкаталогами
+(\fB\-\-source_recur=no\fR это отключает) и применяет их версия за версией,
+записывая каждый в таблицу \fIsge_history\fR.
+Имя файла содержит тип скрипта, версию и название:
+\fIV1_2__orders.sql\fR \(em это версия 1.2.
+Внутри версии типы выполняются в таком порядке:
+.TP
+.B P
+предварительный SQL, выполняется один раз
+.TP
+.B S
+YAML-схема (13): сравнивается с базой, и разница применяется;
+вместе с ней загружаются её данные (12)
+.TP
+.B V
+версионный SQL, выполняется один раз
+.TP
+.B R
+повторяемый SQL, выполняется снова при каждом изменении файла
+.TP
+.B after
+\fIafter_each.sql\fR после каждой версии и \fIafter.sql\fR после всей
+миграции, каждый раз и без записи в журнал (их имена задают
+\fB\-\-after_each\fR и \fB\-\-after\fR)
+.PP
+Скрипт P или V прерывает миграцию, если его файл изменился после выполнения;
+\fB\-\-checksum=no\fR отключает эту проверку.
+.SS "2. Сначала посмотреть SQL"
+.EX
+sge \-c app.cfg \-\-dry_run=yes \-\-dry_run_to=plan.sql migrate
+.EE
+.PP
+Записывает все команды в \fIplan.sql\fR и не выполняет ни одной, кроме
+\fBCREATE DATABASE\fR и \fBCREATE ROLE\fR, если задан \fB\-\-createdb\fR.
+\fB\-\-dry_run\fR принимает значение: заданный без него, он взял бы значением
+следующее слово, \fBmigrate\fR.
+.SS "3. Создать базу и её владельца"
+.EX
+sge \-c app.cfg \-\-createdb=yes \-\-createdb_user=postgres \e
+    \-\-createdb_pwd=secret prepare
+.EE
+.PP
+Подключается как \fB\-\-createdb_user\fR, создаёт роль \fB\-\-db_user\fR и
+базу \fB\-\-db_name\fR, если их нет, и создаёт таблицу журнала.
+\fBprepare\fR не выполняет скриптов; \fB\-\-createdb\fR работает и с
+\fBmigrate\fR.
+.SS "4. Миграция до версии"
+.EX
+sge \-c app.cfg \-\-target=1 migrate
+sge \-c app.cfg \-\-target=2 migrate
+.EE
+.PP
+Первый запуск останавливается после версии 1, второй доводит базу до
+версии 2.
+Без \fB\-\-target\fR, значение которого по умолчанию \fB*\fR, sge применяет
+все найденные версии.
+.SS "5. Подключение через окружение или URL"
+.EX
+DB_HOST=localhost DB_NAME=app DB_USER=app DB_PASSWORD=secret sge prepare
+sge \-\-db_url=postgresql://app:secret@localhost:5432/app migrate
+.EE
+.SS "6. Скрипты из git"
+.EX
+sge \-c app.cfg \-\-source_git=https://example.com/team/db.git \e
+    \-\-source_git_ref=v1.4 \-\-source_git_dir=sql migrate
+.EE
+.PP
+Клонирует репозиторий в локальный кэш (\fB\-\-source_git_cache\fR),
+переключается на \fIv1.4\fR и читает скрипты из его каталога \fIsql\fR.
+Полученный коммит записывается тегом каждого скрипта, если не задан
+\fB\-\-script_tag\fR.
+Каждый запуск заново получает ref, поэтому ветка развёртывает свой последний
+коммит.
+.SS "7. Скрипты из zip-архива"
+.EX
+sge \-c app.cfg \-\-source_zip=release\-42.zip \-\-source_zip_dir=sql migrate
+.EE
+.PP
+Распаковывает архив в \fI/tmp/release\-42.zip/\fR (другой каталог задаёт
+\fB\-\-source_zip_tmp\fR) и читает скрипты из его каталога \fIsql\fR;
+каталог удаляется по окончании запуска, успешном или нет.
+Элемент, который попал бы за пределы каталога, или символическая ссылка
+отвергает весь архив, а \fB\-\-source_zip_max_mb\fR (по умолчанию 1024)
+ограничивает объём распаковки.
+Каждый скрипт получает тег \fIzip:release\-42.zip@\fR и первые двенадцать
+шестнадцатеричных цифр MD5 архива, если не задан \fB\-\-script_tag\fR.
+У запуска один источник скриптов: \fB\-\-source_zip\fR и \fB\-\-source_git\fR
+вместе не задаются.
+.SS "8. Где журнал и как помечается запуск"
+.EX
+sge \-c app.cfg \-\-schema=ops \-\-table=deploy_log \e
+    \-\-script_tag=release\-42 \-\-executed_by=ci migrate
+.EE
+.PP
+Хранит журнал в \fIops.deploy_log\fR вместо \fIpublic.sge_history\fR
+и помечает каждый применённый в этом запуске скрипт тегом и исполнителем;
+\fB\-\-db_target\fR и \fB\-\-db_catalog\fR дополняют пометку.
+.SS "9. Журнал в другой базе"
+.EX
+sge \-c app.cfg \-\-logdb_name=ops migrate
+sge \-c app.cfg \-\-logdb=primary \-\-logdb_name=ops migrate
+.EE
+.PP
+Первый пишет журнал в \fIops\fR и в \fIapp\fR
+(\fB\-\-logdb=copy\fR, по умолчанию); второй \(em только в \fIops\fR.
+Незаданный параметр \fB\-\-logdb_\fR\fIxxx\fR берёт значение
+\fB\-\-db_\fR\fIxxx\fR.
+.SS "10. Что развёрнуто"
+.EX
+sge \-c app.cfg info
+.EE
+.PP
+Выводит по \fB\-\-db_target\fR и \fB\-\-db_catalog\fR версию каждой базы,
+успешен ли последний запуск, его тег и исполнителя: в YAML или, с
+\fB\-\-snapshot_format=json\fR, в JSON.
+.SS "11. Снимок базы"
+.EX
+sge \-c app.cfg \-\-snapshot_to=./schema snapshot
+sge \-c app.cfg \-\-snapshot_format=json \-\-snapshot_to=schema.json snapshot
+sge \-c app.cfg \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./schema snapshot
+.EE
+.PP
+Записывает схему базы в формате S-файла (13) или в JSON; с
+\fB\-\-snapshot_data\fR строки перечисленных таблиц тоже выгружаются в
+CSV-файлы, готовые к загрузке ETL (12).
+Из каталога читаются не все свойства столбцов, а некоторые типы, в том
+числе массивы, не поддерживаются, поэтому снимок может отличаться от YAML,
+по которому база развёрнута.
+.SS "12. Загрузка данных вместе со схемой (ETL)"
+.PP
+Таблица в S-файле может указать CSV-файл со строкой заголовка для загрузки
+в неё: \fBdata_file: D1__customer.csv\fR.
+\fB\-\-etl\fR выбирает правило для таблиц из \fB\-\-snapshot_data\fR или,
+без него, для всех:
+.TP
+.B apply
+по умолчанию: вставить строки, ключа которых ещё нет в таблице
+.TP
+.B force
+вставить и обновить строки, ключ которых уже есть
+.TP
+.B clean
+как force, и удалить строки, которых нет в файле
+.TP
+.B ignore
+как apply, но отсутствие файла \(em не ошибка
+.TP
+.B skip
+ничего не загружать
+.PP
+.EX
+sge \-c app.cfg \-\-etl=clean \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./data migrate
+.EE
+.PP
+Загружает \fIshop.customer\fR по правилу clean, а все остальные таблицы
+\(em по apply, читая CSV-файлы из \fI./data\fR.
+.SS "13. Файл схемы"
+.PP
+\fIS1__shop.yaml\fR описывает две таблицы в формате SchemaGuard YAML.
+sge создаёт недостающее и изменяет отличающееся, но не удаляет того, что
+в файле просто не упомянуто:
+.PP
+.EX
+database:
+  \- schemaName: shop
+    tables:
+      \- table:
+          tableName: customer
+          description: who buys
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: email
+                type: varchar(250)
+                constraint:
+                  nullable: false
+                index:
+                  unique: true
+      \- table:
+          tableName: orders
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: customer_id
+                type: int
+                constraint:
+                  foreignKey:
+                    references: shop.customer
+            \- column:
+                name: created_on
+                type: timestamp
+                defaultValue: now()
+.EE
+.PP
+\fBreferences\fR называет \fIschema.table\fR, и ключ ссылается на её
+первичный ключ.
+Формат описан в справочнике SchemaGuard YAML, а все допустимые поля \(em
+в его схеме проверки:
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/yaml.md
+.UE
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/src/schema.yaml
+.UE
+.PP
+\fBsge help migrate\fR и \fBsge help\fR описывают все параметры.

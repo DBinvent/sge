@@ -1,3 +1,5 @@
+[NAME]
+sge \- SQL script tracker and PostgreSQL schema deployment from YAML
 [examples]
 .PP
 Each case below is also a runnable test case in the sge sources:
@@ -37,8 +39,8 @@ Within a version the types run in this order:
 pre\-deploy SQL, run once
 .TP
 .B S
-schema YAML (12): compared with the database, and the difference applied;
-its data loads with it (11)
+schema YAML (13): compared with the database, and the difference applied;
+its data loads with it (12)
 .TP
 .B V
 versioned SQL, run once
@@ -97,7 +99,22 @@ Clones the repository into a local cache (\fB\-\-source_git_cache\fR), checks
 out \fIv1.4\fR and reads the scripts from its \fIsql\fR directory.
 The commit it resolved is recorded as each script's tag, unless
 \fB\-\-script_tag\fR is set.
-.SS "7. Where the history goes, and how a run is labelled"
+Every run fetches the ref again, so a branch deploys its newest commit.
+.SS "7. Scripts from a zip archive"
+.EX
+sge \-c app.cfg \-\-source_zip=release\-42.zip \-\-source_zip_dir=sql migrate
+.EE
+.PP
+Unpacks the archive into \fI/tmp/release\-42.zip/\fR (\fB\-\-source_zip_tmp\fR
+names another directory) and reads the scripts from its \fIsql\fR directory;
+the directory is removed when the run ends, completed or failed.
+An entry that would land outside it, or a symlink, refuses the archive, and
+\fB\-\-source_zip_max_mb\fR (1024 by default) caps what it unpacks to.
+Each script is tagged \fIzip:release\-42.zip@\fR and the first twelve hex
+digits of the archive's MD5, unless \fB\-\-script_tag\fR is set.
+A run has one script source: \fB\-\-source_zip\fR and \fB\-\-source_git\fR
+are not given together.
+.SS "8. Where the history goes, and how a run is labelled"
 .EX
 sge \-c app.cfg \-\-schema=ops \-\-table=deploy_log \e
     \-\-script_tag=release\-42 \-\-executed_by=ci migrate
@@ -106,7 +123,7 @@ sge \-c app.cfg \-\-schema=ops \-\-table=deploy_log \e
 Keeps the history in \fIops.deploy_log\fR instead of \fIpublic.sge_history\fR,
 and stamps each script this run applies with the tag and the executor;
 \fB\-\-db_target\fR and \fB\-\-db_catalog\fR label it further.
-.SS "8. The history in another database"
+.SS "9. The history in another database"
 .EX
 sge \-c app.cfg \-\-logdb_name=ops migrate
 sge \-c app.cfg \-\-logdb=primary \-\-logdb_name=ops migrate
@@ -116,7 +133,7 @@ The first writes the history to \fIops\fR as well as to \fIapp\fR
 (\fB\-\-logdb=copy\fR, the default); the second writes it to \fIops\fR only.
 A \fB\-\-logdb_\fR\fIxxx\fR option left unset takes its \fB\-\-db_\fR\fIxxx\fR
 value.
-.SS "9. What is deployed"
+.SS "10. What is deployed"
 .EX
 sge \-c app.cfg info
 .EE
@@ -124,7 +141,7 @@ sge \-c app.cfg info
 Prints, by \fB\-\-db_target\fR and \fB\-\-db_catalog\fR, the version each
 database is at, whether the last run succeeded, its tag and who ran it: as
 YAML, or as JSON with \fB\-\-snapshot_format=json\fR.
-.SS "10. Snapshot a database"
+.SS "11. Snapshot a database"
 .EX
 sge \-c app.cfg \-\-snapshot_to=./schema snapshot
 sge \-c app.cfg \-\-snapshot_format=json \-\-snapshot_to=schema.json snapshot
@@ -132,13 +149,13 @@ sge \-c app.cfg \-\-snapshot_data=shop.customer \e
     \-\-snapshot_to=./schema snapshot
 .EE
 .PP
-Writes the database schema in the S file format (12), or as JSON; with
+Writes the database schema in the S file format (13), or as JSON; with
 \fB\-\-snapshot_data\fR, the rows of the tables it lists go to CSV files too,
-ready for an ETL load (11).
+ready for an ETL load (12).
 Not every column property is read back from the catalog, and some types,
 arrays among them, are not supported, so a snapshot can differ from the YAML
 it was deployed from.
-.SS "11. Load data with the schema (ETL)"
+.SS "12. Load data with the schema (ETL)"
 .PP
 A table in an S file can name a CSV file, with a header row, to load into it:
 \fBdata_file: D1__customer.csv\fR.
@@ -167,7 +184,7 @@ sge \-c app.cfg \-\-etl=clean \-\-snapshot_data=shop.customer \e
 .PP
 Loads \fIshop.customer\fR by the clean rule and every other table by apply,
 reading the CSV files from \fI./data\fR.
-.SS "12. A schema file"
+.SS "13. A schema file"
 .PP
 \fIS1__shop.yaml\fR declares two tables in the SchemaGuard YAML format.
 sge creates what is missing and alters what differs, and drops nothing the

@@ -78,7 +78,7 @@ impl ConfigMap {
         if filename.len() > 0 {
             let reader = BufReader::new(
                 File::open(filename)
-                    .map_err(|e| format!("Can not load file: {} - {}", filename, e))?,
+                    .map_err(|e| tr!("cfg.load_file", file = filename, err = e))?,
             );
             for line in reader.lines() {
                 file_total_lines += 1;
@@ -90,7 +90,7 @@ impl ConfigMap {
                                 ConfigMap::map_insert(&mut cfg, &key, l[i + 1..].trim());
                                 file_loaded_lines += 1;
                             } else {
-                                println!("ignored {} on {}", key, filename);
+                                println!("{}", tr!("cfg.ignored", key = key, file = filename));
                             }
                         }
                     }
@@ -287,13 +287,8 @@ impl ConfigMap {
 impl Display for ConfigMap {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = write!(f, "Config [{}]", self.map.len());
-        let _ = write!(
-            f,
-            " loaded from: {}, {}/{}",
-            self.file, self.file_loaded_lines, self.file_total_lines
-        );
-        Ok(())
+        f.write_str(&tr!("cfg.display", count = self.map.len(), file = self.file,
+            loaded = self.file_loaded_lines, total = self.file_total_lines))
     }
 }
 
@@ -429,8 +424,10 @@ fn parse_kve(prefix: &String, val: String, map: &mut HashMap<String, String>) {
         if let Some(i) = val.find("=") {
             if i > 0 {
                 let key = val[..i].to_string();
+                // libpq's `dbname` is the prefix's own `name`: logdb_url's names the log
+                // database, never the one migrated
                 let key = if key.as_str() == "dbname" {
-                    "db_name".to_string()
+                    format!("{}name", prefix)
                 } else {
                     format!("{}{}", prefix, key)
                 };
@@ -453,16 +450,92 @@ mod tests {
     }
     use std::time::{UNIX_EPOCH, SystemTimeError, SystemTime};
 
-    fn _conf(p: &str) -> ConfigMap {
-        let mut map = HashMap::new();
-        map.insert("port".to_string(), p.to_string());
-        ConfigMap {
-            map,
-            file: "".to_string(),
-            file_total_lines: 0,
-            file_loaded_lines: 0,
-            log: logger(true),
-        }
+    /// [cfg] a properties file: the keys sge knows loaded, quotes taken off; comments,
+    /// sections, unknown keys and plain text passed over - and the lines counted
+    #[test]
+    fn a_config_file_loads_the_keys_sge_knows() {
+        let f = std::env::temp_dir().join(format!("sge-cfg-test-{}.cfg", std::process::id()));
+        std::fs::write(&f, "db_host = \"db.example\"\ndb_port: 5433\n# db_user=nobody\n; a comment\n\
+            // another\n[section]\nno_such_key=1\njust text\nschema='app'\n").unwrap();
+        let c = ConfigMap::load(f.to_str().unwrap()).unwrap();
+        let _ = std::fs::remove_file(&f);
+        assert_eq!(c.get("db_host"), "db.example");
+        assert_eq!(c.get("db_port"), "5433");
+        assert_eq!(c.get("schema"), "app");
+        assert!(!c.map.contains_key("db_user") && !c.map.contains_key("no_such_key"));
+        assert_eq!((c.file_loaded_lines, c.file_total_lines), (3, 9));
+        assert!(c.to_string().ends_with("3/9"), "{}", c);
+        c.debug(&c.log);
+        assert!(ConfigMap::load("/nonexistent/sge.cfg").unwrap_err().starts_with("SGE-E101 "));
+    }
+
+    #[test]
+    fn a_quoted_value_is_unquoted() {
+        assert_eq!(ConfigMap::unquote("\"a b\""), "a b");
+        assert_eq!(ConfigMap::unquote("'x'\n"), "x", "a line's own newline");
+        assert_eq!(ConfigMap::unquote("'x\""), "'x\"", "quotes that do not match");
+        assert_eq!(ConfigMap::unquote("''"), "''");
+    }
+
+    /// [url] a connection URL fills the keys it names - only those not set already -
+    /// under its own prefix
+    #[test]
+    fn a_connection_url_fills_the_keys_it_names() {
+        let get = |c: &ConfigMap, k: &str| c.map.get(k).cloned().unwrap_or_default();
+        let mut c = ConfigMap::of(&[("db_port", "6000")]);
+        c.insert(&"db_url".to_string(), "postgresql://app:secret@db.example:5433/orders?sslmode=require");
+        assert_eq!(get(&c, "db_user"), "app");
+        assert_eq!(get(&c, "db_password"), "secret");
+        assert_eq!(get(&c, "db_host"), "db.example");
+        assert_eq!(get(&c, "db_name"), "orders");
+        assert_eq!(get(&c, "db_sslmode"), "require");
+        assert_eq!(get(&c, "db_port"), "6000", "set already: kept");
+
+        let mut c = ConfigMap::of(&[]);
+        c.insert(&"logdb_url".to_string(), "postgresql://[::1]:5434/logs");
+        assert_eq!((get(&c, "logdb_host"), get(&c, "logdb_port"), get(&c, "logdb_name")),
+            ("::1".into(), "5434".into(), "logs".into()));
+        assert!(!c.map.contains_key("db_name"));
+
+        // libpq's keyword form; `dbname` is the prefix's own name
+        let mut c = ConfigMap::of(&[]);
+        c.insert(&"logdb_url".to_string(), "host=h user=u dbname=logs port=7 =x");
+        assert_eq!((get(&c, "logdb_host"), get(&c, "logdb_user"), get(&c, "logdb_port")),
+            ("h".into(), "u".into(), "7".into()));
+        assert_eq!(get(&c, "logdb_name"), "logs");
+        assert!(!c.map.contains_key("db_name"), "the migrated database is not the log's");
+
+        let mut c = ConfigMap::of(&[]);
+        c.insert(&"db_url".to_string(), "postgresql://app@/orders");
+        assert_eq!((get(&c, "db_user"), get(&c, "db_host"), get(&c, "db_name")),
+            ("app".into(), "".into(), "orders".into()));
+    }
+
+    /// [env] a key not configured is read from the environment, upper-cased
+    #[test]
+    fn a_key_falls_back_to_the_environment() {
+        std::env::set_var("SGE_TEST_ONLY_KEY", "'from env'");
+        assert_eq!(ConfigMap::of(&[]).get_opt("sge_test_only_key"), Some("from env".to_string()));
+        assert_eq!(ConfigMap::of(&[("sge_test_only_key", "set")]).get("sge_test_only_key"), "set");
+    }
+
+    /// [tls] TLS is on with a client certificate, unless sslmode says otherwise
+    #[test]
+    fn tls_is_on_with_a_client_certificate() {
+        assert!(!ConfigMap::of(&[]).is_ssl());
+        assert!(ConfigMap::of(&[("db_sslcert", "/c.pem")]).is_ssl());
+        assert!(ConfigMap::of(&[("db_sslcert", "/c.pem"), ("db_sslmode", "require")]).is_ssl());
+        assert!(!ConfigMap::of(&[("db_sslcert", "/c.pem"), ("db_sslmode", "disable")]).is_ssl());
+        assert!(!ConfigMap::of(&[("db_sslmode", "require")]).is_ssl());
+    }
+
+    #[test]
+    fn a_setting_is_written_as_sql() {
+        let c = ConfigMap::of(&[("db_host", "h")]);
+        let mut s = String::new();
+        c.write(&mut s, "db_", "host", "AND");
+        c.write(&mut s, "db_", "port", "AND");
+        assert_eq!(s, " AND host = 'h'");
     }
         // DateTime::naive_local()
 

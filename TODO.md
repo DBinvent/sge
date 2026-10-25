@@ -11,5 +11,8 @@ The relational database schema management tool.
 - Add JSON format for schema definition
 - Add partitioning 
 - Add data snapshot (use pg_dump) full for featuring reverse eng.
+- Add blob / S3 script storage: fetch the object into the temp directory, then run it as
+  `source_zip` runs (src/dbm_zip.rs, "Next: blob and S3 storage"); credentials from the
+  platform's environment, never argv
 
 

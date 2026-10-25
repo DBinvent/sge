@@ -274,13 +274,13 @@ fn load_dir(
                         }
                     }
                     Err(e) => {
-                        return Err(format!("read error: {}", e));
+                        return Err(tr!("files.read", err = e));
                     }
                 }
             }
             Ok(())
         }
-        Err(e) => Err(format!("dir read error [{}]: {}", dir, e)),
+        Err(e) => Err(tr!("files.dir", dir = dir, err = e)),
     }
 }
 
@@ -322,7 +322,7 @@ impl FileFilter {
     ) -> Result<Option<(Version, String)>, String> {
         if filename.to_lowercase().ends_with(&self.file_type) {
             match filename.find("__") {
-                None => Err(format!("unrecognizable version of file: {}", filename)),
+                None => Err(tr!("files.no_version", file = filename)),
                 Some(i) => {
                     let ver = filename[from_pos + 1..i].replace("_", ".");
                     match &self.filter {
@@ -368,7 +368,7 @@ pub(crate) fn semver_parse(input: &str) -> Result<Version, String> {
     };
     match semver::Version::parse(input.as_str()) {
         Ok(v) => Ok(v),
-        Err(e) => Err(format!("version parsing: {} error: {}", input, e)),
+        Err(e) => Err(tr!("files.version", version = input, err = e)),
     }
 }
 
@@ -444,4 +444,100 @@ mod tests {
         assert_eq!(columns, vec!["id", "created_at", "email"]);
     }
 
+    fn log() -> Logger {
+        Logger::root(slog::Discard, o!())
+    }
+
+    /// a scripts directory of the test's own, with these `(name, body)` files
+    fn scripts(name: &str, files: &[(&str, &str)]) -> String {
+        let d = std::env::temp_dir().join(format!("sge-files-test-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        for (f, body) in files {
+            let p = d.join(f);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, body).unwrap();
+        }
+        format!("{}/", d.display())
+    }
+
+    const SCHEMA: &str = "database:
+  - schemaName: app
+    tables:
+      - table:
+          tableName: users
+          columns:
+            - column: { name: id, type: serial, constraint: { primaryKey: true } }
+            - column: { name: email, type: varchar(255) }
+";
+
+    /// [files] a directory read as sge reads it: each script by its first letter,
+    /// sub-directories too; files of no kind passed over, and an S file without a
+    /// `database` list ignored
+    #[test]
+    fn a_directory_is_read_by_each_scripts_letter() {
+        let d = scripts("letters", &[
+            ("P1__pre.sql", "select 1;"),
+            ("V1_1__init.sql", "select 1;"),
+            ("nested/V2__more.sql", "select 2;"),
+            ("R__view.sql", "select 3;"),
+            ("after.sql", "select 4;"),
+            ("After_Each.sql", "select 5;"),
+            ("about.txt", "not a script"),
+            ("README.md", "not a script"),
+            ("S1__schema.yaml", SCHEMA),
+            ("S2__empty.yaml", "{}\n"),
+        ]);
+        let fm = load_all(&ConfigMap::of(&[("source_dir", d.trim_end_matches('/'))]), &log()).unwrap();
+        let names = |m: &VersionTableMap| m.values().cloned().collect::<Vec<_>>();
+        assert_eq!(names(&fm.pre), ["P1__pre.sql"]);
+        assert_eq!(names(&fm.versions), ["V1_1__init.sql", "nested/V2__more.sql"]);
+        assert_eq!(names(&fm.re_runnable), ["R__view.sql"]);
+        assert_eq!(fm.after.get("after"), Some(&"after.sql".to_string()));
+        assert_eq!(fm.after.get("after_each"), Some(&"After_Each.sql".to_string()));
+        assert_eq!(fm.schemas.values().map(|(f, _)| f.clone()).collect::<Vec<_>>(), ["S1__schema.yaml"]);
+        let all: Vec<String> = fm.all_versions().iter().map(|v| v.to_string()).collect();
+        assert_eq!(all, ["", "1", "1.1", "2"]);
+        // the primary key of a table as the S files up to a version define it
+        let v1 = FileVersion::new(Version::new(1, 0, 0), "1".into());
+        let v0 = FileVersion::new(Version::new(0, 9, 0), "0.9".into());
+        let pk = fm._pks(&"app".to_string(), &"users".to_string(), &v1);
+        assert_eq!(pk.into_iter().collect::<Vec<_>>(), ["id"]);
+        assert!(fm._pks(&"app".to_string(), &"users".to_string(), &v0).is_empty());
+        assert!(fm._pks(&"app".to_string(), &"nobody".to_string(), &v1).is_empty());
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// [target] scripts past the target are not loaded; non-recursive stays at the top
+    #[test]
+    fn a_target_and_no_recursion_narrow_what_is_loaded() {
+        let d = scripts("target", &[("V1_1__init.sql", "select 1;"), ("nested/V1__n.sql", "select 1;"),
+            ("V2__more.sql", "select 2;")]);
+        let fm = load_all(&ConfigMap::of(&[("source_dir", &d), ("target", "1.1")]), &log()).unwrap();
+        assert_eq!(fm.versions.values().cloned().collect::<Vec<_>>(), ["nested/V1__n.sql", "V1_1__init.sql"]);
+        let fm = load_all(&ConfigMap::of(&[("source_dir", &d), ("source_recur", "false")]), &log()).unwrap();
+        assert_eq!(fm.versions.values().cloned().collect::<Vec<_>>(), ["V1_1__init.sql", "V2__more.sql"]);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// [files] a script with no version in its name, or a directory that is not
+    /// there, fails the load
+    #[test]
+    fn a_script_without_a_version_fails_the_load() {
+        let d = scripts("noversion", &[("Vfirst.sql", "select 1;")]);
+        let e = load_all(&ConfigMap::of(&[("source_dir", &d)]), &log()).err().unwrap();
+        assert!(e.starts_with("SGE-E203 "), "{}", e);
+        let _ = fs::remove_dir_all(&d);
+        let e = load_all(&ConfigMap::of(&[("source_dir", &d)]), &log()).err().unwrap();
+        assert!(e.starts_with("SGE-E202 "), "{}", e);
+    }
+
+    /// a version is equal by its number however it is written, and written as it was
+    #[test]
+    fn a_version_compares_by_its_number() {
+        let a = FileVersion::new(Version::new(1, 0, 0), "1".into());
+        let b = FileVersion::new(Version::new(1, 0, 0), "1.0".into());
+        assert_eq!(a, b);
+        assert!(a < FileVersion::new(Version::new(1, 1, 0), "1.1".into()));
+        assert_eq!(serde_json::to_string(&b).unwrap(), "\"1.0\"");
+    }
 }

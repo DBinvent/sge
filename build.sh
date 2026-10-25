@@ -35,9 +35,7 @@ strip -s target/release/sge
 echo "Build: $(./target/release/sge -V)"
 
 echo "Building DEB..."
-help2man -o sge.1 -i examples.1 target/release/sge
-sed -i 's/ \[d/\n \[d/g' sge.1
-gzip sge.1
+man/build.sh target/release/sge target/man
 cargo deb
 dpkg -I target/debian/*.deb
 dpkg --contents  target/debian/*.deb

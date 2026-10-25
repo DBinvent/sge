@@ -68,4 +68,4 @@ ALTER TABLE ONLY test_schema.test_ref_table
 ALTER TABLE ONLY test_schema.test_table
     ADD CONSTRAINT test_table_pkey PRIMARY KEY (id);
 ALTER TABLE ONLY test_schema.test_table
-    ADD CONSTRAINT fk_test_schema_test_table_test_ref_table FOREIGN KEY (tr) REFERENCES test_schema.test_ref_table(id);
+    ADD CONSTRAINT fk_test_schema_test_table_test_ref_table_tr FOREIGN KEY (tr) REFERENCES test_schema.test_ref_table(id);

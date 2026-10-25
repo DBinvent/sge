@@ -1,0 +1,23 @@
+# [i18n] see zip.yml - the configuration
+_version: 2
+cfg.load_file:
+  en: "SGE-E101 cannot load the configuration file %{file}: %{err}"
+  ru: "SGE-E101 не удаётся загрузить файл конфигурации %{file}: %{err}"
+  fr: "SGE-E101 impossible de charger le fichier de configuration %{file} : %{err}"
+  de: "SGE-E101 die Konfigurationsdatei %{file} lässt sich nicht laden: %{err}"
+  zh: "SGE-E101 无法加载配置文件 %{file}：%{err}"
+  ja: "SGE-E101 設定ファイル %{file} を読み込めません：%{err}"
+cfg.ignored:
+  en: "%{file}: %{key} is not an sge option - ignored"
+  ru: "%{file}: %{key} — не параметр sge, пропущен"
+  fr: "%{file} : %{key} n'est pas une option de sge — ignorée"
+  de: "%{file}: %{key} ist keine Option von sge - ignoriert"
+  zh: "%{file}：%{key} 不是 sge 的选项——已忽略"
+  ja: "%{file}：%{key} は sge のオプションではありません。無視します"
+cfg.display:
+  en: "Config [%{count}] loaded from: %{file}, %{loaded}/%{total}"
+  ru: "Конфигурация [%{count}] загружена из: %{file}, %{loaded}/%{total}"
+  fr: "Configuration [%{count}] chargée depuis : %{file}, %{loaded}/%{total}"
+  de: "Konfiguration [%{count}] geladen aus: %{file}, %{loaded}/%{total}"
+  zh: "配置 [%{count}] 加载自：%{file}，%{loaded}/%{total}"
+  ja: "設定 [%{count}] の読み込み元：%{file}、%{loaded}/%{total}"

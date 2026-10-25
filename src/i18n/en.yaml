@@ -1,3 +1,0 @@
-cl:
-  unknown: "Unknown command: {cmd}. {$usage_hint}"
-  usage_hint: "See 'sge help' for the commands and options."

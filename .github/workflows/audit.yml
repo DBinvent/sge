@@ -28,9 +28,17 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-audit
-      # no Cargo.lock in the repository: the one a build would resolve today
-      - run: cargo generate-lockfile
+      # the committed Cargo.lock, which the docker image builds with --locked: first that
+      # it is still Cargo.toml's - a build would refuse one that is not - then its crates
+      - run: cargo metadata --locked --format-version 1 > /dev/null
       - run: cargo audit
+      # and what a build resolving today would get, as a warning: an advisory with a fix
+      # released that the lock has not taken yet - cargo update takes it
+      - name: cargo audit, freshly resolved (warning only)
+        continue-on-error: true
+        run: |
+          cargo generate-lockfile
+          cargo audit
 
   geiger:
     runs-on: ubuntu-latest

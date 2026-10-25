@@ -1,0 +1,452 @@
+# [i18n] Nicht geprüfte Übersetzung von en_clc.yaml: Im Zweifel gilt die englische Fassung.
+# Korrekturen willkommen: https://github.com/DBinvent/sge/tree/main/src/i18n
+name: sge
+version: "local_build"
+author: DBinvent
+about: |
+
+ Protokollierung ausgeführter SQL-Skripte und Bereitstellung von PostgreSQL-Datenbanken anhand einer YAML-Schemadefinition.
+ Mehr dazu: 'sge help migrate'.
+
+ Diese Übersetzung wurde nicht geprüft. Im Zweifel lesen Sie die englische Fassung (LANG=en sge help)
+ und reichen Sie eine Korrektur ein: https://github.com/DBinvent/sge/tree/main/src/i18n
+usage: |
+  sge [OPTION]... [BEFEHL]
+  Beginnen Sie mit 'sge help migrate', danach 'sge help' und 'sge help snapshot'.
+
+subcommands:
+    - migrate:
+        about: "Datenbankmigration mit ETL bis zu einer bestimmten Version: führt alle passenden Skripte aus. Beispiele: https://github.com/DBinvent/sge/tree/main/examples"
+        help: |
+          Migriert die Datenbank bis zur Version aus '--target' ODER
+          aus der Option einer einzelnen Phase: '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy',
+          mit den Skripten aus '--source' (ohne Unterverzeichnisse, wenn '--source_recur' ausgeschaltet ist)
+          in die Datenbank aus '--db_name'; das Ausführungsprotokoll wird in '--logdb_name' und/oder in '--db_name' gespeichert, wenn '--logdb_name' nicht gesetzt und '--logdb' konfiguriert ist.
+          Datenbank und Datenbankbenutzer werden bei Bedarf angelegt, wenn '--createdb' gesetzt ist und die Zugangsdaten '--createdb_xxx' richtig konfiguriert sind, unabhängig von '--dry_run'.
+          Wer die Migration ausführt, wird mit dem Wert von '--executed_by' protokolliert.
+          Auch '--script_tag', '--db_target' und '--db_catalog' werden gespeichert, wenn sie in Optionen oder Konfiguration gesetzt sind. Diese Werte sind in einer Microservice-Architektur (siehe dbinvent.com/sge) und bei der Orchestrierung von Umgebungen nützlich.
+
+          Die Ausführungsreihenfolge ist: (P)->(S)->(V)->(R)->(after)
+
+          d. h. (P)reDeploy SQL — vorbereitende Skripte, (S)chema YAML — Schema, (V)ersion SQL — versionierte Skripte, (R)e-runable SQL — wiederholbare Skripte, (a)fter (each) — SQL nach (jeder) Migration.
+          Das (P)reDeploy SQL wird vor dem (S)chema YAML ausgeführt.
+          Das (S)chema YAML wird mit dem Information Schema der Datenbank verglichen, und fehlende Änderungen werden angewendet. Hier werden auch die (D)aten geladen.
+          Das (V)ersion SQL ist der Hauptteil der Upgrade-Dateien: Jede wird genau einmal ausgeführt und in der Verlaufstabelle gespeichert.
+          Das (R)e-runnable SQL eignet sich gut für Upgrades gespeicherter Prozeduren und ist mit '--script_tag' leicht nachverfolgbar.
+          (P) und (V) prüfen die Version und werden ausgeführt, wenn sie in der Zieldatenbank fehlt, bis zur Zielversion.
+          (P)- und (V)-Skripte werden außerdem auf Unverändertheit geprüft: Hat sich ein Skript geändert und ist '--checksum' gesetzt, schlägt die Migration fehl.
+          Das (S)-Skript prüft die Zielversion und wendet Änderungen an, die in der Zieldatenbank fehlen.
+          Das (R)-Skript prüft die Prüfsumme der Datei und wird ausgeführt, wenn sich die Datei geändert hat und noch nicht auf der Datenbank lief.
+          'after.sql' und 'after_each.sql' (Namen konfigurierbar) werden immer ausgeführt, aber nicht im Verlauf gespeichert.
+          '--config_file' oder '-c': eine Textdatei mit allen Optionen nach Namen (ohne Präfix --). Optionen der Befehlszeile haben Vorrang vor der Datei.
+          '--snapshot_data' und '--etl' laden Daten (ETL) zusammen mit dem YAML-Schema.
+
+          Beispiel für ETL-Regeln mit einer YAML-Datei mit zwei Tabellen, table_a und table_b, deren Feld 'table.etl.file' auf eine CSV-Datei zeigt:
+           > sge --etl=skip --snapshot_data=table_a --source_dir=./sql migrate
+           >> Kein CSV für table_a. table_b.etl.file wird aus dem Verzeichnis ./sql/ geladen.
+
+           > sge --etl=clean --snapshot_data=table_a --source_dir=./sql --snapshot_to=./data  migrate
+           >> Regel 'clean' für table_a (Überzähliges wird gelöscht), 'apply' für table_b. CSV-Dateien werden in ./data/ gesucht.
+
+           > sge --etl=force --snapshot_data=table_a  migrate
+           >> Regel 'force' für table_a (Vorhandenes wird aktualisiert), 'apply' für table_b. YAML- und CSV-Dateien werden in ./ gesucht.
+
+           > sge --etl=ignore migrate
+           >> Eine fehlende Datei ist kein Fehler; sonst gilt die Regel 'apply'.
+
+           > sge --etl=skip migrate
+           >> Keine ETL-Aufgabe für irgendeine Tabelle.
+
+           > sge migrate
+           >> Für table_a und table_b gilt die Standardregel 'apply'.
+           >> Die Datensätze stammen aus den CSV-Dateien in table.etl.file, relativ zum aktuellen Verzeichnis.
+           >> Die CSV-Datei muss eine Kopfzeile haben.
+
+          '--dry_run': keine Änderung an der Datenbank.
+
+          Weitere Optionen: 'sge help'.
+
+          Mehr Informationen und Best Practices: https://www.dbinvent.com/sge
+
+    - prepare:
+        about: "Legt eine Verlaufstabelle an, um die Ausführung von Skripten nachzuverfolgen"
+        help: "Legt die Verlaufstabelle '--table' im Schema '--schema' der Datenbank '--logdb_name' an, falls gesetzt, sonst in '--db_name'. '--dry_run': keine Änderung an der Datenbank. Weitere Optionen: 'sge help'."
+    - snapshot:
+        about: "Schema-Snapshot in die Datei '--snapshot_to', im Format yaml oder json."
+        help: |
+          Schema-Snapshot der Datenbank in eine Datei (oder ein Verzeichnis) '--snapshot_to', im Format yaml oder json.
+
+          '--snapshot_version' legt die Nummer in D<Nummer>__db_name.yaml fest.
+
+          '--snapshot_data' legt die Tabellen fest, deren Daten zusammen mit dem YAML-Schema exportiert werden (ETL, Extraktion).
+
+          '--etl' zusammen mit '--snapshot_data' wird in 'sge migrate' verwendet, um Daten in die Zieldatenbank zu laden (ETL).
+
+          Hinweis: Aus pg_catalog und information_schema lassen sich nicht alle Spalteninformationen übernehmen,
+          die für eine genaue Übereinstimmung mit einem von Hand geschriebenen YAML-Schema nötig wären.
+          Snapshot und ursprüngliche YAML-Datei können daher in manchen Fällen abweichen.
+
+          Einige Typen, etwa Arrays, werden im Snapshot nicht unterstützt.
+
+          Weitere Optionen: 'sge help'.
+    - info:
+        about: "Gibt den Bereitstellungsstatus und die Versions-Tags im JSON-Format aus. Siehe '--info_format'."
+        help: "Gibt den Bereitstellungsstatus und die Versions-Tags im JSON-Format aus. Siehe '--info_format'."
+args:
+    - db_url:
+        long: db_url
+        takes_value: true
+        help: |
+            Die URL wird in Datenbankname, Host usw. zerlegt. Bereits anders gesetzte Werte (auch über Umgebungsvariablen) haben Vorrang.
+            Format: 'postgres://' (siehe https://www.postgresql.org/docs/current/libpq-connect.html) ODER durch Leerzeichen getrennte key=value-Paare
+    - db_name:
+        long: db_name
+        default_value: $USER
+        help: "Name der PostgreSQL-Datenbank"
+    - db_host:
+        long: db_host
+        default_value: /var/run/postgresql
+        help: "PostgreSQL-Host"
+    - db_port:
+        long: db_port
+        default_value: "5432"
+        help: "PostgreSQL-Port"
+    - db_user:
+        long: db_user
+        default_value: $USER
+        help: "Datenbankbenutzer; standardmäßig der aktuelle Benutzer $USER"
+    - db_password:
+        long: db_password
+        takes_value: true
+        help: "Passwort oder SSL-Zertifikate (siehe Optionen db_sslxxx)"
+    - db_sslmode:
+        long: db_sslmode
+        default_value: verify-full
+        help: "SSL-Modus (sslmode)"
+    - db_sslrootcert:
+        long: db_sslrootcert
+        takes_value: true
+        help: "Stammzertifikat (CA) des Servers: /path/to/server-ca.crt"
+    - db_sslcert:
+        long: db_sslcert
+        takes_value: true
+        help: "Client-Zertifikat: /path/to/client.crt"
+    - db_sslkey:
+        long: db_sslkey
+        takes_value: true
+        help: "Client-Schlüssel: /path/to/client.key"
+    - logdb:
+        long: logdb
+        default_value: "copy"
+        possible_values: [primary, copy]
+        help: "Rolle der Verlaufsdatenbank: primary ODER copy. Bei primary wird die Verlaufstabelle nicht in der Hauptzieldatenbank angelegt, stattdessen dient die Verlaufsdatenbank."
+    - logdb_url:
+        long: logdb_url
+        takes_value: true
+        help: "Die URL wird in Datenbankname, Host usw. zerlegt. Bereits anders gesetzte Werte haben Vorrang"
+    - logdb_name:
+        long: logdb_name
+        takes_value: true
+        help: "Name der Verlaufsdatenbank. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - logdb_host:
+        long: logdb_host
+        default_value: /var/run/postgresql
+        help: "Host der Verlaufsdatenbank. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - logdb_port:
+        long: logdb_port
+        default_value: "5432"
+        help: "Port der Verlaufsdatenbank. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - logdb_user:
+        long: logdb_user
+        takes_value: true
+        help: "Benutzer der Verlaufsdatenbank. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - logdb_password:
+        long: logdb_password
+        takes_value: true
+        help: "Passwort oder SSL-Zertifikate der Verlaufsdatenbank (siehe Optionen xx_sslxxx)"
+    - logdb_sslmode:
+        long: logdb_sslmode
+        default_value: "verify-full"
+        takes_value: true
+        help: "SSL-Modus der Verlaufsdatenbank. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - logdb_sslrootcert:
+        long: logdb_sslrootcert
+        takes_value: true
+        help: "SSL-Stammzertifikat der Verlaufsdatenbank, z. B. /path/to/server-ca.crt. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - logdb_sslcert:
+        long: logdb_sslcert
+        takes_value: true
+        help: "SSL-Zertifikatsdatei der Verlaufsdatenbank, z. B. /path/to/client.crt. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - logdb_sslkey:
+        long: logdb_sslkey
+        takes_value: true
+        help: "SSL-Schlüsseldatei der Verlaufsdatenbank: /path/to/client.key. Wenn nicht gesetzt, gilt die Konfiguration 'db_***'"
+    - target:
+        long: target
+        default_value: "*"
+        help: "Zielversion, bis zu der Dateien für die Migration ausgewählt werden. Standardwert für '--pre_deploy', '--schema_deploy', '--version_deploy', '--rr_deploy'."
+    - pre_deploy:
+        long: pre_deploy
+        default_value: "*"
+        help: |
+            Auswahl der (P)re-Deploy-Dateien — vorbereitende Skripte: die mit passender Version; bei der Ausführung wird geprüft, welche noch fehlen. Sie laufen vor der (S)chema-Datei.
+            '--target' legt den Standardwert für die Migration fest.
+    - schema_deploy:
+        long: schema_deploy
+        default_value: "*"
+        help: |
+            Auswahl der (S)chema-Dateien — bereitzustellende Schemas, bis zur Zielversion (* — alle).
+            YAML-Schemadateien werden eingelesen, mit dem Information Schema der Datenbank verglichen, und fehlende Spalten werden den Tabellen hinzugefügt.
+            Vorhandene Spalten werden weder geändert noch gelöscht.
+
+            '--target' legt den Standardwert für die Migration fest.
+    - checksum:
+        long: checksum
+        default_value: "true"
+        help: "Bereitstellung schlägt fehl, wenn die Prüfsummen der (P)re- und (V)ersion-Skripte zwischen den bereits bereitgestellten und protokollierten und den im Quellverzeichnis gefundenen abweichen. So bleiben die Dateien in allen Umgebungen gleich."
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - rr_deploy:
+        long: rr_deploy
+        default_value: "*"
+        help: |
+            Auswahl der (R)e-runable-Dateien — wiederholbare Skripte. Bei Dateien mit passender Version wird die Prüfsumme geprüft: Lief die Datei noch nicht oder hat sie sich geändert, wird das Skript ausgeführt.
+            '--target' legt den Standardwert für die Migration fest.
+    - schema:
+        long: schema
+        default_value: public
+        help: "Schema, in dem die Verlaufstabelle der Bereitstellungen ('table') liegt"
+    - schema_transaction:
+        long: schema_transaction
+        default_value: file
+        help: |
+          Überschreibt die Option database.schema.table.transaction der (S)chema-Datei
+
+          - file: (Standard) die (S)chema-Datei läuft in einer einzigen Transaktion. Die Datei wird nur als OK markiert, wenn alle ihre Änderungen angewendet wurden — oder keine.
+
+          - table: alle Änderungen jeder Tabelle in einer eigenen Transaktion.
+
+          - retry: ALTER-Änderungen werden wiederholt, wenn die Sperre nicht binnen einer Sekunde zu bekommen ist, bis zu 100 Mal
+
+          Der Wert der Option überschreibt den Wert aus der (S)chema-Datei bei der Migration.
+    - version_transaction:
+        long: version_transaction
+        takes_value: true
+        help: |
+          Überschreibt den Ausführungsmodus der (V)ersion-Datei in psql:
+
+          - single: (Standard) die (V)ersion-Datei läuft mit der psql-Option --single-transaction.
+
+          - statement: psql läuft ohne --single-transaction. Das geht auch mit einer ersten Dateizeile mit dem Wert 'false', etwa: --single-transaction=false
+    - table:
+        long: table
+        default_value: sge_history
+        help: "Name der Verlaufstabelle der Bereitstellungen in 'schema'"
+    - source_dir:
+        long: source_dir
+        default_value: "./"
+        help: "Verzeichnis der Skripte; Unterverzeichnisse werden mit <source_recur> durchsucht"
+    - source_git:
+        long: source_git
+        takes_value: true
+        help: "URL eines Git-Repositorys als Skriptquelle; leer: <source_dir> auf der Festplatte"
+    - source_git_ref:
+        long: source_git_ref
+        takes_value: true
+        help: "Branch, Tag oder Commit für die Bereitstellung; standardmäßig HEAD des entfernten Repositorys"
+    - source_git_dir:
+        long: source_git_dir
+        takes_value: true
+        help: "Unterverzeichnis im Repository mit den Skripten"
+    - source_git_cache:
+        long: source_git_cache
+        takes_value: true
+        help: "Ablageort der Klone; standardmäßig <tmp>/sge-git"
+    - source_git_depth:
+        long: source_git_depth
+        takes_value: true
+        default_value: "1"
+        help: "Tiefe des flachen Klons (shallow clone); 0 holt den gesamten Verlauf"
+    - source_git_ssh_key:
+        long: source_git_ssh_key
+        takes_value: true
+        help: "Identitätsdatei für eine Git-URL über ssh; leer: ssh-agent übernimmt"
+    - source_git_known_hosts:
+        long: source_git_known_hosts
+        takes_value: true
+        help: "known_hosts-Datei für Git über ssh; standardmäßig neben <source_git_cache>"
+    - source_git_credentials:
+        long: source_git_credentials
+        takes_value: true
+        help: "Pfad zu einer Git-Zugangsdatendatei (im Format, das `git credential-store` schreibt) für eine http(s)-Quelle. Ein PFAD, nie ein Token: argv ist für jeden lokalen Benutzer lesbar."
+    - source_zip:
+        long: source_zip
+        takes_value: true
+        help: "Zip-Archiv als Skriptquelle: für den Lauf nach <source_zip_tmp>/<Archivname>/ entpackt und an dessen Ende entfernt, ob erfolgreich oder nicht; leer: <source_dir> auf der Festplatte"
+    - source_zip_dir:
+        long: source_zip_dir
+        takes_value: true
+        help: "Unterverzeichnis im Archiv mit den Skripten"
+    - source_zip_tmp:
+        long: source_zip_tmp
+        takes_value: true
+        help: "Wohin Archive entpackt werden; standardmäßig das temporäre Systemverzeichnis"
+    - source_zip_max_mb:
+        long: source_zip_max_mb
+        takes_value: true
+        default_value: "1024"
+        help: "Höchstgröße eines entpackten Archivs, in MiB"
+    - source_recur:
+        long: source_recur
+        default_value: "true"
+        help: "Verzeichnis rekursiv durchsuchen"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - executed_by:
+        long: executed_by
+        takes_value: true
+        help: "Name des Benutzers, der die Migration ausführt"
+    - script_tag:
+        long: script_tag
+        takes_value: true
+        help: "Tag für die angewendeten Skripte (Zeilen im Verlauf)"
+    - db_target:
+        long: db_target
+        takes_value: true
+        help: "Das Ziel (target) ist ein Datenbankname; eine leere Zeichenkette, wenn die Verlaufstabelle in derselben Datenbank liegt; ODER Umgebung (dev|prod) + Host (Knoten) + Datenbank für die Orchestrierung."
+    - db_catalog:
+        long: db_catalog
+        takes_value: true
+        help: "Name einer Gruppe von Datenbankschemas / Modulen / Microservices."
+    - version_deploy:
+        long: version_deploy
+        default_value: "*"
+        help: "Stellt (V)ersion-Dateien bis zur Zielversion bereit (* — alle)"
+    - dry_run:
+        long: dry_run
+        default_value: "false"
+        help: |
+          Erzeugt den gesamten SQL-Code, führt ihn aber nicht auf der Datenbank aus (AUSSER 'CREATE DATABASE' / 'CREATE ROLE'), und protokolliert alle Versuche, Skriptdateien auszuführen.
+          Um 'CREATE DATABASE'/'CREATE ROLE' zu vermeiden, entfernen Sie die Option '--createdb' oder setzen Sie sie auf false.
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - dry_run_to:
+        long: dry_run_to
+        takes_value: true
+        help: "Datei, in die das erzeugte SQL-Skript geschrieben wird"
+    - out_format:
+        long: snapshot_format
+        default_value: yaml
+        possible_values: [yaml, json]
+        help: "Format der vom Befehl 'snapshot' erzeugten Schemainformationen; siehe auch die Option '--snapshot_to'."
+    - snapshot_to:
+        long: snapshot_to
+        takes_value: true
+        help: |
+          Datei für den Export der Datenbankstruktur. Wird vom Befehl snapshot verwendet.
+
+          '--snapshot_version' überschreibt die Nummer 'D<next>__' im Namen der erzeugten Datei.
+
+          Ist der Wert ein Verzeichnis, heißt die Datei darin 'D<next>__<database_name>.yaml'.
+    - snapshot_version:
+        long: snapshot_version
+        help: |
+          Überschreibt die Versionsnummer in den Namen der von '--snapshot_to' und '--snapshot_data' erzeugten Dateien.
+        takes_value: true
+    - snapshot_data:
+        long: snapshot_data
+        takes_value: true
+        help: |
+          Kommagetrennte Namen der zu exportierenden Tabellen.
+
+          Dateiname: 'D<next>__<schema_name>_<table_name>.csv'.
+
+          Die Datei wird in einem Verzeichnis 'snapshot_data' oder im aktuellen Verzeichnis abgelegt.
+
+          Der Platzhalter (*) ist als Tabellenname erlaubt.
+
+          '--snapshot_version' überschreibt die Nummer 'D<next>__' im Namen der erzeugten Datei.
+
+          Konfiguration für die Migration: siehe '--etl'.
+
+          Optional: nach einem Doppelpunkt eine Sicht (View), die statt der Tabelle gelesen wird.
+#          Beispiel: table_a,schema.table_b,table_c:view_c,schema.table_d:schema.view_d
+    - etl:
+        long: etl
+        help: |
+          ETL-Aktion bei der Migration: lädt Daten aus der CSV-Datei, die im Feld 'table.etl.file' der YAML-Schemadatei angegeben ist.
+          Hat der Name der CSV-Datei die Form 'D<Nummer oder Version>__', bestimmt die Nummer die Ladereihenfolge der Daten. Das ist keine Zielversion der Bereitstellung.
+
+          Ist '--snapshot_data' gesetzt, wird die ETL-Regel für diese Tabellen überschrieben.
+
+          Die Datendateien im YAML-Feld 'table.etl.file' sind relative CSV-Dateinamen.
+          Sie werden in '--snapshot_to' gesucht oder, wenn '--snapshot_to' nicht gesetzt ist, in '--source_dir'.
+          ETL tut nichts, wenn sich die Datendatei seit der letzten erfolgreichen Migration nicht geändert hat.
+
+          Regeln:
+
+          - clean: einfügen ODER Felder aktualisieren, wenn der Datensatz mit diesem Primärschlüssel existiert; Datensätze, die nicht in der Datei stehen, werden aus der Tabelle gelöscht.
+
+          - force: einfügen ODER Felder aktualisieren, wenn der Datensatz mit diesem Primärschlüssel existiert. Ohne Primärschlüssel werden nur fehlende Datensätze eingefügt.
+
+          - apply: einfügen ODER überspringen, wenn der Datensatz mit diesem Primärschlüssel existiert.
+
+          - ignore: eine fehlende Datei ist kein Fehler; sonst gilt die Regel 'apply'.
+
+          - skip: überhaupt keine Daten laden.
+
+        default_value: "apply"
+        takes_value: true
+        possible_values: [clean, force, apply, ignore, skip]
+# todo add extended CSV format
+# todo add etl - transform on load i.e. obfuscate rules file as mapping (table)field -> pwd_rule | email_rule | etc OR call python script
+    - config_file:
+        long: config
+        short: c
+        takes_value: true
+        help: |
+            Lädt alle Optionen aus einer Konfigurationsdatei (Trennzeichen : oder =);
+            Optionen der Befehlszeile haben Vorrang vor denen aus der Datei.
+
+            Ist eine Option an keiner der beiden Stellen gesetzt, wird die Umgebungsvariable (Name in GROSSBUCHSTABEN) gesucht.
+
+            Fehlt auch diese, gilt der Standardwert (falls vorhanden).
+
+            Unterstützt: YAML, Properties, conf, cfg, JSON, env und andere Textformate, in denen Schlüssel und Wert durch ':' oder '=' getrennt sind.
+
+            Der 'Schlüssel' wird kleingeschrieben, beim 'Wert' werden die Anführungszeichen entfernt. Vermeiden Sie mehrzeilige Werte, die nur in der ersten und letzten Zeile in Anführungszeichen stehen!
+
+            Hinweis: zur weiteren Rangfolge siehe '--db_url' und '--logdb_url'
+    - after:
+        long: after
+        default_value: "after.sql"
+        takes_value: true
+        help: "Skript, das nach erfolgreicher Migration und dem Festschreiben des Verlaufs gesucht und ausgeführt wird. Fehlt es, ist das kein Fehler. Seine Ausführung wird nicht in der Verlaufstabelle gespeichert."
+    - after_each:
+        long: after_each
+        default_value: "after_each.sql"
+        takes_value: true
+        help: "Skript, das nach jeder Version gesucht und ausgeführt wird. Fehlt es, ist das kein Fehler. Seine Ausführung wird nicht in der Verlaufstabelle gespeichert."
+    - createdb:
+        long: createdb
+        default_value: "false"
+        help: "Legt die Datenbank an, wenn db_name/logdb_name nicht existiert: mit denselben Zugangsdaten über die Datenbank postgres"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - verbose:
+        long: verbose
+        default_value: "false"
+        help: "Schaltet die DEBUG-Protokollierung ein."
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - createdb_user:
+        long: createdb_user
+        default_value: postgres
+        help: "Datenbankbenutzer für den Schritt 'Create DB' (Anlegen der Datenbank)."
+    - createdb_pwd:
+        long: createdb_pwd
+        takes_value: true
+        help: "Passwort des Benutzers für den Schritt 'Create DB'. Wenn nicht gesetzt, gilt db_sslxxx."
+    - createdblog_user:
+        long: createdblog_user
+        default_value: postgres
+        help: "Datenbankbenutzer für den Schritt 'Create LOGDB' (Anlegen der Verlaufsdatenbank). Gilt, wenn logdb_name gesetzt ist."
+    - createlogdb_pwd:
+        long: createlogdb_pwd
+        takes_value: true
+        help: "Passwort des Benutzers für den Schritt 'Create LOGDB'. Wenn nicht gesetzt, gilt logdb_sslxxx."

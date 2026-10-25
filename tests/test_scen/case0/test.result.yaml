@@ -56,7 +56,7 @@ database:
       - column:
           name: ok
           type: bool
-          defaultValue: 'false'
+          defaultValue: "false"
           constraint:
             nullable: false
       - column:
@@ -65,19 +65,19 @@ database:
       - column:
           name: took_sec
           type: int8
-          defaultValue: '0'
+          defaultValue: "0"
           constraint:
             nullable: false
       - column:
           name: times
           type: int4
-          defaultValue: '1'
+          defaultValue: "1"
           constraint:
             nullable: false
       - column:
           name: size
           type: int8
-          defaultValue: '0'
+          defaultValue: "0"
           constraint:
             nullable: false
       owner: $USER

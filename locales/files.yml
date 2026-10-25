@@ -1,0 +1,30 @@
+# [i18n] see zip.yml - the scripts directory
+_version: 2
+files.read:
+  en: "SGE-E201 reading a directory entry: %{err}"
+  ru: "SGE-E201 чтение элемента каталога: %{err}"
+  fr: "SGE-E201 lecture d'une entrée de dossier : %{err}"
+  de: "SGE-E201 Lesen eines Verzeichniseintrags: %{err}"
+  zh: "SGE-E201 读取目录项时出错：%{err}"
+  ja: "SGE-E201 ディレクトリ項目の読み込み：%{err}"
+files.dir:
+  en: "SGE-E202 cannot read the directory %{dir}: %{err}"
+  ru: "SGE-E202 не удаётся прочитать каталог %{dir}: %{err}"
+  fr: "SGE-E202 impossible de lire le dossier %{dir} : %{err}"
+  de: "SGE-E202 das Verzeichnis %{dir} lässt sich nicht lesen: %{err}"
+  zh: "SGE-E202 无法读取目录 %{dir}：%{err}"
+  ja: "SGE-E202 ディレクトリ %{dir} を読み込めません：%{err}"
+files.no_version:
+  en: "SGE-E203 no version in the file name, as in V1_2__name.sql: %{file}"
+  ru: "SGE-E203 в имени файла нет версии, как в V1_2__name.sql: %{file}"
+  fr: "SGE-E203 pas de version dans le nom du fichier, comme dans V1_2__name.sql : %{file}"
+  de: "SGE-E203 keine Version im Dateinamen, wie in V1_2__name.sql: %{file}"
+  zh: "SGE-E203 文件名中没有版本（如 V1_2__name.sql）：%{file}"
+  ja: "SGE-E203 ファイル名にバージョンがありません（V1_2__name.sql のように）：%{file}"
+files.version:
+  en: "SGE-E204 not a version: %{version}: %{err}"
+  ru: "SGE-E204 не версия: %{version}: %{err}"
+  fr: "SGE-E204 pas une version : %{version} : %{err}"
+  de: "SGE-E204 keine Version: %{version}: %{err}"
+  zh: "SGE-E204 不是版本号：%{version}：%{err}"
+  ja: "SGE-E204 バージョンではありません：%{version}：%{err}"

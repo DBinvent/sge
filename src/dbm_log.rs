@@ -101,7 +101,7 @@ type SortedStatementLog = HashMap<String, HashMap<String, LogVer>>;
 /// [yaml] the YAML sge prints: the history listing and the snapshot (`info`)
 fn to_yaml<T: Serialize>(value: &T) -> Result<String, String> {
     serde_saphyr::to_string(value)
-        .map_err(|e| format!("converting result to YAML format with error: {}", e))
+        .map_err(|e| tr!("log.yaml", err = e))
 }
 
 impl StatementLog {
@@ -112,7 +112,7 @@ impl StatementLog {
         let logs = StatementLog::load_ok(log_client, cfg).await?;
         if cfg.get("out_format").as_str() == "json" {
             serde_json::to_string(&logs)
-                .map_err(|e| format!("converting result to JSON format with error: {}", e))
+                .map_err(|e| tr!("log.json", err = e))
         } else {
             to_yaml(&logs)
         }
@@ -155,14 +155,14 @@ impl StatementLog {
                         }
                         Ok(res)
                     }
-                    Err(e) => Err(format!("trying select: [{}] {}", sql, e)),
+                    Err(e) => Err(tr!("log.select", sql = sql, err = crate::dbm_pg::pg(&e))),
                 }
             }
             Err(e) => {
                 if dry_run {
                     Ok(res)
                 } else {
-                    Err(format!("trying select [{}] to lock: {}", lock, e))
+                    Err(tr!("log.lock", sql = lock, err = crate::dbm_pg::pg(&e)))
                 }
             }
         }
@@ -228,7 +228,7 @@ impl StatementLog {
 
                 Ok(targets)
             }
-            Err(e) => Err(format!("trying select: [{}] {}", sql, e)),
+            Err(e) => Err(tr!("log.select", sql = sql, err = crate::dbm_pg::pg(&e))),
         }
     }
 
@@ -329,10 +329,7 @@ impl StatementLog {
             } else if self.source_type == 'V' || self.source_type == 'P' {
                 return if cfg.get_bool("checksum", false) {
                     // checksum different
-                    Err(format!(
-                        "Version [{}] script file [{}] checksum deployment mismatch",
-                        self.version, self.source
-                    ))
+                    Err(tr!("log.checksum", version = self.version, file = self.source))
                 } else {
                     Ok(0)
                 };
@@ -376,7 +373,10 @@ impl StatementLog {
             if single_transaction {
                 cmd.arg("-1"); // --single-transaction
             }
-            debug!(log, "executing {} {}...", self.source, match &t { None => "(no history log)", _ => ""} );
+            debug!(log, "{}", match &t {
+                None => tr!("log.executing_no_history", file = self.source),
+                _ => tr!("log.executing", file = self.source),
+            });
             match cmd
                 .arg(format!("--dbname={}", cfg.get("db_name")))
                 .arg(format!("--host={}", cfg.get("db_host")))
@@ -389,7 +389,7 @@ impl StatementLog {
             {
                 Ok(output) => {
                     if output.status.success() {
-                        info!(log, "{}: OK", &self.source);
+                        info!(log, "{}", tr!("log.ok", file = self.source));
                         let msg = trim_output(&output.stdout);
                         if msg.len() > 0 {
                             info!(log, "[{}]", msg);
@@ -406,20 +406,23 @@ impl StatementLog {
                             self.persist(None, t, clog_t).await
                         } else { Ok(0)}
                     } else {
+                        // the history keeps psql's own words: one database's history is
+                        // read in more than one language
                         let msg = format!(
                             "{} : {} {}",
                             &self.source,
                             trim_output(&output.stdout),
                             trim_output(&output.stderr)
                         );
-                        error!(log, "{}", msg);
+                        error!(log, "{}", tr!("log.psql_failed", file = self.source,
+                            out = trim_output(&output.stdout), err = trim_output(&output.stderr)));
                         if persist {
                             self.persist(Some(msg), t, clog_t).await
                         } else { Ok(0)}
                     }
                 }
                 Err(e) => {
-                    error!(log, "psql({}) {}", self.source, e);
+                    error!(log, "{}", tr!("log.psql_start", file = self.source, err = e));
                     if persist {
                         self.persist(Some(e.to_string()), t, clog_t).await
                     } else { Ok(0)}
@@ -468,7 +471,7 @@ impl StatementLog {
             (source_type = 'D' and source = $4)", self.table);
         let rows = t.query(sql.as_str(),
             &[&self.target, &self.source_type.to_string(), &self.version, &self.source],
-        ).await.map_err(|e| format!("{}: {}", sql, e))?;
+        ).await.map_err(|e| tr!("log.history_write", sql = sql, err = crate::dbm_pg::pg(&e)))?;
         let id = if rows.len() > 0 {
             let id: i32 = rows[0].get(0);
             let sql = format!(
@@ -478,7 +481,7 @@ impl StatementLog {
                 self.table);
             let _ = t.execute(sql.as_str(), &[
                     &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.source, &self.size,
-                    &id]).await.map_err(|e| format!("{}: {}", sql, e))?;
+                    &id]).await.map_err(|e| tr!("log.history_write", sql = sql, err = crate::dbm_pg::pg(&e)))?;
             id
         } else {
             let sql = format!(
@@ -488,7 +491,7 @@ impl StatementLog {
                 self.table);
             let r = t.query_one(sql.as_str(), &[&self.target, &self.source_type.to_string(), &self.source, &self.version,
                     &ok, &msg, &took_sec, &self.executed_by, &self.checksum, &self.script_tag, &self.catalog, &self.size,
-                ]).await.map_err(|e| format!("{}: {}", sql, e))?;
+                ]).await.map_err(|e| tr!("log.history_write", sql = sql, err = crate::dbm_pg::pg(&e)))?;
             let id: i32 = r.get(0);
             id
         };
@@ -526,12 +529,12 @@ impl StatementLog {
                     Ok(mut file) => match file.write(sql.as_bytes()) {
                         Ok(i) => {
                             let _ = file.sync_all();
-                            debug!(log, "generated: {} bytes to {}", i, f);
+                            debug!(log, "{}", tr!("log.generated", bytes = i, file = f));
                             Ok(0)
                         }
-                        Err(e) => Err(format!("dump sql to [{}]: {}", f, e)),
+                        Err(e) => Err(tr!("log.dump", file = f, err = e)),
                     },
-                    Err(e) => Err(format!("dump sql to [{}]: {}", f, e)),
+                    Err(e) => Err(tr!("log.dump", file = f, err = e)),
                 }
             }
         }
@@ -716,7 +719,7 @@ impl LoadResult {
             to_yaml(self)
         } else {
             serde_json::to_string(self)
-                .map_err(|e| format!("converting result to JSON format with error: {}", e))
+                .map_err(|e| tr!("log.json", err = e))
         }
     }
 
@@ -809,5 +812,133 @@ mod tests {
         // the tables as they were; the schema's empty owner is schema_guard's to fill in
         let tables = |v: serde_json::Value| v[0]["tables"].clone();
         assert_eq!(tables(serde_json::to_value(&back.list).unwrap()), tables(serde_json::to_value(&lr.database).unwrap()));
+        assert_eq!(LoadResult { database: vec![] }.format(false).unwrap(), "{\"database\":[]}");
+    }
+
+    fn log() -> Logger {
+        Logger::root(slog::Discard, o!())
+    }
+
+    /// a scratch directory of the test's own, with `/` at the end as source_dir has it
+    fn scratch(name: &str) -> String {
+        let d = std::env::temp_dir().join(format!("sge-log-test-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        format!("{}/", d.display())
+    }
+
+    /// [date] the history's executed_on reads back as it was written
+    #[test]
+    fn a_history_date_reads_back() {
+        let on = chrono::TimeZone::with_ymd_and_hms(&Utc, 2026, 10, 20, 12, 30, 5).unwrap();
+        let mut text = Vec::new();
+        my_date_format::serialize(&on, &mut serde_json::Serializer::new(&mut text)).unwrap();
+        assert_eq!(text, b"\"2026-10-20 12:30:05\"");
+        let de = |s: &str| my_date_format::deserialize(&mut serde_json::Deserializer::from_str(s));
+        assert_eq!(de("\"2026-10-20 12:30:05\"").unwrap(), on);
+        assert!(de("\"20 Oct 2026\"").is_err());
+    }
+
+    /// [dry] `prepare` writes what it would run: to the log, or appended to dry_run_to
+    #[test]
+    fn a_dry_run_appends_what_it_would_run() {
+        let d = scratch("dry");
+        let plan = format!("{}plan.sql", d);
+        assert_eq!(StatementLog::dry_store(None, "select 1;".into(), &log()), Ok(0));
+        assert_eq!(StatementLog::dry_store(None, "".into(), &log()), Ok(0));
+        StatementLog::dry_store(Some(plan.clone()), "select 1;\n".into(), &log()).unwrap();
+        ConfigMap::of(&[("dry_run_to", &plan)]).dry_run(vec!["select 2;".into(), "\n".into()]).unwrap();
+        assert_eq!(fs::read_to_string(&plan).unwrap(), "select 1;\nselect 2;\n");
+        let e = StatementLog::dry_store(Some(d.clone()), "x".into(), &log()).unwrap_err();
+        assert!(e.starts_with("SGE-E309 "), "a directory is no file to append to: {}", e);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// [dry] a dry run's deploy writes the script it would run, and runs nothing
+    #[tokio::test]
+    async fn a_dry_run_deploy_writes_the_script_it_would_run() {
+        let d = scratch("drydeploy");
+        fs::write(format!("{}V1__a.sql", d), "select 1;").unwrap();
+        let plan = format!("{}plan.sql", d);
+        let c = ConfigMap::of(&[("source_dir", &d), ("dry_run", "true"), ("dry_run_to", &plan)]);
+        let sl = StatementLog::new(&c).instance('V', &"1".into(), &d, &"V1__a.sql".into());
+        assert_eq!(sl.deploy(&LogSchemaType::new(), &c, None, &mut None, true, &log()).await, Ok(0));
+        assert_eq!(fs::read_to_string(&plan).unwrap(), format!("\\i [{}]V1__a.sql \n", d));
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// [checksum] a version script that changed since it ran is refused with
+    /// checksum=true and passed over without; one unchanged is not run again
+    #[tokio::test]
+    async fn a_changed_version_script_is_refused_only_with_checksum_on() {
+        let d = scratch("checksum");
+        fs::write(format!("{}V1__a.sql", d), "select 1;").unwrap();
+        let off = ConfigMap::of(&[("source_dir", &d)]);
+        let on = ConfigMap::of(&[("source_dir", &d), ("checksum", "true")]);
+        let sl = StatementLog::new(&off).instance('V', &"1".into(), &d, &"V1__a.sql".into());
+        assert_eq!(sl.size, 9);
+        let mut logs = LogSchemaType::new();
+        logs.insert("V1".into(), ("V1__a.sql".into(), sl.checksum.clone()));
+        assert_eq!(sl.deploy(&logs, &on, None, &mut None, true, &log()).await, Ok(0), "unchanged: not run");
+        logs.insert("V1".into(), ("V1__a.sql".into(), "another".into()));
+        assert_eq!(sl.deploy(&logs, &off, None, &mut None, true, &log()).await, Ok(0), "changed, checksum off");
+        let e = sl.deploy(&logs, &on, None, &mut None, true, &log()).await.unwrap_err();
+        assert!(e.starts_with("SGE-E305 "), "{}", e);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// [psql] a script psql cannot run - no server to reach - is logged; with no
+    /// history transaction there is nothing to record it in
+    #[tokio::test]
+    async fn a_script_psql_cannot_run_is_logged() {
+        let d = scratch("psql");
+        fs::write(format!("{}V1__a.sql", d), "select 1;").unwrap();
+        let c = ConfigMap::of(&[("source_dir", &d), ("db_host", "127.0.0.1"), ("db_port", "1"),
+            ("db_name", "none"), ("db_user", "nobody"), ("db_password", "x"), ("db_sslmode", "disable"),
+            ("version_transaction", "single")]);
+        let sl = StatementLog::new(&c).instance('V', &"1".into(), &d, &"V1__a.sql".into());
+        assert_eq!(sl.deploy(&LogSchemaType::new(), &c, None, &mut None, true, &log()).await, Ok(0));
+        assert_eq!(sl.persist_into(Some("e".into()), None).await, Ok(0));
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// [tx] the `--single-transaction=` comment a script may open with: read up to
+    /// the first SQL line; a value that is not `false`, or none, means true
+    #[test]
+    fn the_single_transaction_comment_is_read_from_the_head_of_a_script() {
+        let d = scratch("single");
+        let single = |name: &str, body: &[u8]| {
+            let f = format!("{}{}", d, name);
+            fs::write(&f, body).unwrap();
+            find_single_transaction(&f)
+        };
+        assert!(!single("end.sql", b"-- --single-transaction=false\nselect 1;\n"));
+        assert!(!single("mid.sql", b"-- --single-transaction=false, for the copy below\nselect 1;\n"));
+        assert!(single("short.sql", b"-- --single-transaction=no\nselect 1;\n"));
+        assert!(single("sql.sql", b"select id from some_long_table_name;\n"));
+        assert!(single("binary.sql", b"-- a header comment line\n\xff\xfe not text\n"));
+        assert!(single("none.sql", b""));
+        assert!(find_single_transaction(&format!("{}missing.sql", d)));
+        let _ = fs::remove_dir_all(d);
+    }
+
+    /// a history message is cut to the column's width
+    #[test]
+    fn a_message_is_cut_to_its_column() {
+        assert_eq!(tlim(&"abcdef".to_string(), 3), "abc");
+        assert_eq!(tlim(&"ab".to_string(), 3), "ab");
+        assert_eq!(trim_output(&b" ^\nERROR: x\n ".to_vec()), "ERROR: x");
+    }
+
+    /// [md5] a script that cannot be read has no checksum, rather than a wrong one
+    #[test]
+    fn an_unreadable_script_has_no_checksum() {
+        struct Broken;
+        impl Read for Broken {
+            fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("broken"))
+            }
+        }
+        assert_eq!(hash_md5(&mut Broken), "");
     }
 }

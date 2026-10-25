@@ -1,0 +1,188 @@
+[NAME]
+sge \- SQL スクリプトの記録と YAML による PostgreSQL スキーマのデプロイ
+[examples]
+.PP
+以下の各例は、sge のソースにある実行可能なテストケースでもあります：
+.br
+.UR https://github.com/DBinvent/sge/tree/main/examples
+.UE
+.PP
+オプションはコマンドラインに書くか、\fB\-c\fR で指定する設定ファイルに書きます。設定ファイルは 1 行に 1 つの \fI名前\fR=\fI値\fR で、名前には先頭の \fB\-\-\fR を付けず、\fB#\fR はコメントです。コマンドラインは設定ファイルより優先され、どちらにも設定されていないオプションは、名前を大文字にした環境変数から読み込まれます：\fB\-\-db_name\fR なら \fBDB_NAME\fR です。
+.SS "1. データベースのマイグレーション"
+.EX
+sge \-c app.cfg migrate
+.EE
+.PP
+\fIapp.cfg\fR の内容：
+.PP
+.EX
+db_host=localhost
+db_name=app
+db_user=app
+db_password=secret
+source_dir=./sql
+.EE
+.PP
+sge は \fB\-\-source_dir\fR のスクリプトをサブディレクトリも含めて読み込み（\fB\-\-source_recur=no\fR で無効化）、バージョンごとに適用して、各スクリプトを \fIsge_history\fR テーブルに記録します。ファイル名にはスクリプトの種類、バージョン、名前が含まれます：\fIV1_2__orders.sql\fR はバージョン 1.2 です。同じバージョンの中では、種類は次の順に実行されます：
+.TP
+.B P
+事前 SQL。一度だけ実行
+.TP
+.B S
+YAML スキーマ（13）。データベースと比較し、差分を適用。そのデータも一緒に読み込まれます（12）
+.TP
+.B V
+バージョン SQL。一度だけ実行
+.TP
+.B R
+再実行可能な SQL。ファイルが変わるたびに再び実行
+.TP
+.B after
+各バージョンの後に \fIafter_each.sql\fR、マイグレーション全体の後に \fIafter.sql\fR。毎回実行され、記録はされません（名前は \fB\-\-after_each\fR と \fB\-\-after\fR で指定）
+.PP
+P または V のスクリプトは、実行後にファイルが変更されているとマイグレーションを失敗させます。\fB\-\-checksum=no\fR でこの確認を無効にできます。
+.SS "2. まず SQL を確認する"
+.EX
+sge \-c app.cfg \-\-dry_run=yes \-\-dry_run_to=plan.sql migrate
+.EE
+.PP
+すべての文を \fIplan.sql\fR に書き出し、どれも実行しません。ただし \fB\-\-createdb\fR が設定されていれば \fBCREATE DATABASE\fR と \fBCREATE ROLE\fR は実行します。\fB\-\-dry_run\fR は値を取ります：単独で書くと、次の語 \fBmigrate\fR をその値として受け取ってしまいます。
+.SS "3. データベースとその所有者を作成する"
+.EX
+sge \-c app.cfg \-\-createdb=yes \-\-createdb_user=postgres \e
+    \-\-createdb_pwd=secret prepare
+.EE
+.PP
+\fB\-\-createdb_user\fR として接続し、ロール \fB\-\-db_user\fR とデータベース \fB\-\-db_name\fR がなければ作成し、履歴テーブルを作成します。\fBprepare\fR はスクリプトを実行しません。\fB\-\-createdb\fR は \fBmigrate\fR でも使えます。
+.SS "4. 指定バージョンまでマイグレーションする"
+.EX
+sge \-c app.cfg \-\-target=1 migrate
+sge \-c app.cfg \-\-target=2 migrate
+.EE
+.PP
+1 回目の実行はバージョン 1 の後で止まり、2 回目はデータベースをバージョン 2 まで進めます。\fB\-\-target\fR（デフォルトは \fB*\fR）を指定しなければ、sge は見つかったすべてのバージョンを適用します。
+.SS "5. 環境変数または URL で接続する"
+.EX
+DB_HOST=localhost DB_NAME=app DB_USER=app DB_PASSWORD=secret sge prepare
+sge \-\-db_url=postgresql://app:secret@localhost:5432/app migrate
+.EE
+.SS "6. git からのスクリプト"
+.EX
+sge \-c app.cfg \-\-source_git=https://example.com/team/db.git \e
+    \-\-source_git_ref=v1.4 \-\-source_git_dir=sql migrate
+.EE
+.PP
+リポジトリをローカルキャッシュ（\fB\-\-source_git_cache\fR）にクローンし、\fIv1.4\fR をチェックアウトして、その \fIsql\fR ディレクトリからスクリプトを読み込みます。解決したコミットは、\fB\-\-script_tag\fR が設定されていなければ各スクリプトのタグとして記録されます。実行のたびに ref を取得し直すので、ブランチは常に最新のコミットをデプロイします。
+.SS "7. zip アーカイブからのスクリプト"
+.EX
+sge \-c app.cfg \-\-source_zip=release\-42.zip \-\-source_zip_dir=sql migrate
+.EE
+.PP
+アーカイブを \fI/tmp/release\-42.zip/\fR に展開し（別のディレクトリは \fB\-\-source_zip_tmp\fR で指定）、その \fIsql\fR ディレクトリからスクリプトを読み込みます。ディレクトリは実行終了時に、成功・失敗を問わず削除されます。ディレクトリの外に出るエントリやシンボリックリンクがあるとアーカイブ全体を拒否し、\fB\-\-source_zip_max_mb\fR（デフォルト 1024）で展開後のサイズを制限します。各スクリプトには、\fB\-\-script_tag\fR が設定されていなければ \fIzip:release\-42.zip@\fR とアーカイブの MD5 の先頭 12 桁の 16 進数がタグとして付きます。1 回の実行のスクリプト取得元は 1 つです：\fB\-\-source_zip\fR と \fB\-\-source_git\fR は同時に指定しません。
+.SS "8. 履歴の保存先と実行のラベル"
+.EX
+sge \-c app.cfg \-\-schema=ops \-\-table=deploy_log \e
+    \-\-script_tag=release\-42 \-\-executed_by=ci migrate
+.EE
+.PP
+履歴を \fIpublic.sge_history\fR ではなく \fIops.deploy_log\fR に保存し、この実行で適用した各スクリプトにタグと実行者を付けます。\fB\-\-db_target\fR と \fB\-\-db_catalog\fR でさらにラベルを付けられます。
+.SS "9. 別のデータベースに履歴を置く"
+.EX
+sge \-c app.cfg \-\-logdb_name=ops migrate
+sge \-c app.cfg \-\-logdb=primary \-\-logdb_name=ops migrate
+.EE
+.PP
+1 つ目は履歴を \fIapp\fR に加えて \fIops\fR にも書き込み（\fB\-\-logdb=copy\fR、デフォルト）、2 つ目は \fIops\fR だけに書き込みます。設定されていない \fB\-\-logdb_\fR\fIxxx\fR オプションは \fB\-\-db_\fR\fIxxx\fR の値を使います。
+.SS "10. デプロイ済みの内容"
+.EX
+sge \-c app.cfg info
+.EE
+.PP
+\fB\-\-db_target\fR と \fB\-\-db_catalog\fR ごとに、各データベースのバージョン、最後の実行が成功したか、そのタグと実行者を出力します：YAML 形式、または \fB\-\-snapshot_format=json\fR で JSON 形式です。
+.SS "11. データベースのスナップショット"
+.EX
+sge \-c app.cfg \-\-snapshot_to=./schema snapshot
+sge \-c app.cfg \-\-snapshot_format=json \-\-snapshot_to=schema.json snapshot
+sge \-c app.cfg \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./schema snapshot
+.EE
+.PP
+データベーススキーマを S ファイルの形式（13）または JSON で書き出します。\fB\-\-snapshot_data\fR を使うと、指定したテーブルの行も CSV ファイルに書き出され、ETL の読み込み（12）にそのまま使えます。カタログからすべての列プロパティが読み戻せるわけではなく、配列など一部の型には対応していないため、スナップショットはデプロイ元の YAML と異なる場合があります。
+.SS "12. スキーマとともにデータを読み込む（ETL）"
+.PP
+S ファイルのテーブルには、読み込む CSV ファイル（ヘッダー行付き）を指定できます：\fBdata_file: D1__customer.csv\fR。\fB\-\-etl\fR はルールを選びます。対象は \fB\-\-snapshot_data\fR に挙げたテーブル、指定がなければすべてのテーブルです：
+.TP
+.B apply
+デフォルト：キーがまだテーブルにない行を挿入
+.TP
+.B force
+挿入し、キーが既にある行は更新
+.TP
+.B clean
+force と同じうえで、ファイルにない行を削除
+.TP
+.B ignore
+apply と同じだが、ファイルがなくてもエラーにしない
+.TP
+.B skip
+何も読み込まない
+.PP
+.EX
+sge \-c app.cfg \-\-etl=clean \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./data migrate
+.EE
+.PP
+\fIshop.customer\fR を clean ルールで、その他のテーブルを apply ルールで読み込み、CSV ファイルは \fI./data\fR から読みます。
+.SS "13. スキーマファイル"
+.PP
+\fIS1__shop.yaml\fR は SchemaGuard YAML 形式で 2 つのテーブルを宣言します。sge は不足しているものを作成し、異なるものを変更しますが、ファイルに書かれていないだけのものは削除しません：
+.PP
+.EX
+database:
+  \- schemaName: shop
+    tables:
+      \- table:
+          tableName: customer
+          description: who buys
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: email
+                type: varchar(250)
+                constraint:
+                  nullable: false
+                index:
+                  unique: true
+      \- table:
+          tableName: orders
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: customer_id
+                type: int
+                constraint:
+                  foreignKey:
+                    references: shop.customer
+            \- column:
+                name: created_on
+                type: timestamp
+                defaultValue: now()
+.EE
+.PP
+\fBreferences\fR は \fIschema.table\fR を指定し、キーはその主キーを参照します。形式は SchemaGuard YAML リファレンスに記載され、受け付けるすべてのフィールドはその検証スキーマにあります：
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/yaml.md
+.UE
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/src/schema.yaml
+.UE
+.PP
+\fBsge help migrate\fR と \fBsge help\fR ですべてのオプションを確認できます。

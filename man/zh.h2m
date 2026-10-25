@@ -1,0 +1,188 @@
+[NAME]
+sge \- SQL 脚本追踪与基于 YAML 的 PostgreSQL 模式部署
+[examples]
+.PP
+下面每个示例也是 sge 源码中一个可运行的测试用例：
+.br
+.UR https://github.com/DBinvent/sge/tree/main/examples
+.UE
+.PP
+选项写在命令行上，或写入用 \fB\-c\fR 指定的配置文件：每行一个 \fI名称\fR=\fI值\fR，名称不带前导 \fB\-\-\fR，\fB#\fR 表示注释。命令行优先于配置文件；两处都未设置的选项从环境变量读取，变量名为选项名的大写形式：\fB\-\-db_name\fR 对应 \fBDB_NAME\fR。
+.SS "1. 迁移数据库"
+.EX
+sge \-c app.cfg migrate
+.EE
+.PP
+其中 \fIapp.cfg\fR 为：
+.PP
+.EX
+db_host=localhost
+db_name=app
+db_user=app
+db_password=secret
+source_dir=./sql
+.EE
+.PP
+sge 读取 \fB\-\-source_dir\fR 中的脚本（包括子目录，\fB\-\-source_recur=no\fR 可关闭），逐个版本地应用，并把每个脚本记录到 \fIsge_history\fR 表。文件名包含脚本类型、版本和名称：\fIV1_2__orders.sql\fR 即版本 1.2。同一版本内，各类型按以下顺序执行：
+.TP
+.B P
+预部署 SQL，只执行一次
+.TP
+.B S
+YAML 模式（13）：与数据库比较，并应用差异；其数据随之加载（12）
+.TP
+.B V
+版本 SQL，只执行一次
+.TP
+.B R
+可重复执行的 SQL，文件每次更改后都会再次执行
+.TP
+.B after
+每个版本之后执行 \fIafter_each.sql\fR，整个迁移之后执行 \fIafter.sql\fR，每次都执行且不记录（由 \fB\-\-after_each\fR 和 \fB\-\-after\fR 指定文件名）
+.PP
+若 P 或 V 脚本的文件在执行后被修改，迁移失败；\fB\-\-checksum=no\fR 关闭此检查。
+.SS "2. 先查看 SQL"
+.EX
+sge \-c app.cfg \-\-dry_run=yes \-\-dry_run_to=plan.sql migrate
+.EE
+.PP
+把每条语句写入 \fIplan.sql\fR，一条也不执行；但设置了 \fB\-\-createdb\fR 时，\fBCREATE DATABASE\fR 和 \fBCREATE ROLE\fR 仍会执行。\fB\-\-dry_run\fR 需要一个值：若单独给出，它会把下一个词 \fBmigrate\fR 当作值。
+.SS "3. 创建数据库及其所有者"
+.EX
+sge \-c app.cfg \-\-createdb=yes \-\-createdb_user=postgres \e
+    \-\-createdb_pwd=secret prepare
+.EE
+.PP
+以 \fB\-\-createdb_user\fR 身份连接，在缺少时创建角色 \fB\-\-db_user\fR 和数据库 \fB\-\-db_name\fR，并创建历史记录表。\fBprepare\fR 不执行任何脚本；\fB\-\-createdb\fR 也可与 \fBmigrate\fR 一起使用。
+.SS "4. 迁移到指定版本"
+.EX
+sge \-c app.cfg \-\-target=1 migrate
+sge \-c app.cfg \-\-target=2 migrate
+.EE
+.PP
+第一次运行在版本 1 之后停止，第二次把数据库推进到版本 2。不设置 \fB\-\-target\fR（默认值为 \fB*\fR）时，sge 应用找到的所有版本。
+.SS "5. 通过环境变量或 URL 连接"
+.EX
+DB_HOST=localhost DB_NAME=app DB_USER=app DB_PASSWORD=secret sge prepare
+sge \-\-db_url=postgresql://app:secret@localhost:5432/app migrate
+.EE
+.SS "6. 来自 git 的脚本"
+.EX
+sge \-c app.cfg \-\-source_git=https://example.com/team/db.git \e
+    \-\-source_git_ref=v1.4 \-\-source_git_dir=sql migrate
+.EE
+.PP
+把仓库克隆到本地缓存（\fB\-\-source_git_cache\fR），检出 \fIv1.4\fR，并从其 \fIsql\fR 目录读取脚本。解析出的提交会记录为每个脚本的标签，除非设置了 \fB\-\-script_tag\fR。每次运行都会重新获取该引用，因此分支总是部署其最新提交。
+.SS "7. 来自 zip 压缩包的脚本"
+.EX
+sge \-c app.cfg \-\-source_zip=release\-42.zip \-\-source_zip_dir=sql migrate
+.EE
+.PP
+把压缩包解压到 \fI/tmp/release\-42.zip/\fR（\fB\-\-source_zip_tmp\fR 可指定其他目录），并从其 \fIsql\fR 目录读取脚本；运行结束时（无论成功与否）删除该目录。若某个条目会落到该目录之外，或是符号链接，则拒绝整个压缩包；\fB\-\-source_zip_max_mb\fR（默认 1024）限制解压后的大小。每个脚本的标签为 \fIzip:release\-42.zip@\fR 加上压缩包 MD5 的前十二位十六进制数字，除非设置了 \fB\-\-script_tag\fR。一次运行只有一个脚本来源：\fB\-\-source_zip\fR 与 \fB\-\-source_git\fR 不能同时给出。
+.SS "8. 历史记录的位置，以及如何标记一次运行"
+.EX
+sge \-c app.cfg \-\-schema=ops \-\-table=deploy_log \e
+    \-\-script_tag=release\-42 \-\-executed_by=ci migrate
+.EE
+.PP
+把历史记录保存在 \fIops.deploy_log\fR 而不是 \fIpublic.sge_history\fR，并为本次运行应用的每个脚本标上标签和执行者；\fB\-\-db_target\fR 和 \fB\-\-db_catalog\fR 可进一步标记。
+.SS "9. 历史记录放在另一个数据库"
+.EX
+sge \-c app.cfg \-\-logdb_name=ops migrate
+sge \-c app.cfg \-\-logdb=primary \-\-logdb_name=ops migrate
+.EE
+.PP
+第一条命令把历史记录同时写入 \fIops\fR 和 \fIapp\fR（\fB\-\-logdb=copy\fR，默认）；第二条只写入 \fIops\fR。未设置的 \fB\-\-logdb_\fR\fIxxx\fR 选项取 \fB\-\-db_\fR\fIxxx\fR 的值。
+.SS "10. 已部署的内容"
+.EX
+sge \-c app.cfg info
+.EE
+.PP
+按 \fB\-\-db_target\fR 和 \fB\-\-db_catalog\fR 输出每个数据库所处的版本、上次运行是否成功、其标签及执行者：格式为 YAML，或使用 \fB\-\-snapshot_format=json\fR 输出 JSON。
+.SS "11. 为数据库生成快照"
+.EX
+sge \-c app.cfg \-\-snapshot_to=./schema snapshot
+sge \-c app.cfg \-\-snapshot_format=json \-\-snapshot_to=schema.json snapshot
+sge \-c app.cfg \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./schema snapshot
+.EE
+.PP
+以 S 文件格式（13）或 JSON 写出数据库模式；使用 \fB\-\-snapshot_data\fR 时，所列表的行也会写入 CSV 文件，可直接用于 ETL 加载（12）。并非所有列属性都能从目录中读回，部分类型（包括数组）不受支持，因此快照可能与部署所用的 YAML 不同。
+.SS "12. 随模式加载数据（ETL）"
+.PP
+S 文件中的表可以指定一个带表头行的 CSV 文件来加载数据：\fBdata_file: D1__customer.csv\fR。\fB\-\-etl\fR 为 \fB\-\-snapshot_data\fR 列出的表选择规则；未设置该选项时适用于所有表：
+.TP
+.B apply
+默认：插入表中尚无其键的行
+.TP
+.B force
+插入，并更新键已存在的行
+.TP
+.B clean
+同 force，并删除文件中没有的行
+.TP
+.B ignore
+同 apply，但文件不存在不算错误
+.TP
+.B skip
+不加载任何数据
+.PP
+.EX
+sge \-c app.cfg \-\-etl=clean \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./data migrate
+.EE
+.PP
+按 clean 规则加载 \fIshop.customer\fR，其他表按 apply 规则加载，CSV 文件从 \fI./data\fR 读取。
+.SS "13. 模式文件"
+.PP
+\fIS1__shop.yaml\fR 以 SchemaGuard YAML 格式声明两张表。sge 创建缺少的内容、修改不同的内容，但不会删除文件中只是没有提到的内容：
+.PP
+.EX
+database:
+  \- schemaName: shop
+    tables:
+      \- table:
+          tableName: customer
+          description: who buys
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: email
+                type: varchar(250)
+                constraint:
+                  nullable: false
+                index:
+                  unique: true
+      \- table:
+          tableName: orders
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: customer_id
+                type: int
+                constraint:
+                  foreignKey:
+                    references: shop.customer
+            \- column:
+                name: created_on
+                type: timestamp
+                defaultValue: now()
+.EE
+.PP
+\fBreferences\fR 指定一个 \fIschema.table\fR，外键指向其主键。格式说明见 SchemaGuard YAML 参考文档，所有可接受的字段都在其校验模式中：
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/yaml.md
+.UE
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/src/schema.yaml
+.UE
+.PP
+\fBsge help migrate\fR 和 \fBsge help\fR 介绍了所有选项。

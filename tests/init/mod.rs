@@ -372,7 +372,7 @@ fn prc(min: u16, max: u16, r: u16, i: u16) -> u16 {
 #[inline]
 fn uuid() -> String {
     let x = Uuid::new_v4();
-    x.to_hyphenated().to_string()[..8].into()
+    x.hyphenated().to_string()[..8].into()
 }
 
 #[cfg(test)]

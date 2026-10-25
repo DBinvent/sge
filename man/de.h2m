@@ -1,0 +1,249 @@
+[NAME]
+sge \- Protokoll von SQL\-Skripten und Bereitstellung von PostgreSQL\-Schemas aus YAML
+[examples]
+.PP
+Jedes Beispiel unten ist auch ein ausführbarer Testfall in den Quellen von sge:
+.br
+.UR https://github.com/DBinvent/sge/tree/main/examples
+.UE
+.PP
+Optionen stehen auf der Befehlszeile oder in einer mit \fB\-c\fR angegebenen
+Konfigurationsdatei: ein \fIName\fR=\fIWert\fR pro Zeile, der Name ohne das
+führende \fB\-\-\fR, und \fB#\fR für einen Kommentar.
+Die Befehlszeile hat Vorrang vor der Datei, und eine Option, die an keiner der
+beiden Stellen gesetzt ist, wird aus der Umgebung gelesen, unter ihrem Namen in
+Großbuchstaben: \fBDB_NAME\fR für \fB\-\-db_name\fR.
+.SS "1. Eine Datenbank migrieren"
+.EX
+sge \-c app.cfg migrate
+.EE
+.PP
+mit \fIapp.cfg\fR:
+.PP
+.EX
+db_host=localhost
+db_name=app
+db_user=app
+db_password=secret
+source_dir=./sql
+.EE
+.PP
+sge liest die Skripte aus \fB\-\-source_dir\fR, Unterverzeichnisse inbegriffen
+(\fB\-\-source_recur=no\fR schaltet das ab), wendet sie Version für Version an
+und speichert jedes in der Tabelle \fIsge_history\fR.
+Ein Dateiname trägt den Skripttyp, die Version und einen Namen:
+\fIV1_2__orders.sql\fR ist Version 1.2.
+Innerhalb einer Version laufen die Typen in dieser Reihenfolge:
+.TP
+.B P
+vorbereitendes SQL, einmal ausgeführt
+.TP
+.B S
+YAML\-Schema (13): mit der Datenbank verglichen und die Differenz angewendet;
+seine Daten werden mitgeladen (12)
+.TP
+.B V
+versioniertes SQL, einmal ausgeführt
+.TP
+.B R
+wiederholbares SQL, erneut ausgeführt, sobald sich seine Datei ändert
+.TP
+.B after
+\fIafter_each.sql\fR nach jeder Version und \fIafter.sql\fR nach der ganzen
+Migration, jedes Mal und ohne Eintrag im Verlauf (\fB\-\-after_each\fR und
+\fB\-\-after\fR benennen sie)
+.PP
+Ein P\- oder V\-Skript lässt die Migration fehlschlagen, wenn sich seine Datei
+nach der Ausführung geändert hat; \fB\-\-checksum=no\fR schaltet diese Prüfung ab.
+.SS "2. Zuerst das SQL ansehen"
+.EX
+sge \-c app.cfg \-\-dry_run=yes \-\-dry_run_to=plan.sql migrate
+.EE
+.PP
+Schreibt jede Anweisung nach \fIplan.sql\fR und führt keine davon aus, außer
+\fBCREATE DATABASE\fR und \fBCREATE ROLE\fR, wenn \fB\-\-createdb\fR gesetzt ist.
+\fB\-\-dry_run\fR erwartet einen Wert: allein angegeben, nähme es das nächste
+Wort, \fBmigrate\fR, als diesen Wert.
+.SS "3. Die Datenbank und ihren Eigentümer anlegen"
+.EX
+sge \-c app.cfg \-\-createdb=yes \-\-createdb_user=postgres \e
+    \-\-createdb_pwd=secret prepare
+.EE
+.PP
+Verbindet sich als \fB\-\-createdb_user\fR, legt die Rolle \fB\-\-db_user\fR
+und die Datenbank \fB\-\-db_name\fR an, wenn sie fehlen, und legt die
+Verlaufstabelle an.
+\fBprepare\fR führt kein Skript aus; \fB\-\-createdb\fR funktioniert auch mit
+\fBmigrate\fR.
+.SS "4. Bis zu einer Version migrieren"
+.EX
+sge \-c app.cfg \-\-target=1 migrate
+sge \-c app.cfg \-\-target=2 migrate
+.EE
+.PP
+Der erste Lauf hält nach Version 1 an, der zweite bringt die Datenbank auf
+Version 2.
+Ohne \fB\-\-target\fR, dessen Standardwert \fB*\fR ist, wendet sge jede
+gefundene Version an.
+.SS "5. Verbindung über die Umgebung oder per URL"
+.EX
+DB_HOST=localhost DB_NAME=app DB_USER=app DB_PASSWORD=secret sge prepare
+sge \-\-db_url=postgresql://app:secret@localhost:5432/app migrate
+.EE
+.SS "6. Skripte aus Git"
+.EX
+sge \-c app.cfg \-\-source_git=https://example.com/team/db.git \e
+    \-\-source_git_ref=v1.4 \-\-source_git_dir=sql migrate
+.EE
+.PP
+Klont das Repository in einen lokalen Cache (\fB\-\-source_git_cache\fR),
+checkt \fIv1.4\fR aus und liest die Skripte aus dessen Verzeichnis \fIsql\fR.
+Der aufgelöste Commit wird als Tag jedes Skripts gespeichert, außer
+\fB\-\-script_tag\fR ist gesetzt.
+Jeder Lauf holt die Referenz erneut, sodass ein Branch seinen neuesten Commit
+bereitstellt.
+.SS "7. Skripte aus einem Zip\-Archiv"
+.EX
+sge \-c app.cfg \-\-source_zip=release\-42.zip \-\-source_zip_dir=sql migrate
+.EE
+.PP
+Entpackt das Archiv nach \fI/tmp/release\-42.zip/\fR (\fB\-\-source_zip_tmp\fR
+nennt ein anderes Verzeichnis) und liest die Skripte aus dessen Verzeichnis
+\fIsql\fR; das Verzeichnis wird am Ende des Laufs entfernt, ob erfolgreich oder
+nicht.
+Ein Eintrag, der außerhalb des Verzeichnisses landen würde, oder ein
+symbolischer Link lässt das Archiv ablehnen, und \fB\-\-source_zip_max_mb\fR
+(standardmäßig 1024) begrenzt die entpackte Größe.
+Jedes Skript erhält das Tag \fIzip:release\-42.zip@\fR und die ersten zwölf
+Hexadezimalziffern des MD5 des Archivs, außer \fB\-\-script_tag\fR ist gesetzt.
+Ein Lauf hat eine Skriptquelle: \fB\-\-source_zip\fR und \fB\-\-source_git\fR
+werden nicht zusammen angegeben.
+.SS "8. Wohin der Verlauf geht und wie ein Lauf gekennzeichnet wird"
+.EX
+sge \-c app.cfg \-\-schema=ops \-\-table=deploy_log \e
+    \-\-script_tag=release\-42 \-\-executed_by=ci migrate
+.EE
+.PP
+Führt den Verlauf in \fIops.deploy_log\fR statt in \fIpublic.sge_history\fR
+und versieht jedes Skript, das dieser Lauf anwendet, mit dem Tag und dem
+Ausführenden; \fB\-\-db_target\fR und \fB\-\-db_catalog\fR kennzeichnen ihn
+weiter.
+.SS "9. Der Verlauf in einer anderen Datenbank"
+.EX
+sge \-c app.cfg \-\-logdb_name=ops migrate
+sge \-c app.cfg \-\-logdb=primary \-\-logdb_name=ops migrate
+.EE
+.PP
+Der erste schreibt den Verlauf nach \fIops\fR und nach \fIapp\fR
+(\fB\-\-logdb=copy\fR, der Standard); der zweite nur nach \fIops\fR.
+Eine nicht gesetzte Option \fB\-\-logdb_\fR\fIxxx\fR übernimmt den Wert von
+\fB\-\-db_\fR\fIxxx\fR.
+.SS "10. Was bereitgestellt ist"
+.EX
+sge \-c app.cfg info
+.EE
+.PP
+Gibt nach \fB\-\-db_target\fR und \fB\-\-db_catalog\fR die Version jeder
+Datenbank aus, ob der letzte Lauf erfolgreich war, sein Tag und wer ihn
+ausgeführt hat: als YAML, oder als JSON mit \fB\-\-snapshot_format=json\fR.
+.SS "11. Einen Snapshot einer Datenbank erstellen"
+.EX
+sge \-c app.cfg \-\-snapshot_to=./schema snapshot
+sge \-c app.cfg \-\-snapshot_format=json \-\-snapshot_to=schema.json snapshot
+sge \-c app.cfg \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./schema snapshot
+.EE
+.PP
+Schreibt das Datenbankschema im Format der S\-Dateien (13) oder als JSON; mit
+\fB\-\-snapshot_data\fR gehen die Zeilen der aufgeführten Tabellen auch in
+CSV\-Dateien, bereit für ein ETL\-Laden (12).
+Nicht jede Spalteneigenschaft wird aus dem Katalog zurückgelesen, und einige
+Typen, darunter Arrays, werden nicht unterstützt; ein Snapshot kann daher von
+dem YAML abweichen, aus dem die Datenbank bereitgestellt wurde.
+.SS "12. Daten mit dem Schema laden (ETL)"
+.PP
+Eine Tabelle in einer S\-Datei kann eine CSV\-Datei mit Kopfzeile nennen, die in
+sie geladen wird: \fBdata_file: D1__customer.csv\fR.
+\fB\-\-etl\fR wählt die Regel, für die Tabellen, die \fB\-\-snapshot_data\fR
+aufführt, oder ohne diese Option für alle:
+.TP
+.B apply
+der Standard: Zeilen einfügen, deren Schlüssel noch nicht in der Tabelle ist
+.TP
+.B force
+einfügen, und Zeilen aktualisieren, deren Schlüssel schon vorhanden ist
+.TP
+.B clean
+wie force, und Zeilen löschen, die nicht in der Datei stehen
+.TP
+.B ignore
+wie apply, aber eine fehlende Datei ist kein Fehler
+.TP
+.B skip
+nichts laden
+.PP
+.EX
+sge \-c app.cfg \-\-etl=clean \-\-snapshot_data=shop.customer \e
+    \-\-snapshot_to=./data migrate
+.EE
+.PP
+Lädt \fIshop.customer\fR nach der Regel clean und jede andere Tabelle nach
+apply, wobei die CSV\-Dateien aus \fI./data\fR gelesen werden.
+.SS "13. Eine Schemadatei"
+.PP
+\fIS1__shop.yaml\fR beschreibt zwei Tabellen im SchemaGuard\-YAML\-Format.
+sge legt an, was fehlt, ändert, was abweicht, und löscht nichts, was die Datei
+bloß weglässt:
+.PP
+.EX
+database:
+  \- schemaName: shop
+    tables:
+      \- table:
+          tableName: customer
+          description: who buys
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: email
+                type: varchar(250)
+                constraint:
+                  nullable: false
+                index:
+                  unique: true
+      \- table:
+          tableName: orders
+          columns:
+            \- column:
+                name: id
+                type: serial
+                constraint:
+                  primaryKey: true
+            \- column:
+                name: customer_id
+                type: int
+                constraint:
+                  foreignKey:
+                    references: shop.customer
+            \- column:
+                name: created_on
+                type: timestamp
+                defaultValue: now()
+.EE
+.PP
+\fBreferences\fR nennt eine \fIschema.table\fR, und der Schlüssel verweist auf
+deren Primärschlüssel.
+Das Format ist in der SchemaGuard\-YAML\-Referenz beschrieben, und jedes
+zulässige Feld steht in ihrem Validierungsschema:
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/yaml.md
+.UE
+.br
+.UR https://github.com/vkrinitsyn/schema_guard/blob/main/src/schema.yaml
+.UE
+.PP
+\fBsge help migrate\fR und \fBsge help\fR beschreiben jede Option.

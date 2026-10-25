@@ -1,0 +1,52 @@
+# [i18n] see zip.yml - a statement of a schema deploy Postgres refused (dbm_pg.rs): the
+# statement, its file, and Postgres's own error in full
+_version: 2
+pg.source:
+  en: ", source: %{file}"
+  ru: ", источник: %{file}"
+  fr: ", source : %{file}"
+  de: ", Quelle: %{file}"
+  zh: "，来源：%{file}"
+  ja: "（ソース：%{file}）"
+pg.table:
+  en: "SGE-E701 the table statement failed [%{sql}]%{source}\n%{err}"
+  ru: "SGE-E701 не выполнена команда таблицы [%{sql}]%{source}\n%{err}"
+  fr: "SGE-E701 échec de l'instruction de table [%{sql}]%{source}\n%{err}"
+  de: "SGE-E701 die Tabellenanweisung ist fehlgeschlagen [%{sql}]%{source}\n%{err}"
+  zh: "SGE-E701 表语句执行失败 [%{sql}]%{source}\n%{err}"
+  ja: "SGE-E701 テーブルの文が失敗しました [%{sql}]%{source}\n%{err}"
+pg.comments:
+  en: "SGE-E702 the comments failed [%{sql}]%{source}\n%{err}"
+  ru: "SGE-E702 не выполнены комментарии [%{sql}]%{source}\n%{err}"
+  fr: "SGE-E702 échec des commentaires [%{sql}]%{source}\n%{err}"
+  de: "SGE-E702 die Kommentare sind fehlgeschlagen [%{sql}]%{source}\n%{err}"
+  zh: "SGE-E702 注释执行失败 [%{sql}]%{source}\n%{err}"
+  ja: "SGE-E702 コメントが失敗しました [%{sql}]%{source}\n%{err}"
+pg.indexes:
+  en: "SGE-E703 the indexes failed [%{sql}]%{source}\n%{err}"
+  ru: "SGE-E703 не выполнены индексы [%{sql}]%{source}\n%{err}"
+  fr: "SGE-E703 échec des index [%{sql}]%{source}\n%{err}"
+  de: "SGE-E703 die Indizes sind fehlgeschlagen [%{sql}]%{source}\n%{err}"
+  zh: "SGE-E703 索引执行失败 [%{sql}]%{source}\n%{err}"
+  ja: "SGE-E703 インデックスが失敗しました [%{sql}]%{source}\n%{err}"
+pg.grants:
+  en: "SGE-E704 the grants failed [%{sql}]%{source}\n%{err}"
+  ru: "SGE-E704 не выполнена выдача прав [%{sql}]%{source}\n%{err}"
+  fr: "SGE-E704 échec des droits [%{sql}]%{source}\n%{err}"
+  de: "SGE-E704 die Rechtevergabe ist fehlgeschlagen [%{sql}]%{source}\n%{err}"
+  zh: "SGE-E704 授权执行失败 [%{sql}]%{source}\n%{err}"
+  ja: "SGE-E704 権限の付与が失敗しました [%{sql}]%{source}\n%{err}"
+pg.data:
+  en: "SGE-E705 the table's data failed [%{sql}]%{source}\n%{err}"
+  ru: "SGE-E705 не выполнена вставка данных таблицы [%{sql}]%{source}\n%{err}"
+  fr: "SGE-E705 échec des données de la table [%{sql}]%{source}\n%{err}"
+  de: "SGE-E705 die Daten der Tabelle sind fehlgeschlagen [%{sql}]%{source}\n%{err}"
+  zh: "SGE-E705 表数据写入失败 [%{sql}]%{source}\n%{err}"
+  ja: "SGE-E705 テーブルのデータの書き込みが失敗しました [%{sql}]%{source}\n%{err}"
+pg.foreign_keys:
+  en: "SGE-E706 the foreign keys failed [%{sql}]%{source}\n%{err}"
+  ru: "SGE-E706 не выполнены внешние ключи [%{sql}]%{source}\n%{err}"
+  fr: "SGE-E706 échec des clés étrangères [%{sql}]%{source}\n%{err}"
+  de: "SGE-E706 die Fremdschlüssel sind fehlgeschlagen [%{sql}]%{source}\n%{err}"
+  zh: "SGE-E706 外键执行失败 [%{sql}]%{source}\n%{err}"
+  ja: "SGE-E706 外部キーが失敗しました [%{sql}]%{source}\n%{err}"

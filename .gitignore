@@ -12,9 +12,6 @@
 /target
 # test.sh links the examples' binary here
 /sge
-# dist/build.sh writes the man page here
-/sge.1
-/sge.1.gz
 /tests/db/
 /tests/local_test_cfg.yaml
 /tests/test_*_license.yaml

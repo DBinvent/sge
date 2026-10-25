@@ -1,13 +1,16 @@
-use std::collections::HashMap;
-use yaml_rust2::{YamlLoader, Yaml};
-
 /// TODO: --schema_transaction:
 //     - (column-TBD): perform all changes on a column per transaction.
 //     - (retry-TBD): try to obtain a lock perform changes repeatably - suitable on high load systems src/schema_guard:1308
 
-pub const CONFIGS: [&'static str; 4] = [
+/// [i18n] by LANG's first two letters; fr, de, zh (Simplified) and ja are not reviewed
+/// translations and say so in their `about`
+pub const CONFIGS: [&'static str; 12] = [
 "en", include_str!("i18n/en_clc.yaml"),
 "ru", include_str!("i18n/ru_clc.yaml"),
+"fr", include_str!("i18n/fr_clc.yaml"),
+"de", include_str!("i18n/de_clc.yaml"),
+"zh", include_str!("i18n/zh_clc.yaml"),
+"ja", include_str!("i18n/ja_clc.yaml"),
 ];
 
 pub fn cl_config() -> &'static str {
@@ -26,105 +29,27 @@ pub fn cl_config_for(l: &str) -> &'static str {
     CONFIGS[x]
 }
 
-/// loading all files unparsed to bundle structure at compile, will be parsed on constructor at start
-static BUNDLS: [&'static str; 4] = [
-"en", include_str!("i18n/en.yaml"),
-"ru", include_str!("i18n/ru.yaml"),
-];
-
-type TextBundle = HashMap<String, HashMap<String, String>>;
-
-pub struct Bundle {
-    pub text: TextBundle,
+lazy_static::lazy_static! {
+    /// set_lang's
+    static ref LANG: std::sync::RwLock<Option<String>> = std::sync::RwLock::new(None);
 }
 
-impl Bundle {
-    pub fn new(input: &Yaml) -> Self {
-        let mut text: TextBundle = HashMap::new();
-        if let Some(input) = input.as_hash() {
-            for (scope, y) in input {
-                if let Some(y) = y.as_hash() {
-                    for (key, value) in y {
-                        let scope = scope.as_str().unwrap_or("").to_string();
-                        let key = key.as_str().unwrap_or("").to_string();
-                        let value = value.as_str().unwrap_or("").to_string();
-                        match text.get_mut(&scope) {
-                            None => {
-                                let mut vals = HashMap::new();
-                                vals.insert(key, value);
-                                text.insert(scope, vals);
-                            }
-                            Some(s) => {
-                                s.insert(key, value);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Bundle {
-            text
-        }
+/// [i18n] The language of the messages from here on - and of the command line, when it
+/// is set before - `en`, `ru`, `fr`, `de`, `zh`, `ja`, or a locale of one. Wins over LANG.
+pub fn set_lang(lang: &str) {
+    if let Ok(mut l) = LANG.write() {
+        *l = Some(lang.chars().take(2).collect::<String>().to_lowercase());
     }
-
-    #[inline]
-    fn msg(&self, scope: &String, code: &String) -> Option<&String> {
-        self.text.get(scope).and_then(|m| m.get(code))
-    }
+    // schema_guard's messages in it too: its set_lang wins over the logger's lang
+    schema_guard_tokio::set_lang(lang);
 }
 
-pub struct Translate {
-    translation: Bundle,
-    default_bundle: Option<Bundle>,
-}
-
-impl Translate {
-    pub fn new() -> Self {
-        Self::for_lang(&lang())
-    }
-
-    /// The texts of language `l`, English for what it lacks and when there is none
-    pub fn for_lang(l: &str) -> Self {
-        let mut x = 1;
-        for i in 0..BUNDLS.len()/2 {
-            if BUNDLS[i*2] == l {
-                x = i*2+1;
-                break;
-            }
-        }
-        Translate {
-            translation: Bundle::new(&YamlLoader::load_from_str(BUNDLS[x]).unwrap()[0]),
-            default_bundle: Some(Bundle::new(&YamlLoader::load_from_str(BUNDLS[1]).unwrap()[0])),
-        }
-    }
-
-    #[inline]
-    pub fn t7e(&self, scope: &String, code: &String) -> String {
-        match self.translation.msg(&scope.to_string(), &code.to_string()) {
-            None => if let Some(b) = &self.default_bundle {
-                b.msg(&scope.to_string(), &code.to_string())
-                    .unwrap_or(&"not found".to_string()).to_owned()
-            } else { "not found".to_string() },
-            Some(t) => t.to_owned()
-        }
-    }
-
-    #[inline]
-    pub fn t7ea(&self, scope: &str, code: &str, args: &[&str], msgs: &[&String]) -> String {
-        let mut msg = self.t7e(&scope.to_string(), &code.to_string());
-        let mut i = 0;
-        for a in args {
-            let new = if a.as_bytes()[1] == b'$' {
-                self.t7e(&scope.to_string(), &a[2..a.len()-1].to_string())
-            } else { msgs[i].to_owned() };
-            msg = msg.replace(*a, new.as_str());
-            i += 1;
-        }
-        msg
-    }
-}
-
+/// The language: set_lang's, else LANG's first two letters. One without its texts -
+/// none, `C.UTF-8` - is English (cl_config_for, rust-i18n's fallback)
 pub fn lang() -> String {
+    if let Some(l) = LANG.read().ok().and_then(|l| l.clone()) {
+        return l;
+    }
     let l = std::env::var("LANG").unwrap_or("".to_string());
     if l.len() > 2 {
         l[..2].to_string()
@@ -133,69 +58,131 @@ pub fn lang() -> String {
     }
 }
 
+/// [i18n] The message `key` (locales/*.yml) in the language of lang(), its %{name}
+/// placeholders filled from `args`: tr! for a crate that has not the messages - the
+/// command line's
+pub fn message(key: &str, args: &[(&str, &str)]) -> String {
+    let mut m = rust_i18n::t!(key, locale = &lang()).into_owned();
+    for (name, value) in args {
+        m = m.replace(&format!("%{{{}}}", name), value);
+    }
+    m
+}
+
+/// [i18n] The message `key` in the language of [lang], each %{name} placeholder filled
+macro_rules! tr {
+    ($key:expr $(, $name:ident = $value:expr)* $(,)?) => {
+        rust_i18n::t!($key, locale = &$crate::i18n::lang() $(, $name = $value)*).into_owned()
+    };
+}
+
 #[cfg(test)]
 #[allow(unused)]
 mod tests {
     use super::*;
+    use yaml_rust2::{Yaml, YamlLoader};
 
-    // [lang] by Translate::for_lang and cl_config_for, never LANG: the tests run in
-    // parallel, and one setting LANG changed what another read
+    // [lang] by cl_config_for, never LANG: the tests run in parallel, and one setting
+    // LANG changed what another read
 
-    /// a message with its placeholders filled - a value and a {$key} reference
-    fn unknown(tr: &Translate, cmd: &str) -> String {
-        tr.t7ea("cl", "unknown", &["{cmd}", "{$usage_hint}"], &[&cmd.to_string()])
+    /// locales/*.yml, as key => language => message
+    fn messages() -> std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>> {
+        let dir = format!("{}/locales", env!("CARGO_MANIFEST_DIR"));
+        let mut all = std::collections::BTreeMap::new();
+        for f in std::fs::read_dir(&dir).unwrap() {
+            let f = f.unwrap().path();
+            let y = &YamlLoader::load_from_str(&std::fs::read_to_string(&f).unwrap()).unwrap()[0];
+            for (k, v) in y.as_hash().unwrap() {
+                let k = k.as_str().unwrap();
+                if k == "_version" {
+                    continue;
+                }
+                let langs = v.as_hash().unwrap_or_else(|| panic!("{}: {}", f.display(), k)).iter()
+                    .map(|(l, m)| (l.as_str().unwrap().to_string(), m.as_str().unwrap().to_string())).collect();
+                assert!(all.insert(k.to_string(), langs).is_none(), "{} twice", k);
+            }
+        }
+        all
+    }
+
+    /// [i18n] every message in every language the command line speaks, with the same
+    /// placeholders; an error's code the same in every language, and no two errors
+    /// with one code
+    #[test]
+    fn every_message_is_in_every_language() {
+        let placeholders = |m: &str| {
+            let mut p: Vec<String> = m.split("%{").skip(1).map(|r| r.split('}').next().unwrap().to_string()).collect();
+            p.sort();
+            p
+        };
+        let mut langs_cl: Vec<&str> = CONFIGS.iter().step_by(2).copied().collect();
+        langs_cl.sort();
+        let mut codes = std::collections::BTreeMap::new();
+        for (key, langs) in messages() {
+            let en = &langs["en"];
+            assert_eq!(langs.keys().map(String::as_str).collect::<Vec<_>>(), langs_cl, "{}", key);
+            let code = en.split(' ').next().filter(|c| c.starts_with("SGE-E"));
+            for (l, m) in &langs {
+                assert_eq!(placeholders(m), placeholders(en), "{} {}", key, l);
+                assert_eq!(m.split(' ').next().filter(|c| c.starts_with("SGE-E")), code, "{} {}: the code", key, l);
+            }
+            if let Some(c) = code {
+                assert!(codes.insert(c.to_string(), key.clone()).is_none(), "{} for {} and {}", c, codes[c], key);
+            }
+        }
+        assert!(codes.len() > 80, "{}", codes.len());
+    }
+
+    /// [i18n] every key the code asks for is in locales/, and every message there asked for
+    #[test]
+    fn every_key_used_has_its_message_and_every_message_a_use() {
+        let all = messages();
+        let is_key = |s: &str| ["lib.", "main.", "cfg.", "files.", "log.", "etl.", "git.", "zip.", "pg."].iter()
+            .any(|p| s.starts_with(p) && s.len() > p.len());
+        let mut used = std::collections::BTreeSet::new();
+        for f in std::fs::read_dir(format!("{}/src", env!("CARGO_MANIFEST_DIR"))).unwrap() {
+            let f = f.unwrap().path();
+            if f.extension() != Some(std::ffi::OsStr::new("rs")) {
+                continue;
+            }
+            let src = std::fs::read_to_string(&f).unwrap();
+            // every "key" literal: from each quote, the key characters up to the closing one
+            for (i, _) in src.match_indices('"') {
+                let rest = &src[i + 1..];
+                let end = rest.find(|c: char| !(c.is_ascii_lowercase() || c == '_' || c == '.')).unwrap_or(0);
+                let literal = &rest[..end];
+                if rest[end..].starts_with('"') && is_key(literal) {
+                    assert!(all.contains_key(literal), "{}: no message {}", f.display(), literal);
+                    used.insert(literal.to_string());
+                }
+            }
+        }
+        let unused: Vec<&String> = all.keys().filter(|k| !used.contains(*k)).collect();
+        assert!(unused.is_empty(), "messages nothing asks for: {:?}", unused);
     }
 
     #[test]
-    fn test_load() {
-        let tr = Translate::for_lang("en");
-        assert!(tr.translation.text.len()>0);
-        let msg = unknown(&tr, "x");
-        assert!(msg.contains("x") && !msg.contains('{'), "{}", msg);
+    fn a_language_there_is_no_file_for_is_english() {
+        assert_eq!(cl_config_for(""), cl_config_for("en"));
+        assert_eq!(cl_config_for("xx"), cl_config_for("en"));
+        assert_ne!(cl_config_for("ru"), cl_config_for("en"));
     }
 
+    /// [man] every language's part of the man page, man/<lang>.h2m: the NAME line, as many
+    /// examples as the English one, and a row in man/build.sh, which writes the pages
     #[test]
-    fn test_load_nol() {
-        // no language: English
-        let tr = Translate::for_lang("");
-        assert!(tr.translation.text.len()>0);
-        assert!(unknown(&tr, "x").starts_with("Unknown command: x"));
-        assert!(cl_config_for("").len() > 20);
-    }
-
-    #[test]
-    fn test_load_en() {
-        let tr = Translate::for_lang("en");
-        assert!(tr.translation.text.len()>0);
-        assert!(unknown(&tr, "x").starts_with("Unknown command: x"));
-        assert!(cl_config_for("en").len() > 20);
-    }
-
-    #[test]
-    fn test_load_en1() {
-        // {$usage_hint} is the text of cl.usage_hint, in the same language
-        let tr = Translate::for_lang("en");
-        let msg = unknown(&tr, "x");
-        assert!(matches!(msg.find("{$usage_hint}"), None), "{}", msg);
-        assert!(msg.ends_with(tr.t7e(&"cl".to_string(), &"usage_hint".to_string()).as_str()), "{}", msg);
-    }
-
-    #[test]
-    fn test_load_en7() {
-        let tr = Translate::for_lang("en");
-        let msg = unknown(&tr, "licence");
-        assert!(matches!(msg.find("{cmd}"), None), "{}", msg);
-        assert!(msg.contains("licence"), "{}", msg);
-    }
-
-    #[test]
-    fn russian_and_an_unknown_language() {
-        let ru = Translate::for_lang("ru");
-        let msg = unknown(&ru, "x");
-        assert!(msg.starts_with("Неизвестная команда: x"), "{}", msg);
-        assert!(!msg.contains('{'), "{}", msg);
-        // a language there is no file for: English
-        assert!(unknown(&Translate::for_lang("xx"), "x").starts_with("Unknown command: x"));
+    fn every_language_has_its_man_page() {
+        let read = |f: &str| std::fs::read_to_string(format!("{}/man/{}", env!("CARGO_MANIFEST_DIR"), f))
+            .unwrap_or_else(|e| panic!("man/{}: {}", f, e));
+        let examples = |t: &str| t.lines().filter(|l| l.starts_with(".SS \"")).count();
+        let (en, build) = (read("en.h2m"), read("build.sh"));
+        assert!(examples(&en) > 10);
+        for l in CONFIGS.iter().step_by(2) {
+            let t = read(&format!("{}.h2m", l));
+            assert!(t.starts_with("[NAME]\nsge \\- ") && t.contains("\n[examples]\n"), "man/{}.h2m", l);
+            assert_eq!(examples(&t), examples(&en), "man/{}.h2m", l);
+            assert!(build.contains(&format!("\n{}|", l)), "man/build.sh makes no {} page", l);
+        }
     }
 
     #[test]
@@ -211,10 +198,11 @@ mod tests {
             };
             (keys(&y["subcommands"]), keys(&y["args"]))
         };
-        let (en, ru) = (names("en"), names("ru"));
-        assert_eq!(en, ru);
+        let en = names("en");
+        for l in CONFIGS.iter().step_by(2) {
+            assert_eq!(en, names(l), "{}", l);
+        }
         assert_eq!(en.0, vec!["info", "migrate", "prepare", "snapshot"]);
         assert!(!en.1.iter().any(|a| a.contains("licen") || a == "email" || a == "subscribe"), "{:?}", en.1);
     }
 }
-

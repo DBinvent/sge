@@ -112,7 +112,7 @@ pub async fn pending(client: &mut Client, hist: &str) -> Result<Vec<Pending>, St
         "select id, target, source, source_type::text, version from {} \
          where msg = $1 and not coalesce(ok, false) and target is not null and target <> '' \
          order by id", hist);
-    let rows = client.query(sql.as_str(), &[&PENDING]).await.map_err(|e| e.to_string())?;
+    let rows = client.query(sql.as_str(), &[&PENDING]).await.map_err(|e| schema_guard_tokio::pg_error(&e))?;
     Ok(rows.iter().map(|r| Pending {
         id: r.get(0),
         target: r.get(1),
@@ -156,7 +156,7 @@ pub async fn mark(client: &mut Client, hist: &str, id: i32, ok: bool, msg: &str,
     let sql = format!(
         "update {} set ok = $1, msg = $2, took_sec = $3, executed_on = current_timestamp \
          where id = $4", hist);
-    client.execute(sql.as_str(), &[&ok, &m, &took, &id]).await.map_err(|e| e.to_string())?;
+    client.execute(sql.as_str(), &[&ok, &m, &took, &id]).await.map_err(|e| schema_guard_tokio::pg_error(&e))?;
     Ok(())
 }
 
@@ -223,6 +223,29 @@ mod tests {
         assert_eq!(node_address("n3:7421;aa:bb;east").0, "n3");
         assert_eq!(node_address("plainhost").0, "plainhost");
         assert_eq!(node_address("").0, "");
+        // a colon that is no port: part of the host
+        assert_eq!(node_address("host:rpc").0, "host:rpc");
+    }
+
+    #[test]
+    fn rolling_is_off_and_the_config_table_public_unless_set() {
+        assert!(!enabled(&ConfigMap::of(&[])));
+        assert!(enabled(&ConfigMap::of(&[("yt_cluster", "true")])));
+        assert_eq!(cfg_table(&ConfigMap::of(&[])), "public.yt_config");
+        assert_eq!(cfg_table(&ConfigMap::of(&[("yt_config_table", " ops.cluster ")])), "ops.cluster");
+    }
+
+    /// [yt] a node is reached at its own host with the operator's db_ settings - not
+    /// the cluster's RPC port - and does not roll the cluster again itself
+    #[test]
+    fn a_node_is_reached_with_the_operators_own_settings() {
+        let cfg = ConfigMap::of(&[("db_host", "leader"), ("db_port", "5432"), ("db_user", "dba"), ("yt_cluster", "true")]);
+        let c = node_cfg(&cfg, "n3:7421;aa:bb;east");
+        assert_eq!(c.get("db_host"), "n3");
+        assert_eq!(c.get("db_port"), "5432");
+        assert_eq!(c.get("db_user"), "dba");
+        assert!(!enabled(&c));
+        assert!(enabled(&cfg), "the operator's own configuration is left as it was");
     }
 
     #[test]

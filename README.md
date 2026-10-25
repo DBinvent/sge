@@ -1,4 +1,11 @@
 # Schema Guard Enterprise \[sge\]
+
+[![crates.io](https://img.shields.io/crates/v/schema_guard.svg)](https://crates.io/crates/schema_guard)
+[![audit](https://github.com/dbinvent/sge/actions/workflows/audit.yml/badge.svg)](https://github.com/dbinvent/sge/actions/workflows/audit.yml)
+[![coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](tests/README.md)
+[![docker](https://img.shields.io/docker/v/dbinvent/sge?sort=semver&label=docker)](https://hub.docker.com/r/dbinvent/sge)
+[![license](https://img.shields.io/crates/l/schema_guard.svg)](LICENSE)
+
 The relational database schema management tool.
 
 > [!NOTE]
@@ -69,6 +76,12 @@ source_dir=./sql
 Run in a terminal, sge first prints its banner; piped or redirected, it prints
 only its output.
 
+The help, and `man sge` from the packages, is in the language `LANG` names:
+English, Russian, and - not reviewed, and saying so - French, German, Simplified
+Chinese and Japanese; English for any other. `LANG=en sge help` shows the English,
+which is the reference. Corrections are welcome as a pull request or an issue
+against [`src/i18n`](src/i18n) (the help) or [`man`](man) (the man page's examples).
+
 ### Schema files
 
 S files (`S<version>__<name>.yaml`) are migrated by
@@ -94,16 +107,64 @@ and the ETL around that, and a commit after each changed table with
 
 ### Packages
 
-The packages are named after the crate, `schema_guard` - the deb `schema-guard`,
-as Debian names take no `_` - and install the `sge` binary. From the first release
-under that name (they were `rdbm` before) they are published in DBinvent's
-repository at apt.dbinvent.com. Until then, build it from source (below).
+One version in four forms. The packages are named after the crate,
+`schema_guard` - the deb `schema-guard`, as Debian names take no `_` - and
+install the `sge` binary (they were `rdbm` before).
+
+**apt** (Debian, Ubuntu; x86-64), from DBinvent's repository at apt.dbinvent.com,
+whose one distribution `yt-cluster` carries Schema Guard too:
+
+```
+curl -fsSL https://apt.dbinvent.com/dev.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/dbinvent.gpg
+echo "deb [arch=amd64 signed-by=/usr/share/keyrings/dbinvent.gpg] https://apt.dbinvent.com yt-cluster restricted" | sudo tee /etc/apt/sources.list.d/dbinvent.list
+sudo apt update && sudo apt install schema-guard
+```
+
+**Docker**: [`dbinvent/sge`](https://hub.docker.com/r/dbinvent/sge) - a static
+`sge` and the `psql` it applies SQL files with, on Alpine (about 12 MB). It runs
+in `/work`: mount the scripts there.
+
+```
+docker run --rm -v "$PWD:/work" dbinvent/sge --db_url=postgres://app:secret@db.example.com/app --source_dir=. migrate
+docker run --rm --network host -v "$PWD:/work" dbinvent/sge -c sge.cfg migrate
+docker run --rm dbinvent/sge help migrate
+```
+
+A container has none of the host's environment: `-e LANG` passes the host's
+language on, `-e LANG=de_DE.UTF-8` names one - for the help and the messages, as
+under Usage. The image needs no locale installed for it.
+
+Tags: the version (`2.0.1`), `2.0`, `latest`. `git` is not in the image: for a
+git script source, build `FROM dbinvent/sge` with `apk add git openssh-client`.
+
+**Static binary** (musl, no glibc; any Linux on x86-64), the image's own `sge`,
+with its man page, laid out for `/usr/local`:
+
+```
+curl -fsSLO https://apt.dbinvent.com/paks/sge-latest.tar.gz
+curl -fsSL https://apt.dbinvent.com/paks/sge-latest.tar.gz.sha256 | sha256sum -c
+sudo tar -xzf sge-latest.tar.gz -C /usr/local
+```
+
+`sge-latest.tar.gz` links to the version's own `sge-<version>-<sha8>.tar.gz`,
+which https://apt.dbinvent.com/paks/sge.json names, and `.sig` beside each is a
+detached signature by the repository's key
+(https://apt.dbinvent.com/dev.gpg.key). Install the PostgreSQL client too: `sge`
+runs `psql`.
+
+**Rust**: `cargo install schema_guard` for the binary, or the crate in your own
+code (`schema_guard = { version = "2", default-features = false }`).
+
+`dist/publish.sh` publishes a version in the first three forms at once: the image
+from this repository's `Dockerfile`, the tarball from the image's binary, and the
+deb (`dist/build.sh`), unless the repository lists that version already.
 
 ### Build from source
 
 ```
 cargo build --release      # target/release/sge
 cargo test --lib --bins    # the unit tests, no database needed
+docker build -t sge .      # the image: a static musl sge, and psql
 ```
 
 The integration tests (`tests/`) start a throwaway PostgreSQL of their own with
@@ -150,6 +211,53 @@ second authentication model to configure.
 The resolved commit is written to `sge_history.script_tag` when no explicit
 `script_tag` is set, so the history answers *which revision produced this
 database* - the question a directory path cannot.
+
+### A zip archive as a script source
+
+Point sge at an archive and a `migrate` or `prepare` run unpacks it into
+`<tmp>/<archive name>/` - `/tmp/scripts.zip/` for `scripts.zip` - reads the
+scripts from there, and removes the directory when the run ends, completed or
+failed. As with git, everything downstream reads a directory on disk, so an
+archive cannot change which scripts run or how they are recorded.
+
+```sh
+sge -c sge.cfg --source_zip=release-42.zip migrate
+sge -c sge.cfg --source_zip=release-42.zip --source_zip_dir=db/migrations migrate
+```
+
+| key | meaning |
+|---|---|
+| `source_zip` | path of the archive. Empty (the default) keeps `source_dir` as it is. |
+| `source_zip_dir` | sub-directory inside the archive holding the scripts. |
+| `source_zip_tmp` | where archives are unpacked. Default: the system temp directory. |
+| `source_zip_max_mb` | the most an archive may unpack to, in MiB. Default `1024`. |
+
+- **Recorded.** Without an explicit `script_tag`, history rows are tagged
+  `zip:<archive name>@<md5>` - twelve hex digits of the archive's MD5 - so the
+  history says which archive produced the database, as a commit does for git.
+- **Refused, not unpacked.** An entry that would land outside the directory
+  (`../`, an absolute path), a symlink, or an archive that unpacks past
+  `source_zip_max_mb` fails the run, and the half-unpacked directory goes with it.
+- **One run per directory.** A directory that is there already belongs to another
+  run and is refused, never removed - unless the run that made it is gone: its pid
+  file, `<archive name>.pid` beside it, names a process that no longer exists, as a
+  killed run leaves. Then it is cleared and unpacked again.
+- **One source.** `source_zip` and `source_git` together are refused.
+- Stored and deflated entries are read, which is what `zip` and every common
+  archiver write. `snapshot` writes into `source_dir`, so it does not unpack an
+  archive.
+
+#### Next: blob and S3 storage
+
+A zip is the first *fetched* source: the scripts are put on local disk for the run,
+read as a directory, and removed when it ends. A blob or S3 source adds only the
+fetch in front of that - an object (`s3://bucket/release-42.zip`, an `https://` URL
+to a blob) downloaded into the temp directory and then handled exactly as
+`source_zip` is: the same claim and pid file, the same unpacking checks, the same
+tag (the object's checksum) and the same clean-up, the download removed with the
+directory. Credentials would come from the environment the platform's own tools
+read (`AWS_*`, a credentials file), as git's do - never from the command line,
+which every local user can read. Nothing of that is built yet.
 
 ### YT Cluster
 

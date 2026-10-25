@@ -1,0 +1,452 @@
+# [i18n] 简体中文，译自 en_clc.yaml，未经审校：如有疑问，以英文版为准。
+# 欢迎提交更正：https://github.com/DBinvent/sge/tree/main/src/i18n
+name: sge
+version: "local_build"
+author: DBinvent
+about: |
+
+ 记录已执行的 SQL 脚本，并按 YAML 模式定义部署 PostgreSQL 数据库的工具。
+ 详细信息：'sge help migrate'。
+
+ 本译文未经审校。如有疑问，请查看英文版（LANG=en sge help），
+ 并提交更正：https://github.com/DBinvent/sge/tree/main/src/i18n
+usage: |
+  sge [选项]... [命令]
+  请先阅读 'sge help migrate'，再看 'sge help' 和 'sge help snapshot'。
+
+subcommands:
+    - migrate:
+        about: "带 ETL 的数据库迁移，迁移到指定版本：执行所有适用的脚本。示例：https://github.com/DBinvent/sge/tree/main/examples"
+        help: |
+          将数据库迁移到 '--target' 设定的版本，或者
+          某一阶段选项设定的版本：'--pre_deploy'、'--schema_deploy'、'--version_deploy'、'--rr_deploy'，
+          使用位于 '--source' 的脚本（若关闭 '--source_recur'，则不扫描子目录），
+          迁移到 '--db_name' 指定的数据库；执行日志保存到 '--logdb_name'，若未设置 '--logdb_name' 且已配置 '--logdb'，则（也）保存到 '--db_name'。
+          若设置了 '--createdb' 并正确配置了 '--createdb_xxx' 用户凭据，必要时会创建数据库和数据库用户，与 '--dry_run' 无关。
+          迁移执行者按 '--executed_by' 的值记录。
+          若参数或配置中给出 '--script_tag'、'--db_target' 和 '--db_catalog'，它们也会被记录。这些值在微服务架构（详见 dbinvent.com/sge）和环境编排中很有用。
+
+          执行顺序为：(P)->(S)->(V)->(R)->(after)
+
+          即 (P)reDeploy SQL — 预部署脚本，(S)chema YAML — 模式，(V)ersion SQL — 版本脚本，(R)e-runable SQL — 可重复执行脚本，(a)fter (each) — 每次（每个）迁移之后的 SQL。
+          (P)reDeploy SQL 在 (S)chema YAML 之前执行。
+          (S)chema YAML 会与数据库的 information schema 比较，并应用缺少的变更。(D)数据也在此阶段加载。
+          (V)ersion SQL 是数据库升级的主要文件集：每个文件只执行一次，并记录到历史记录表。
+          (R)e-runnable SQL 非常适合升级存储过程，配合 '--script_tag' 便于追踪。
+          (P) 和 (V) 会检查版本，若目标数据库中尚无该版本，则执行，直到目标版本。
+          (P) 和 (V) 脚本还会检查一致性：若脚本已更改且设置了 '--checksum'，迁移失败。
+          (S) 脚本检查目标版本，并应用目标数据库中缺少的变更。
+          (R) 脚本检查文件校验和，若文件已更改且尚未在数据库上执行，则执行它。
+          'after.sql' 和 'after_each.sql'（文件名可配置）总会尝试执行，但不记录到历史记录。
+          '--config_file' 或 '-c'：把所有参数按名称（不带 -- 前缀）写入的文本文件。命令行参数优先于配置文件中的值。
+          '--snapshot_data' 和 '--etl' 随 YAML 模式加载数据（ETL）。
+
+          ETL 规则示例：一个 YAML 文件含两张表 table_a 和 table_b，其 'table.etl.file' 字段指向 CSV 文件：
+           > sge --etl=skip --snapshot_data=table_a --source_dir=./sql migrate
+           >> table_a 不使用 CSV。table_b.etl.file 从 ./sql/ 目录加载。
+
+           > sge --etl=clean --snapshot_data=table_a --source_dir=./sql --snapshot_to=./data  migrate
+           >> table_a 使用 'clean' 规则（删除多余记录），table_b 使用 'apply'。在 ./data/ 目录查找 CSV 文件。
+
+           > sge --etl=force --snapshot_data=table_a  migrate
+           >> table_a 使用 'force' 规则（已存在则更新），table_b 使用 'apply'。在 ./ 目录查找 YAML 和 CSV 文件。
+
+           > sge --etl=ignore migrate
+           >> 所需文件不存在时不报错；否则使用 'apply' 规则。
+
+           > sge --etl=skip migrate
+           >> 所有表都不执行任何 ETL 任务。
+
+           > sge migrate
+           >> table_a 和 table_b 使用默认 ETL 规则 'apply'。
+           >> 记录来自 table.etl.file 指定的 CSV 文件，路径相对于当前目录。
+           >> CSV 文件必须有表头行。
+
+          '--dry_run'：不修改数据库。
+
+          更多选项：'sge help'。
+
+          更多信息和最佳实践：https://www.dbinvent.com/sge
+
+    - prepare:
+        about: "创建历史记录表，用于追踪脚本执行"
+        help: "在 '--logdb_name' 数据库（若已设置，否则为 '--db_name'）的 '--schema' 模式中创建历史记录表 '--table'。'--dry_run'：不修改数据库。更多选项：'sge help'。"
+    - snapshot:
+        about: "将模式快照导出到 '--snapshot_to' 文件，格式为 yaml 或 json。"
+        help: |
+          将数据库模式快照导出到 '--snapshot_to' 文件（或目录），格式为 yaml 或 json。
+
+          '--snapshot_version' 设定 D<编号>__db_name.yaml 中的编号。
+
+          '--snapshot_data' 设定随 YAML 模式导出数据（ETL，抽取）的表列表。
+
+          '--etl' 与 '--snapshot_data' 可在 'sge migrate' 中用于把数据加载（ETL）到目标数据库。
+
+          注意：从 pg_catalog 和 information_schema 转换而来的列信息有限，
+          不足以完全匹配手写 YAML 模式的输入格式。
+          因此，模式快照与输入的 YAML 文件在某些情况下可能不同。
+
+          部分类型（如数组）不支持快照。
+
+          更多选项：'sge help'。
+    - info:
+        about: "以 JSON 格式返回部署状态和版本标签。参见 '--info_format'。"
+        help: "以 JSON 格式返回部署状态和版本标签。参见 '--info_format'。"
+args:
+    - db_url:
+        long: db_url
+        takes_value: true
+        help: |
+            URL 会被解析为数据库名、主机等。若其中某项已通过其他方式（包括环境变量）设置，则以已设置的值为准。
+            格式：'postgres://'（见 https://www.postgresql.org/docs/current/libpq-connect.html），或以空格分隔的 key=value
+    - db_name:
+        long: db_name
+        default_value: $USER
+        help: "PostgreSQL 数据库名"
+    - db_host:
+        long: db_host
+        default_value: /var/run/postgresql
+        help: "PostgreSQL 主机"
+    - db_port:
+        long: db_port
+        default_value: "5432"
+        help: "PostgreSQL 端口"
+    - db_user:
+        long: db_user
+        default_value: $USER
+        help: "数据库用户；默认为当前用户 $USER"
+    - db_password:
+        long: db_password
+        takes_value: true
+        help: "密码或 SSL 证书（见 db_sslxxx 参数）"
+    - db_sslmode:
+        long: db_sslmode
+        default_value: verify-full
+        help: "SSL 模式（sslmode）"
+    - db_sslrootcert:
+        long: db_sslrootcert
+        takes_value: true
+        help: "服务器根证书（CA）：/path/to/server-ca.crt"
+    - db_sslcert:
+        long: db_sslcert
+        takes_value: true
+        help: "客户端证书：/path/to/client.crt"
+    - db_sslkey:
+        long: db_sslkey
+        takes_value: true
+        help: "客户端私钥：/path/to/client.key"
+    - logdb:
+        long: logdb
+        default_value: "copy"
+        possible_values: [primary, copy]
+        help: "历史记录数据库的角色：primary 或 copy。设为 primary 时，不在主目标数据库中创建历史记录表，而改用历史记录数据库。"
+    - logdb_url:
+        long: logdb_url
+        takes_value: true
+        help: "URL 会被解析为数据库名、主机等。若已通过其他方式设置，则以已设置的值为准"
+    - logdb_name:
+        long: logdb_name
+        takes_value: true
+        help: "历史记录数据库名。未设置时使用 'db_***' 配置"
+    - logdb_host:
+        long: logdb_host
+        default_value: /var/run/postgresql
+        help: "历史记录数据库主机。未设置时使用 'db_***' 配置"
+    - logdb_port:
+        long: logdb_port
+        default_value: "5432"
+        help: "历史记录数据库端口。未设置时使用 'db_***' 配置"
+    - logdb_user:
+        long: logdb_user
+        takes_value: true
+        help: "历史记录数据库用户。未设置时使用 'db_***' 配置"
+    - logdb_password:
+        long: logdb_password
+        takes_value: true
+        help: "历史记录数据库的密码或 SSL 证书（见 xx_sslxxx 参数）"
+    - logdb_sslmode:
+        long: logdb_sslmode
+        default_value: "verify-full"
+        takes_value: true
+        help: "历史记录数据库的 SSL 模式。未设置时使用 'db_***' 配置"
+    - logdb_sslrootcert:
+        long: logdb_sslrootcert
+        takes_value: true
+        help: "历史记录数据库的 SSL 根证书，例如 /path/to/server-ca.crt。未设置时使用 'db_***' 配置"
+    - logdb_sslcert:
+        long: logdb_sslcert
+        takes_value: true
+        help: "历史记录数据库的 SSL 证书文件，例如 /path/to/client.crt。未设置时使用 'db_***' 配置"
+    - logdb_sslkey:
+        long: logdb_sslkey
+        takes_value: true
+        help: "历史记录数据库的 SSL 私钥文件：/path/to/client.key。未设置时使用 'db_***' 配置"
+    - target:
+        long: target
+        default_value: "*"
+        help: "目标版本：选取不高于该版本的文件进行迁移。也是 '--pre_deploy'、'--schema_deploy'、'--version_deploy'、'--rr_deploy' 的默认值。"
+    - pre_deploy:
+        long: pre_deploy
+        default_value: "*"
+        help: |
+            选取 (P)re Deploy 文件 — 预部署脚本：版本适用的文件，执行时检查哪些尚未执行。它们在 (S)chema 文件之前运行。
+            用 '--target' 设定迁移的默认值。
+    - schema_deploy:
+        long: schema_deploy
+        default_value: "*"
+        help: |
+            选取 (S)chema 文件 — 要部署的模式，直到目标版本（* 表示全部）。
+            解析 YAML 模式文件，与数据库的 information schema 比较，并为表添加缺少的列。
+            已有的列不会被修改或删除。
+
+            用 '--target' 设定迁移的默认值。
+    - checksum:
+        long: checksum
+        default_value: "true"
+        help: "若 (P)re 和 (V)ersion 脚本在已部署并记录的版本与源目录中的版本之间校验和不一致，则部署失败。这有助于在各环境间保持文件一致。"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - rr_deploy:
+        long: rr_deploy
+        default_value: "*"
+        help: |
+            选取 (R)e-runable 文件 — 可重复执行脚本。对版本适用的文件检查校验和：若文件尚未执行或已更改，则执行该脚本。
+            用 '--target' 设定迁移的默认值。
+    - schema:
+        long: schema
+        default_value: public
+        help: "部署历史记录表（'table'）所在的模式"
+    - schema_transaction:
+        long: schema_transaction
+        default_value: file
+        help: |
+          覆盖 (S)chema 文件中的 database.schema.table.transaction 选项
+
+          - file：（默认）在单个事务中执行 (S)chema 文件。这保证文件被标记为 OK 时，其变更全部已应用，或全部未应用。
+
+          - table：每张表的全部变更各在一个事务中执行。
+
+          - retry：若一秒内无法获得锁，则重试 ALTER 变更，最多 100 次
+
+          迁移执行时，参数传入的值会覆盖 (S)chema 文件中设定的值。
+    - version_transaction:
+        long: version_transaction
+        takes_value: true
+        help: |
+          覆盖 (V)ersion 文件在 psql 中的执行方式：
+
+          - single：（默认）以 psql 的 --single-transaction 选项执行 (V)ersion 文件。
+
+          - statement：执行 psql 时不带 --single-transaction。也可以把文件第一行写成值 'false' 来实现，例如：--single-transaction=false
+    - table:
+        long: table
+        default_value: sge_history
+        help: "'schema' 中部署历史记录表的表名"
+    - source_dir:
+        long: source_dir
+        default_value: "./"
+        help: "脚本所在目录；使用 <source_recur> 扫描子目录"
+    - source_git:
+        long: source_git
+        takes_value: true
+        help: "作为脚本来源的 git 仓库 URL；为空时使用磁盘上的 <source_dir>"
+    - source_git_ref:
+        long: source_git_ref
+        takes_value: true
+        help: "要部署的分支、标签或提交；默认为远程仓库的 HEAD"
+    - source_git_dir:
+        long: source_git_dir
+        takes_value: true
+        help: "仓库中存放脚本的子目录"
+    - source_git_cache:
+        long: source_git_cache
+        takes_value: true
+        help: "克隆的存放位置；默认为 <tmp>/sge-git"
+    - source_git_depth:
+        long: source_git_depth
+        takes_value: true
+        default_value: "1"
+        help: "浅克隆（shallow clone）深度；0 表示获取完整历史"
+    - source_git_ssh_key:
+        long: source_git_ssh_key
+        takes_value: true
+        help: "通过 ssh 访问的 git URL 所用的身份文件；为空时由 ssh-agent 负责"
+    - source_git_known_hosts:
+        long: source_git_known_hosts
+        takes_value: true
+        help: "通过 ssh 访问 git 时的 known_hosts 文件；默认位于 <source_git_cache> 旁"
+    - source_git_credentials:
+        long: source_git_credentials
+        takes_value: true
+        help: "http(s) 来源的 git 凭据文件路径（`git credential-store` 写入的格式）。只能是路径，绝不能是令牌：argv 对每个本地用户都可读。"
+    - source_zip:
+        long: source_zip
+        takes_value: true
+        help: "作为脚本来源的 zip 压缩包：运行期间解压到 <source_zip_tmp>/<压缩包名>/，运行结束（无论成功与否）后删除；为空时使用磁盘上的 <source_dir>"
+    - source_zip_dir:
+        long: source_zip_dir
+        takes_value: true
+        help: "压缩包中存放脚本的子目录"
+    - source_zip_tmp:
+        long: source_zip_tmp
+        takes_value: true
+        help: "压缩包的解压位置；默认为系统临时目录"
+    - source_zip_max_mb:
+        long: source_zip_max_mb
+        takes_value: true
+        default_value: "1024"
+        help: "压缩包解压后的最大大小，单位 MiB"
+    - source_recur:
+        long: source_recur
+        default_value: "true"
+        help: "递归扫描目录"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - executed_by:
+        long: executed_by
+        takes_value: true
+        help: "执行迁移的用户名"
+    - script_tag:
+        long: script_tag
+        takes_value: true
+        help: "为已应用的脚本（历史记录行）设置的标签"
+    - db_target:
+        long: db_target
+        takes_value: true
+        help: "目标（target）值为数据库名；若历史记录表位于同一数据库，则为空字符串；或者为用于编排的环境（dev|prod）+ 主机（节点）+ 数据库。"
+    - db_catalog:
+        long: db_catalog
+        takes_value: true
+        help: "一组数据库模式 / 模块 / 微服务的名称。"
+    - version_deploy:
+        long: version_deploy
+        default_value: "*"
+        help: "部署 (V)ersion 文件，直到目标版本（* 表示全部）"
+    - dry_run:
+        long: dry_run
+        default_value: "false"
+        help: |
+          生成全部 SQL，但不在数据库上执行（'CREATE DATABASE' / 'CREATE ROLE' 除外），并记录每次执行脚本文件的尝试。
+          若要避免执行 'CREATE DATABASE'/'CREATE ROLE'，请去掉 '--createdb' 参数或将其设为 false。
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - dry_run_to:
+        long: dry_run_to
+        takes_value: true
+        help: "写入生成的 SQL 脚本的文件名"
+    - out_format:
+        long: snapshot_format
+        default_value: yaml
+        possible_values: [yaml, json]
+        help: "'snapshot' 命令生成的数据库模式信息的格式；另见 '--snapshot_to' 参数。"
+    - snapshot_to:
+        long: snapshot_to
+        takes_value: true
+        help: |
+          导出数据库结构的文件名。供 snapshot 命令使用。
+
+          '--snapshot_version' 覆盖生成文件名中的 'D<next>__' 编号。
+
+          若该值为目录，则其中的文件名为 'D<next>__<database_name>.yaml'。
+    - snapshot_version:
+        long: snapshot_version
+        help: |
+          覆盖 '--snapshot_to' 和 '--snapshot_data' 所生成文件名中的版本号。
+        takes_value: true
+    - snapshot_data:
+        long: snapshot_data
+        takes_value: true
+        help: |
+          要导出的表名，以逗号分隔。
+
+          文件名为：'D<next>__<schema_name>_<table_name>.csv'。
+
+          文件保存到 'snapshot_data' 目录或当前目录。
+
+          表名允许使用通配符（*）。
+
+          '--snapshot_version' 覆盖生成文件名中的 'D<next>__' 编号。
+
+          迁移配置见 '--etl'。
+
+          可选：冒号后跟一个视图，读取该视图而非表。
+#          示例：table_a,schema.table_b,table_c:view_c,schema.table_d:schema.view_d
+    - etl:
+        long: etl
+        help: |
+          迁移时的 ETL 操作：从 YAML 模式文件中 'table.etl.file' 字段指定的 CSV 文件加载数据。
+          若 CSV 文件名形如 'D<编号或版本>__'，该编号决定数据的插入顺序。它不是部署的目标版本。
+
+          若设置了 '--snapshot_data'，则这些表的 ETL 规则被覆盖。
+
+          YAML 'table.etl.file' 字段中的数据文件应为 CSV 格式的相对文件名。
+          在 '--snapshot_to' 中查找文件；若未设置 '--snapshot_to'，则在 '--source_dir' 中查找。
+          若数据文件自上次成功迁移以来未更改，ETL 不执行任何操作。
+
+          规则：
+
+          - clean：若主键标识的记录存在，则插入或更新字段；并从表中删除文件中没有的记录。
+
+          - force：若主键标识的记录存在，则插入或更新字段。没有主键时，只插入不存在的记录。
+
+          - apply：若主键标识的记录存在，则插入或忽略。
+
+          - ignore：所需文件不存在时不报错；否则使用 'apply' 规则。
+
+          - skip：完全不加载数据。
+
+        default_value: "apply"
+        takes_value: true
+        possible_values: [clean, force, apply, ignore, skip]
+# todo add extended CSV format
+# todo add etl - transform on load i.e. obfuscate rules file as mapping (table)field -> pwd_rule | email_rule | etc OR call python script
+    - config_file:
+        long: config
+        short: c
+        takes_value: true
+        help: |
+            从配置文件加载全部参数（以 : 或 = 分隔）；
+            命令行参数优先于从文件加载的参数。
+
+            若两处都未设置，则查找环境变量（名称为大写）。
+
+            若仍未找到，则使用默认值（若有）。
+
+            支持 YAML、Properties、conf、cfg、JSON、env 等文本格式，每行以 ':' 或 '=' 分隔键和值。
+
+            '键' 会转为小写，'值' 会去掉引号。请避免只在首行和末行加引号的多行值！
+
+            注意：其他优先级规则见 '--db_url' 和 '--logdb_url'
+    - after:
+        long: after
+        default_value: "after.sql"
+        takes_value: true
+        help: "迁移成功并提交历史记录后，查找并执行此脚本。找不到脚本不会导致失败。此脚本的执行不记录到历史记录表。"
+    - after_each:
+        long: after_each
+        default_value: "after_each.sql"
+        takes_value: true
+        help: "每个版本执行后，查找并执行此脚本。找不到脚本不会导致失败。此脚本的执行不记录到历史记录表。"
+    - createdb:
+        long: createdb
+        default_value: "false"
+        help: "若 db_name/logdb_name 不存在，则创建数据库：使用相同凭据，通过 postgres 数据库创建"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - verbose:
+        long: verbose
+        default_value: "false"
+        help: "开启 DEBUG 日志。"
+        possible_values: [yes, no, ok, y, "1", "true", "false"]
+    - createdb_user:
+        long: createdb_user
+        default_value: postgres
+        help: "'Create DB'（创建数据库）步骤所用的数据库用户。"
+    - createdb_pwd:
+        long: createdb_pwd
+        takes_value: true
+        help: "'Create DB' 步骤所用用户的密码。未设置时使用 db_sslxxx。"
+    - createdblog_user:
+        long: createdblog_user
+        default_value: postgres
+        help: "'Create LOGDB'（创建历史记录数据库）步骤所用的数据库用户。设置了 logdb_name 时使用。"
+    - createlogdb_pwd:
+        long: createlogdb_pwd
+        takes_value: true
+        help: "'Create LOGDB' 步骤所用用户的密码。未设置时使用 logdb_sslxxx。"

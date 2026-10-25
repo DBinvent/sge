@@ -23,8 +23,8 @@ if ! cargo deb --version >/dev/null 2>&1; then
   echo "    cargo install cargo-deb" >&2
   exit 1
 fi
-# the package ships a man page, sge.1.gz ([package.metadata.deb] assets), and
-# help2man is what writes it
+# the package ships the man pages ([package.metadata.deb] assets), and help2man is
+# what writes them
 if ! command -v help2man >/dev/null 2>&1; then
   echo "ERROR: help2man is not installed: sudo apt install help2man" >&2
   exit 1
@@ -39,12 +39,9 @@ cd "$SRC_DIR"
 cargo test --lib --bins
 cargo build --release
 
-# the man page: `sge --help`, with the EXAMPLES section from examples.1; -N leaves
-# out help2man's pointer to a Texinfo manual sge does not have. The split of each
-# " [default" onto a line of its own is ../build.sh's.
-help2man -N -o sge.1 -i examples.1 target/release/sge
-sed -i 's/ \[d/\n \[d/g' sge.1
-gzip -f -9 sge.1
+# the man pages: `sge --help` in English and in each of its translations, with the
+# NAME and EXAMPLES of man/<lang>.h2m, into target/man - see man/build.sh
+man/build.sh target/release/sge target/man
 
 # --no-build: package exactly the binary tested and built above
 cargo deb --no-build

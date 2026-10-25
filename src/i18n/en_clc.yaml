@@ -273,6 +273,23 @@ args:
         long: source_git_credentials
         takes_value: true
         help: "Path to a git credential file (the format `git credential-store` writes) for an http(s) source. A PATH, never a token: argv is readable by every local user."
+    - source_zip:
+        long: source_zip
+        takes_value: true
+        help: "Zip archive as the script source: unpacked into <source_zip_tmp>/<archive name>/ for the run and removed when it ends, completed or failed; empty uses <source_dir> on disk"
+    - source_zip_dir:
+        long: source_zip_dir
+        takes_value: true
+        help: "Sub-directory inside the archive holding the scripts"
+    - source_zip_tmp:
+        long: source_zip_tmp
+        takes_value: true
+        help: "Where archives are unpacked; default the system temp directory"
+    - source_zip_max_mb:
+        long: source_zip_max_mb
+        takes_value: true
+        default_value: "1024"
+        help: "The most an archive may unpack to, in MiB"
     - source_recur:
         long: source_recur
         default_value: "true"

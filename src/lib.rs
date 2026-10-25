@@ -8,14 +8,23 @@ use lazy_static::lazy_static;
 extern crate semver;
 extern crate yaml_rust2;
 
+// [i18n] locales/*.yml, compiled in; a language without a message is English
+rust_i18n::i18n!("locales", fallback = "en");
+
+// first: tr! is declared there, for the modules below
+#[macro_use]
+pub mod i18n;
+/// [pg] Postgres's errors, in full and in one place
+mod dbm_pg;
 pub mod dbm_cfg;
 mod dbm_log;
 mod dbm_files;
 /// [git] git repository as a script source - see `source_git`
 mod dbm_git;
+/// [zip] zip archive as a script source, unpacked for the run - see `source_zip`
+mod dbm_zip;
 /// [yt] rolling migration across a YT Cluster, node by node
 pub mod dbm_yt;
-pub mod i18n;
 pub mod dbm_etl;
 
 use crate::dbm_log::*;
@@ -100,7 +109,6 @@ lazy_static! {
 
     // pub static ref SCHEMA_YAML: Vec<yaml_rust::Yaml> = YamlLoader::load_from_str(crate::YAML_SCHEMA).expect("wrong schema");
 
-    pub static ref TR: crate::i18n::Translate = crate::i18n::Translate::new();
 }
 
 /// [sg-tokio] Connect and drive the connection.
@@ -163,18 +171,23 @@ fn migration_options(cfg: &ConfigMap) -> schema_guard_tokio::MigrationOptions {
 /// Main entry point
 /// Relational (PostgreSQL) database migration management
 pub async fn migrate(mut cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
-    trace!(log, "migrate prepare_only {}, with logdb {}, is_logdb: {}, is_primary: {}", prepare_only, cfg.get("logdb"), cfg.is_logdb(), cfg.is_primary());
+    trace!(log, "{}", tr!("lib.trace_migrate", prepare = prepare_only, logdb = cfg.get("logdb"),
+        is_logdb = cfg.is_logdb(), is_primary = cfg.is_primary()));
+    // [zip] an archive is unpacked first and source_dir pointed into it; the guard
+    // removes the directory when this function returns - completed or failed
+    let _zip = dbm_zip::materialize(&mut cfg, log)?;
     let mut client = connect(if cfg.is_primary() {"logdb_"} else {"db_"}, &cfg, None, "logdata", log).await?;
     let mut copy_log = if !cfg.is_primary() && cfg.is_logdb() {
-        trace!(log, "migrate connecting COPYLOG ...");
+        trace!(log, "{}", tr!("lib.trace_copylog"));
         Some(connect("logdb_", &cfg, None, "copylog", log).await?)
     } else { None};
-    schema_guard_tokio::set_logger(log.clone());
+    // [i18n] the logger carries the language, which schema_guard takes from it
+    schema_guard_tokio::set_logger(log.new(o!("lang" => i18n::lang())));
     // [yt] the cluster's SchemaGuard options, for every node the roll reaches -
     // node_cfg clones this map
     if dbm_yt::enabled(&cfg) {
         if let Some(sg) = dbm_yt::sg_migration(&mut client, &cfg).await {
-            debug!(log, "[yt] SchemaGuard migration options from the cluster: [{}]", sg);
+            debug!(log, "{}", tr!("lib.yt_options", options = sg));
             cfg.insert(&"sg_migration".to_string(), sg.as_str());
         }
     }
@@ -214,7 +227,8 @@ async fn migrate_db(
     } else {
         cfg.get("db_name")
     };
-    let mut dbc = load_info_schema(log_db_name.as_str(), &mut log_client.transaction().await.map_err(|e| e.to_string())?).await?;
+    let mut dbc = load_info_schema(log_db_name.as_str(), &mut log_client.transaction().await
+        .map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?).await?;
     let files = load_all(cfg, log)?;
     let mut t = log_client.transaction().await.unwrap(); // begin self install if not exists
     let mut err = baseline_deploy(&mut dbc, &mut t, &schema, cfg, "primary", log).await;
@@ -225,7 +239,7 @@ async fn migrate_db(
             if err.is_none() {
                 // debug!(log, "begin self install if not exists on log copy instance");
                 // TODO reuse loaded?
-                let mut t = lc.transaction().await.map_err(|e| e.to_string())?;
+                let mut t = lc.transaction().await.map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?;
                 let mut dbc = load_info_schema(cfg.get("logdb_name").as_str(), &mut t).await?;
                 // let mut t = lc.transaction().await.unwrap();
                 if !cfg.is_primary() {
@@ -236,9 +250,9 @@ async fn migrate_db(
         }
     };
     if let Some(e) = err {
-        warn!(log, "rollback on fail self deploy: {}", e);
+        warn!(log, "{}", tr!("lib.rollback_self", err = e));
         if let Err(e) = t.rollback().await {
-            warn!(log, "rollback on fail self deploy failed: {}", e);
+            warn!(log, "{}", tr!("lib.rollback_self_failed", err = dbm_pg::pg(&e)));
         }
         return Err(e);
     };
@@ -251,8 +265,9 @@ async fn migrate_db(
         let db_name = cfg.get("db_name");
         let mut dbc = if log_db_name != db_name {
             let mut client = connect("db_", &cfg, None, "loading info schema",log).await?;
-            let dbc = load_info_schema(db_name.as_str(), &mut client.transaction().await.unwrap()).await?;
-            debug!(log, "loading info schema disconnected");
+            let dbc = load_info_schema(db_name.as_str(), &mut client.transaction().await
+                .map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?).await?;
+            debug!(log, "{}", tr!("lib.info_schema_done"));
             dbc
         } else { dbc };
         let mut client = connect("db_", &cfg, None, "migrate",log).await?;
@@ -272,17 +287,17 @@ async fn migrate_db(
             let _ = StatementLog::new(cfg).after("after", &files, &HashMap::new(), cfg, None,  log).await?;
             match &res {
                 Ok(_) => {
-                    debug!(log, "all done");
+                    debug!(log, "{}", tr!("lib.all_done"));
                     Ok(())
                 },
                 Err(e) => Err(e.to_string()),
             }
         },
         Err(e) => {
-            error!(log, "commit history failed: {}", e);
+            error!(log, "{}", tr!("lib.commit_history_log", err = dbm_pg::pg(&e)));
             match &res {
-                Ok(_) => Err(format!("commit history failed: {}", e)),
-                Err(ee) => Err(format!("{}. Also, commit history failed: {}", e, ee)),
+                Ok(_) => Err(tr!("lib.commit_history", err = dbm_pg::pg(&e))),
+                Err(ee) => Err(tr!("lib.commit_history_also", err = ee, commit_err = dbm_pg::pg(&e))),
             }
         }
     };
@@ -316,20 +331,20 @@ pub(crate) async fn baseline_deploy(
     cause: &str,
     log: &Logger,
 ) -> Option<String> {
-    debug!(log, "starting with self deploy {} for {}", BASELINE, cause);
+    debug!(log, "{}", tr!("lib.self_deploy_start", what = BASELINE, cause = cause));
     let mut baseline = crate::STATEMENT_LOG_TBL.clone();
     baseline.table_name = cfg.history_table_name();
     // [sg-tokio] deploy is async, dropped is_retry, gained MigrationOptions,
     // and the callback must be Send + Sync
     let dr: Box<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync> =
         Box::new(|input| cfg.dry_run(input));
-    match baseline.deploy(dbc, t, &schema, BASELINE,
+    match baseline.deploy_pg(dbc, t, &schema, BASELINE,
       if cfg.get_bool("dry_run", false) { Some(dr.as_ref()) } else {None},
       &migration_options(cfg)
     ).await {
         Ok(exec) => {
             if exec {
-                debug!(log, "self deploy of: {} complete", BASELINE);
+                debug!(log, "{}", tr!("lib.self_deploy_done", what = BASELINE));
                 if let Err(e) = StatementLog::new(cfg)
                     .instance('S', &BASELINE.into(), &"".into(), &BASELINE.into())
                     .persist(None, Some(t), &mut None).await
@@ -342,7 +357,7 @@ pub(crate) async fn baseline_deploy(
                 None
             }
         }
-        Err(e) => Some(e),
+        Err(e) => Some(dbm_pg::deploy(e)),
     }
 }
 
@@ -360,7 +375,7 @@ async fn migrate_all_versions(
     let mut res = Vec::new();
     let draft = StatementLog::new(cfg);
     for ver in files.all_versions() {
-        info!(log, "Deploying version: {}", ver);
+        info!(log, "{}", tr!("lib.deploying_version", version = ver));
         res.push(deploy_pre_files(&logs, &ver, &files, &cfg, t, clog_t, log).await?);
         res.push(deploy_all_schemas(&logs, client, &ver, &files, dbc, &cfg, t, clog_t, log).await?);
         res.push(deploy_all_files(&logs, &ver, &files, &cfg, t, clog_t, log).await?);
@@ -470,24 +485,24 @@ async fn deploy_all_schemas(
                         || ysv.list.iter().any(|ys| ys.tables.list.iter().any(|yt| yt.is_table_transaction()));
                     if !per_table {
                         for ys in &ysv.list {
-                            match ys.deploy_all_tables(dbc, &mut t, dry, &opt).await {
+                            match ys.deploy_all_tables_pg(dbc, &mut t, dry, &opt).await {
                                 Ok(n) => {
-                                    debug!(log, "deployed {} table(s) of {} from {} dry_run?{}", n, ys.schema_name, file, dry_run);
+                                    debug!(log, "{}", tr!("lib.deployed_tables", count = n, schema = ys.schema_name, file = file, dry_run = dry_run));
                                     do_persist = do_persist || n > 0;
                                 }
                                 Err(e) => {
                                     do_persist = true;
-                                    err = Some(e);
+                                    err = Some(dbm_pg::deploy(e));
                                     break;
                                 }
                             }
                         }
                         if err.is_none() {
                             for ys in &ysv.list {
-                                match ys.deploy_all_fk(ysv, dbc, &mut t, cfg.is_retry(), dry).await {
+                                match ys.deploy_all_fk_pg(ysv, dbc, &mut t, cfg.is_retry(), dry).await {
                                     Ok(n) => do_persist = do_persist || n > 0,
                                     Err(e) => {
-                                        err = Some(e);
+                                        err = Some(dbm_pg::deploy(e));
                                         break;
                                     }
                                 }
@@ -501,17 +516,15 @@ async fn deploy_all_schemas(
                                 if yt.is_template() {
                                     continue;
                                 }
-                                match yt.deploy(dbc, &mut t, &ys.schema_name, &ys.file, dry, &opt).await {
+                                match yt.deploy_pg(dbc, &mut t, &ys.schema_name, &ys.file, dry, &opt).await {
                                     Ok(ok) => {
-                                        debug!(log, "deployed {}.{}: [{}] from {} dry_run?{}", ys.schema_name, yt.table_name, if ok {"ok"}else{"NOT OK"}, file, dry_run);
+                                        debug!(log, "{}", tr!(if ok { "lib.deployed_table_ok" } else { "lib.deployed_table_failed" },
+                                            table = format!("{}.{}", ys.schema_name, yt.table_name), file = file, dry_run = dry_run));
                                         if ok {
                                             do_persist = true;
                                             if yt.is_table_transaction() || table_tr {
                                                 if let Err(ec) = t.batch_execute("COMMIT; BEGIN").await {
-                                                    err = Some(format!(
-                                                        "committing change on {}.{} with {}",
-                                                        ys.schema_name, yt.table_name, ec
-                                                    ));
+                                                    err = Some(tr!("lib.commit_table", table = format!("{}.{}", ys.schema_name, yt.table_name), err = dbm_pg::pg(&ec)));
                                                     break 'tables;
                                                 }
                                             }
@@ -519,7 +532,7 @@ async fn deploy_all_schemas(
                                     }
                                     Err(e) => {
                                         do_persist = true;
-                                        err = Some(e);
+                                        err = Some(dbm_pg::deploy(e));
                                         break 'tables;
                                     }
                                 }
@@ -531,23 +544,20 @@ async fn deploy_all_schemas(
                                     if yt.is_template() {
                                         continue;
                                     }
-                                    match yt.deploy_fk(ysv, dbc, &mut t, &ys.schema_name, cfg.is_retry(), &ys.file, dry).await {
+                                    match yt.deploy_fk_pg(ysv, dbc, &mut t, &ys.schema_name, cfg.is_retry(), &ys.file, dry).await {
                                         Ok(ok) => {
                                             if ok {
                                                 do_persist = true;
                                                 if yt.is_table_transaction() || table_tr {
                                                     if let Err(ec) = t.batch_execute("COMMIT; BEGIN").await {
-                                                        err = Some(format!(
-                                                            "committing change on {}.{} with {}",
-                                                            ys.schema_name, yt.table_name, ec
-                                                        ));
+                                                        err = Some(tr!("lib.commit_table", table = format!("{}.{}", ys.schema_name, yt.table_name), err = dbm_pg::pg(&ec)));
                                                         break 'fks;
                                                     }
                                                 }
                                             }
                                         }
                                         Err(e) => {
-                                            err = Some(e);
+                                            err = Some(dbm_pg::deploy(e));
                                             break 'fks;
                                         }
                                     }
@@ -566,28 +576,28 @@ async fn deploy_all_schemas(
                     }
 
                     if !do_persist {
-                        error!(log, "rollback");
+                        error!(log, "{}", tr!("lib.rollback"));
                         let _ = t.rollback().await; // done with transaction anyway
                     } else {
                         match &err {
                             // err means was persist
                             Some(e) => {
-                                error!(log, "rollback: {}", e);
+                                error!(log, "{}", tr!("lib.rollback_err", err = e));
                                 let _ = t.rollback().await;
                             }
                             None => {
-                                info!(log, "commit: {}", do_persist);
+                                info!(log, "{}", tr!("lib.commit_log", persist = do_persist));
                                 if do_persist {
                                     if let Err(e) = t.commit().await {
-                                        error!(log, "commit: {}", e);
-                                        err = Some(format!("committing change for {} {}", file, e))
+                                        error!(log, "{}", tr!("lib.commit_failed_log", err = dbm_pg::pg(&e)));
+                                        err = Some(tr!("lib.commit_file", file = file, err = dbm_pg::pg(&e)))
                                     }
                                 }
                             }
                         }
                     }
                 }
-                Err(e) => err = Some(format!("creating transaction for {} {}", file, e)),
+                Err(e) => err = Some(tr!("lib.transaction", file = file, err = dbm_pg::pg(&e))),
             }
             if do_persist {
                 match stl.instance('S', &ver.s, &cfg.get("source_dir"), file)
@@ -665,7 +675,7 @@ async fn connect(
                 let _ = write!(log_url, "&password={}", screen(&pwd));
             }
         }
-        debug!(log, "{}: create db connect: {}", module, log_url);
+        debug!(log, "{}", tr!("lib.create_db_connect", module = module, url = log_url));
         ("postgres".to_string(), log_url)
     } else {
         cfg.get_pow(&mut url, prefix, "user", "&");
@@ -674,27 +684,30 @@ async fn connect(
         cfg.get_pow_scr(&mut log_url, prefix, "password", "&");
         match cfg.get_opt(format!("{}name", prefix).as_str()) {
             None => {
-                return Err(format!("No DB name set: {}name", prefix));
+                return Err(tr!("lib.no_db_name", prefix = prefix));
             }
             Some(db) => (db, log_url),
         }
     };
     let db = format!("postgresql:///{}?{}", crate::dbm_cfg::url_value(&dbname), url);
-    debug!(log, "{}: connecting: {} {}", module, log_url, dbname);
+    debug!(log, "{}", tr!("lib.connecting", module = module, url = log_url, db = dbname));
     match if cfg.is_ssl() {
         #[cfg(not(feature = "tls"))]
-        return Err(format!("No openssl on this build yet to connect to: {}", db));
+        return Err(tr!("lib.no_tls", db = db));
         #[cfg(feature = "tls")]
         spawn_connect_tls(db.as_str(), match make_tls_connector(&cfg.get(format!("{}sslrootcert", prefix).as_str())) {
             Ok(c) => c,
             Err(e) => {
-                return Err(format!("create TLS(SSL) connection: {}", e));
+                return Err(tr!("lib.tls", err = e));
             }
         }).await
     } else {
         spawn_connect(db.as_str()).await
     } {
-        Ok(client) => Ok(client),
+        Ok(client) => {
+            schema_guard_tokio::set_lc_messages(&client, &i18n::lang()).await;
+            Ok(client)
+        }
         Err(err) => {
             if let None = create {
                 if let Some(code) = err.code() {
@@ -716,17 +729,14 @@ async fn connect(
                                 log,
                             )).await;
                         } else {
-                            error!(log, "NO DB: {}, create or use --createdb=y", dbname);
+                            error!(log, "{}", tr!("lib.no_db", db = dbname));
                         }
                     } else {
-                        debug!(log, "{}: connection error code: {:?}", module, code);
+                        debug!(log, "{}", tr!("lib.connection_code", module = module, code = format!("{:?}", code)));
                     }
                 }
             }
-            Err(format!(
-                "Connect to Postgres [{}] {}: {} ",
-                log_url, dbname, err
-            ))
+            Err(tr!("lib.connect", url = log_url, db = dbname, err = dbm_pg::pg(&err)))
         }
     }
 }
@@ -759,15 +769,12 @@ async fn create_connect(
     module: &str,
     log: &Logger,
 ) -> Result<Client, String> {
-    info!(
-        log,
-        "NO DB name [{}] or user found, trying to connect as super user ...", dbname
-    );
+    info!(log, "{}", tr!("lib.try_superuser", db = dbname));
     let mut client = connect(prefix, cfg, Some(true), module, log).await?;
     let owner = match cfg.get_opt(format!("{}user", prefix).as_str()) {
         None => "".to_string(),
         Some(user) => {
-            debug!(log, "testing for user: {}", user);
+            debug!(log, "{}", tr!("lib.testing_user", user = user));
             create_role(&mut client, &user, prefix, cfg, log).await?;
             format!(" OWNER {}", quote_ident(&user))
         }
@@ -775,14 +782,14 @@ async fn create_connect(
     match connect(prefix, cfg, Some(false), module, log).await {
         Ok(_) => { /* [sg-tokio] the connection closes when the client drops */ }
         Err(e) => {
-            debug!(log, "{} testing connection: {}", dbname, e);
-            info!(log, "NO DB name [{}] found, trying to create...", dbname);
+            debug!(log, "{}", tr!("lib.testing_connection", db = dbname, err = e));
+            info!(log, "{}", tr!("lib.creating_db", db = dbname));
             let _ = client
                 .batch_execute(format!("CREATE DATABASE {} {}", quote_ident(dbname), owner).as_str()).await
-                .map_err(|e| format!("Creating DB [{}] by postgres: {} ", dbname, e))?;
+                .map_err(|e| tr!("lib.create_db", db = dbname, err = dbm_pg::pg(&e)))?;
         }
     }
-    info!(log, "DB/user [{}] created, reconnecting", dbname);
+    info!(log, "{}", tr!("lib.db_created", db = dbname));
     connect(prefix, cfg, Some(false), module, log).await
 }
 
@@ -798,18 +805,18 @@ async fn create_role(
             "SELECT count(rolname) FROM pg_roles WHERE rolname = $1",
             &[user],
         ).await
-        .map_err(|e| format!("loading role [{}] {}", user, e))?;
+        .map_err(|e| tr!("lib.load_role", user = user, err = dbm_pg::pg(&e)))?;
     let users: i64 = row.get(0);
     if users == 0 {
-        info!(log, "NO user {} found, trying to create ...", user);
+        info!(log, "{}", tr!("lib.creating_role", user = user));
         let pwd = match cfg.get_opt(format!("{}password", prefix).as_str()) {
             None => "".to_string(),
             Some(pwd) => format!(" PASSWORD {}", quote_literal(&pwd)),
         };
         let _ = db
             .batch_execute(format!("CREATE ROLE {} WITH LOGIN {}", quote_ident(user), pwd).as_str()).await
-            .map_err(|e| format!("Creating user role: {} error: {}", user, e))?;
-        info!(log, "Created user role: {}", user);
+            .map_err(|e| tr!("lib.create_role", user = user, err = dbm_pg::pg(&e)))?;
+        info!(log, "{}", tr!("lib.role_created", user = user));
     }
     Ok(())
 }
@@ -817,7 +824,7 @@ async fn create_role(
 #[inline]
 #[cfg(feature = "tls")]
 fn make_tls_connector(cert: &String) -> Result<postgres_native_tls::MakeTlsConnector, String> {
-    let cert = fs::read(cert).map_err(|e| format!("reading {} Error: {}", cert, e))?;
+    let cert = fs::read(cert).map_err(|e| tr!("lib.read_cert", file = cert, err = e))?;
     let cert = native_tls::Certificate::from_pem(&cert).map_err(|e| e.to_string())?;
     let connector = native_tls::TlsConnector::builder()
         .add_root_certificate(cert)
@@ -836,7 +843,7 @@ fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
 pub async fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     let mut log_client = connect("logdb_", &cfg, None, "loading logs",log).await?;
     let mut db_client = connect("db_", &cfg, None, "loading data",log).await?;
-    let mut db = db_client.transaction().await.map_err(|e| e.to_string())?;
+    let mut db = db_client.transaction().await.map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?;
     let etl = dbm_etl::Etl::from(&cfg)?;
     let result = if dump {
         LoadResult::load(&etl, &mut db, log).await?.format(etl.yaml_format)
@@ -898,5 +905,38 @@ mod tests {
     #[test]
     fn config_log_deser_test() {
         assert!(crate::CONFIG_APP.len() > 15);
+    }
+
+    fn log() -> Logger {
+        Logger::root(slog::Discard, o!())
+    }
+
+    /// [connect] what is refused before any server is asked: no database named, TLS
+    /// on a build without it; and a server that is not there, as the superuser too
+    #[tokio::test]
+    async fn a_connection_is_refused_before_any_server_is_asked() {
+        let e = connect("db_", &ConfigMap::of(&[("db_host", "127.0.0.1")]), None, "t", &log()).await.err().unwrap();
+        assert!(e.starts_with("SGE-E006 ") && e.contains("db_name"), "{}", e);
+        #[cfg(not(feature = "tls"))]
+        {
+            let c = ConfigMap::of(&[("db_name", "app"), ("db_sslcert", "/c.pem")]);
+            let e = connect("db_", &c, None, "t", &log()).await.err().unwrap();
+            assert!(e.starts_with("SGE-E007 "), "{}", e);
+        }
+        let nowhere = [("db_host", "127.0.0.1"), ("db_port", "1"), ("db_name", "app"), ("db_user", "app"),
+            ("db_password", "secret"), ("createdb", "true")];
+        let e = connect("db_", &ConfigMap::of(&nowhere), Some(true), "t", &log()).await.err().unwrap();
+        assert!(e.starts_with("SGE-E009 ") && e.contains("password=***") && !e.contains("secret"), "{}", e);
+        // logdb_ with no log database of its own: the main one's settings
+        let e = connect("logdb_", &ConfigMap::of(&nowhere), None, "t", &log()).await.err().unwrap();
+        assert!(e.contains("port=1"), "{}", e);
+    }
+
+    /// [zip] an archive that is not there fails the run before anything connects
+    #[tokio::test]
+    async fn a_missing_archive_fails_the_run_first() {
+        let c = ConfigMap::of(&[("source_zip", "/nonexistent/scripts.zip"), ("db_host", "127.0.0.1"), ("db_port", "1")]);
+        let e = migrate(c, false, &log()).await.unwrap_err();
+        assert!(e.starts_with("SGE-E602 "), "{}", e);
     }
 }
