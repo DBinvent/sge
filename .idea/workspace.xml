@@ -23,13 +23,8 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="fix audit github action run">
-      <change beforePath="$PROJECT_DIR$/.github/workflows/apt.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/apt.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dist/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/build.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dist/publish.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/publish.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/integration-test6.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration-test6.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

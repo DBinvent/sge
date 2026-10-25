@@ -164,6 +164,11 @@ async fn pg_errors(pg: &PgInstance, c: &mut Client) -> Result<(), String> {
         \x20           - column: { name: id, type: nosuchtype }\n").map_err(|e| e.to_string())?;
     let e = migrate(pg.with_src(&dir, vec![]), false, &init::LOG).await.unwrap_err();
     assert!(e.starts_with("SGE-E701 ") && e.contains("42704") && e.contains("nosuchtype") && !e.contains("db error"), "{}", e);
+    // the line of the statement the server pointed at, the ^ under the type
+    let lines: Vec<&str> = e.lines().collect();
+    let caret = lines.iter().position(|l| l.trim() == "^").unwrap_or_else(|| panic!("no ^ in {}", e));
+    let col = lines[caret].chars().count() - 1;
+    assert_eq!(lines[caret - 1].chars().skip(col).take(10).collect::<String>(), "nosuchtype", "{}", e);
 
     // the superuser: the locale, when the server has it - asked of the server first
     let lang = std::env::var("LANG").unwrap_or_default();
