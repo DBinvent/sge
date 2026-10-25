@@ -137,8 +137,3 @@ assets= [
 [package.metadata.generate-rpm.requires]
 # psql, as the deb's depends; curl and openssl went with the licensing harness
 postgresql-client = "*"
-
-# TEMPORARY, until schema_guard_tokio 2.1.0 is on crates.io: the sibling checkout. Remove
-# it then - with it a build needs ../schema_guard, which the docker context has not
-[patch.crates-io]
-schema_guard_tokio = { path = "../schema_guard" }

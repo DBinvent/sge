@@ -22,65 +22,7 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="fix runner">
-      <change afterPath="$PROJECT_DIR$/.dockerignore" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/build.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/dist/docker-smoke.sh" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/dist/dockerhub.md" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/dist/publish.sh" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/cfg.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/etl.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/files.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/git.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/lib.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/log.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/pg.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/locales/zip.yml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/man/build.sh" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/man/de.h2m" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/man/fr.h2m" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/man/ja.h2m" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/man/ru.h2m" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/man/zh.h2m" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/dbm_pg.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/dbm_zip.rs" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/i18n/de_clc.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/i18n/fr_clc.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/i18n/ja_clc.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/i18n/zh_clc.yaml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/tests/integration-test6.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/workflows/audit.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/audit.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/TODO.md" beforeDir="false" afterPath="$PROJECT_DIR$/TODO.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/build.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dist/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/build.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/examples.1" beforeDir="false" afterPath="$PROJECT_DIR$/man/en.h2m" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_cfg.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_cfg.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_etl.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_etl.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_files.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_files.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_git.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_git.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_log.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_log.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_yt.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_yt.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/i18n.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/i18n.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/i18n/en.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/i18n/en_clc.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/src/i18n/en_clc.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/i18n/ru.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/i18n/ru_clc.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/src/i18n/ru_clc.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/tests/README.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/init/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/init/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case0/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case0/test.result.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case1/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case1/test.result.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result.dump.yaml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scen/case2/test.result.yaml" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scen/case2/test.result.yaml" afterDir="false" />
-    </list>
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="added zip file support, translation languages and PG error propagation support from sg.&#10;test coverage bumped to 93%" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -617,7 +559,6 @@
   <component name="VcsManagerConfiguration">
     <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
     <option name="CHECK_NEW_TODO" value="false" />
-    <MESSAGE value="fix after.sql to execute after migration committed" />
     <MESSAGE value="fix rdbm_history name and schema override&#10;deploy debug logs added" />
     <MESSAGE value="fix csv sorting" />
     <MESSAGE value="man added" />
@@ -642,7 +583,8 @@
     <MESSAGE value="remove dependencies: curl, openssl" />
     <MESSAGE value="flyway compatibility test" />
     <MESSAGE value="fix runner" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix runner" />
+    <MESSAGE value="added zip file support, translation languages and PG error propagation support from sg.&#10;test coverage bumped to 93%" />
+    <option name="LAST_COMMIT_MESSAGE" value="added zip file support, translation languages and PG error propagation support from sg.&#10;test coverage bumped to 93%" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
