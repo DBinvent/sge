@@ -107,9 +107,9 @@ and the ETL around that, and a commit after each changed table with
 
 ### Packages
 
-One version in four forms. The packages are named after the crate,
-`schema_guard` - the deb `schema-guard`, as Debian names take no `_` - and
-install the `sge` binary (they were `rdbm` before).
+One version in five forms. The packages are named after the crate,
+`schema_guard` - the deb and the rpm `schema-guard`, as Debian names take no `_` -
+and install the `sge` binary (they were `rdbm` before).
 
 **apt** (Debian, Ubuntu; x86-64), from DBinvent's repository at apt.dbinvent.com,
 whose one distribution `yt-cluster` carries Schema Guard too:
@@ -119,6 +119,17 @@ curl -fsSL https://apt.dbinvent.com/dev.gpg.key | sudo gpg --dearmor -o /usr/sha
 echo "deb [arch=amd64 signed-by=/usr/share/keyrings/dbinvent.gpg] https://apt.dbinvent.com yt-cluster restricted" | sudo tee /etc/apt/sources.list.d/dbinvent.list
 sudo apt update && sudo apt install schema-guard
 ```
+
+**rpm** (RHEL 9 family, Amazon Linux 2023, any other rpm Linux; x86-64): the
+static `sge`, from the same repository's yum side, YT Cluster's too:
+
+```
+sudo dnf config-manager --add-repo https://apt.dbinvent.com/yum/yt-cluster-el9.repo
+sudo dnf install schema-guard
+```
+
+It recommends `postgresql` for `psql`; with PGDG's `postgresqlNN` instead, add
+`--setopt=install_weak_deps=False`.
 
 **Docker**: [`dbinvent/sge`](https://hub.docker.com/r/dbinvent/sge) - a static
 `sge` and the `psql` it applies SQL files with, on Alpine (about 12 MB). It runs
@@ -155,9 +166,10 @@ runs `psql`.
 **Rust**: `cargo install schema_guard` for the binary, or the crate in your own
 code (`schema_guard = { version = "2", default-features = false }`).
 
-`dist/publish.sh` publishes a version in the first three forms at once: the image
-from this repository's `Dockerfile`, the tarball from the image's binary, and the
-deb (`dist/build.sh`), unless the repository lists that version already.
+A push to `main` that changes the code publishes the version in the first four
+forms (`.github/workflows/apt.yml`): `dist/build.sh` builds the deb, the image from
+this repository's `Dockerfile`, and the rpm and the tarball from the image's static
+binary; `dist/publish.sh` does the same by hand.
 
 ### Build from source
 

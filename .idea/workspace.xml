@@ -22,7 +22,15 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="added zip file support, translation languages and PG error propagation support from sg.&#10;test coverage bumped to 93%" />
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="fix audit github action run">
+      <change beforePath="$PROJECT_DIR$/.github/workflows/apt.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/apt.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/build.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/publish.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/publish.sh" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -559,7 +567,6 @@
   <component name="VcsManagerConfiguration">
     <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
     <option name="CHECK_NEW_TODO" value="false" />
-    <MESSAGE value="fix rdbm_history name and schema override&#10;deploy debug logs added" />
     <MESSAGE value="fix csv sorting" />
     <MESSAGE value="man added" />
     <MESSAGE value="fixed ETL with view" />
@@ -584,7 +591,8 @@
     <MESSAGE value="flyway compatibility test" />
     <MESSAGE value="fix runner" />
     <MESSAGE value="added zip file support, translation languages and PG error propagation support from sg.&#10;test coverage bumped to 93%" />
-    <option name="LAST_COMMIT_MESSAGE" value="added zip file support, translation languages and PG error propagation support from sg.&#10;test coverage bumped to 93%" />
+    <MESSAGE value="fix audit github action run" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix audit github action run" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

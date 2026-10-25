@@ -120,20 +120,27 @@ assets= [
 ]
 
 [package.metadata.generate-rpm]
+# EL9 and any other rpm Linux on x86-64: the image's static (musl) sge, which
+# dist/build.sh copies out to the source below - a glibc build of this host would
+# need a newer glibc than EL9's 2.34. Named as the deb, schema-guard; published to
+# apt.dbinvent.com/yum/el9, YT Cluster's yum repository (its yt-cluster-el9.repo)
+name = "schema-guard"
 license = "MIT"
+auto-req = "disabled"
 assets= [
-    {source = "target/release/sge", dest = "/usr/bin/sge", mode ="755"},
-    {source = "target/man/man1/sge.1.gz", dest = "/usr/share/man/man1/", mode = "644"},
-    {source = "target/man/ru/man1/sge.1.gz", dest = "/usr/share/man/ru/man1/", mode = "644"},
-    {source = "target/man/fr/man1/sge.1.gz", dest = "/usr/share/man/fr/man1/", mode = "644"},
-    {source = "target/man/de/man1/sge.1.gz", dest = "/usr/share/man/de/man1/", mode = "644"},
-    {source = "target/man/zh_CN/man1/sge.1.gz", dest = "/usr/share/man/zh_CN/man1/", mode = "644"},
-    {source = "target/man/ja/man1/sge.1.gz", dest = "/usr/share/man/ja/man1/", mode = "644"},
-    {source = "lib-licenses.txt", dest = "/usr/share/doc/schema_guard/lib-licenses.txt", mode = "644", doc = true},
-    {source = "COPYRIGHT", dest = "/usr/share/doc/schema_guard/copyright", mode = "644", doc = true},
-    {source = "LICENSE", dest = "/usr/share/doc/schema_guard/LICENSE", mode = "644", doc = true},
+    {source = "target/x86_64-unknown-linux-musl/release/sge", dest = "/usr/bin/sge", mode ="755"},
+    {source = "target/man/man1/sge.1.gz", dest = "/usr/share/man/man1/sge.1.gz", mode = "644", doc = true},
+    {source = "target/man/ru/man1/sge.1.gz", dest = "/usr/share/man/ru/man1/sge.1.gz", mode = "644", doc = true},
+    {source = "target/man/fr/man1/sge.1.gz", dest = "/usr/share/man/fr/man1/sge.1.gz", mode = "644", doc = true},
+    {source = "target/man/de/man1/sge.1.gz", dest = "/usr/share/man/de/man1/sge.1.gz", mode = "644", doc = true},
+    {source = "target/man/zh_CN/man1/sge.1.gz", dest = "/usr/share/man/zh_CN/man1/sge.1.gz", mode = "644", doc = true},
+    {source = "target/man/ja/man1/sge.1.gz", dest = "/usr/share/man/ja/man1/sge.1.gz", mode = "644", doc = true},
+    {source = "lib-licenses.txt", dest = "/usr/share/doc/schema-guard/lib-licenses.txt", mode = "644", doc = true},
+    {source = "COPYRIGHT", dest = "/usr/share/doc/schema-guard/copyright", mode = "644", doc = true},
+    {source = "LICENSE", dest = "/usr/share/doc/schema-guard/LICENSE", mode = "644", doc = true},
 ]
 
-[package.metadata.generate-rpm.requires]
-# psql, as the deb's depends; curl and openssl went with the licensing harness
-postgresql-client = "*"
+# psql, which sge runs: EL9's own postgresql package or PGDG's postgresqlNN - a weak
+# dependency, as there is no one name for both (and no postgresql-client)
+[package.metadata.generate-rpm.recommends]
+postgresql = "*"

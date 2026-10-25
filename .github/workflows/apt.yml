@@ -1,6 +1,6 @@
-name: Publish sge .deb
+name: Publish sge
 
-# Path-scoped, like trust-atria-srv's: only what can change the package should
+# Path-scoped, like trust-atria-srv's: only what can change a package should
 # cut a release, not a README edit.
 on:
   workflow_dispatch:
@@ -9,7 +9,13 @@ on:
     branches: [main]
     paths:
       - "src/**"
+      - "locales/**"
+      - "man/**"
+      - "build.rs"
       - "Cargo.toml"
+      - "Cargo.lock"
+      - "Dockerfile"
+      - "dist/**"
 
 concurrency:
   group: deploy
@@ -19,21 +25,32 @@ jobs:
   build:
     # Pinned to a tag, not @main - bump deliberately, so an edit in infra_apt
     # cannot silently change this pipeline.
-    uses: DBinvent/infra_apt/.github/workflows/publish-apt.yml@v3
+    uses: DBinvent/infra_apt/.github/workflows/publish-apt.yml@v4
     with:
       project: sge
-      # the .deb's package name (cargo-deb's, from the crate schema_guard): its old
-      # build is removed from the distribution before the new one goes in
+      # the package's name, deb and rpm (cargo-deb's, from the crate schema_guard;
+      # [package.metadata.generate-rpm]): its old build is removed from the
+      # distribution before the new one goes in
       package: schema-guard
       # into YT Cluster's distribution of apt.dbinvent.com, /media/lab/repo - one
       # sources.list line for both (dbinvent.com's sge page): the publish step copies
-      # dist/repo-conf/distributions over that root's, so it is that root's own
+      # dist/repo-conf/distributions over that root's, so it is that root's own.
+      # The rpm into its yum repository there too, yum/el9
       codename: yt-cluster
       repo_dir: /media/lab/repo
+      # the deb, the rpm, the tarball and the image (see the script)
       build_script: ./dist/build.sh
+      # the tarball: paks/sge-latest.tar.gz
+      pak_name: sge
+      # the image dist/build.sh built and checked on the runner's daemon, pushed
+      docker_image: dbinvent/sge
+      docker_description: "Schema Guard: PostgreSQL schema migration, SQL scripts and declarative YAML (MIT)"
+      docker_readme: dist/dockerhub.md
       # lab3's labels: the self-hosted runner that holds the signing key and /media/lab/repo
       runner: '["self-hosted", "Linux", "X64"]'
       conf_dir: ./dist/repo-conf
-      cleanup_docker: false   # nothing here builds in docker
+      # the image and its build stage (clux/muslrust) are not kept on the runner
+      cleanup_docker: true
     secrets:
       gpg_key: ${{ secrets.GPG_KEY }}
+      docker_token: ${{ secrets.DOCKER_TOKEN }}
