@@ -23,6 +23,8 @@ mod dbm_files;
 mod dbm_git;
 /// [zip] zip archive as a script source, unpacked for the run - see `source_zip`
 mod dbm_zip;
+#[cfg(feature = "superset")]
+pub(crate) mod dbm_superset;
 /// [yt] rolling migration across a YT Cluster, node by node
 pub mod dbm_yt;
 pub mod dbm_etl;
@@ -824,7 +826,7 @@ async fn create_role(
 #[inline]
 #[cfg(feature = "tls")]
 fn make_tls_connector(cert: &String) -> Result<postgres_native_tls::MakeTlsConnector, String> {
-    let cert = fs::read(cert).map_err(|e| tr!("lib.read_cert", file = cert, err = e))?;
+    let cert = std::fs::read(cert).map_err(|e| tr!("lib.read_cert", file = cert, err = e))?;
     let cert = native_tls::Certificate::from_pem(&cert).map_err(|e| e.to_string())?;
     let connector = native_tls::TlsConnector::builder()
         .add_root_certificate(cert)
@@ -845,6 +847,25 @@ pub async fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String
     let mut db_client = connect("db_", &cfg, None, "loading data",log).await?;
     let mut db = db_client.transaction().await.map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?;
     let etl = dbm_etl::Etl::from(&cfg)?;
+    // [superset] the snapshot as Apache Superset's import bundle: a ZIP, not text
+    if dump && etl.superset {
+        #[cfg(not(feature = "superset"))]
+        return Err(tr!("etl.superset_off"));
+        #[cfg(feature = "superset")]
+        {
+            // the role this connection is: the URI's user, when db_user named none
+            let user: String = db.query_one("select current_user::text", &[]).await
+                .map_err(|e| tr!("etl.superset_user", err = dbm_pg::pg(&e)))?.get(0);
+            // the cheap checks first - a bad --superset_uuid, a terminal for a ZIP - not
+            // after the whole schema was read (review of 2026-10-26)
+            let target = dbm_superset::database(&cfg, &user)?;
+            etl.superset_writable()?;
+            // the schema alone: the bundle uses no extracted data
+            let loaded = LoadResult::load_schema(&etl, &mut db).await?;
+            drop(db);
+            return etl.dump_superset(&loaded, &target);
+        }
+    }
     let result = if dump {
         LoadResult::load(&etl, &mut db, log).await?.format(etl.yaml_format)
     } else {

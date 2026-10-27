@@ -61,6 +61,7 @@ sge -c sge.cfg migrate                         # apply what source_dir holds to 
 sge -c sge.cfg --dry_run=yes migrate           # the same, without changing the database
 sge -c sge.cfg prepare                         # create the history table only
 sge -c sge.cfg --snapshot_to=./schema snapshot # dump the schema as YAML
+sge -c sge.cfg --snapshot_format=superset --snapshot_to=./bi snapshot # ... as Apache Superset's import bundle
 sge -c sge.cfg info                            # the deployment status, as YAML
 sge help migrate                               # every option of a command
 ```

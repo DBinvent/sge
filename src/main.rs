@@ -67,6 +67,10 @@ where
             cfg.insert(ks, v.as_str());
         }
     }
+    // [superset] a snapshot's ZIP on standard output: the log goes to standard error
+    if cfg.get("out_format").to_lowercase() == "superset" && cfg.get_opt("snapshot_to").is_none() {
+        cfg.log_to_stderr();
+    }
     match act(cmd.as_str(), cfg).await {
         Ok(_) => 0,
         Err(e) => {

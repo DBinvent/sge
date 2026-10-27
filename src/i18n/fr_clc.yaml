@@ -72,9 +72,9 @@ subcommands:
         about: "Crée une table d'historique pour suivre l'exécution des scripts"
         help: "Crée la table d'historique '--table' dans le schéma '--schema' de la base '--logdb_name' si elle est définie, sinon de '--db_name'. '--dry_run' : aucune modification de la base. Autres options : 'sge help'."
     - snapshot:
-        about: "Instantané du schéma dans le fichier '--snapshot_to', au format yaml ou json."
+        about: "Instantané du schéma dans le fichier '--snapshot_to', au format yaml ou json, ou en paquet d'import pour Apache Superset."
         help: |
-          Instantané du schéma de la base dans un fichier (ou dossier) '--snapshot_to', au format yaml ou json.
+          Instantané du schéma de la base dans un fichier (ou dossier) '--snapshot_to', au format yaml ou json, ou en paquet d'import pour Apache Superset (un ZIP, '--snapshot_format=superset').
 
           '--snapshot_version' définit le numéro de D<numéro>__db_name.yaml.
 
@@ -334,8 +334,16 @@ args:
     - out_format:
         long: snapshot_format
         default_value: yaml
-        possible_values: [yaml, json]
-        help: "Format des informations de schéma générées par la commande 'snapshot' ; voir aussi l'option '--snapshot_to'."
+        possible_values: [yaml, json, superset]
+        help: "Format des informations de schéma générées par la commande 'snapshot' ; voir aussi l'option '--snapshot_to'. 'superset' écrit le paquet d'import d'Apache Superset (un ZIP, Superset 2.1 et ultérieur) : un jeu de données par table - voir '--superset_uri' et '--superset_uuid'."
+    - superset_uri:
+        long: superset_uri
+        takes_value: true
+        help: "L'URI SQLAlchemy avec laquelle Superset se connecte à la base, pour '--snapshot_format=superset'. Par défaut : construite à partir des paramètres db_*, sous la forme postgresql://user:password@host:port/name. Le mot de passe y est masqué : l'import de Superset le demande."
+    - superset_uuid:
+        long: superset_uuid
+        takes_value: true
+        help: "L'UUID d'une connexion à la base que Superset possède déjà (Settings, Database Connections), pour '--snapshot_format=superset' : l'import garde cette connexion telle quelle et ne demande aucun mot de passe - la seule façon dont 'superset import-datasources' accepte le paquet."
     - snapshot_to:
         long: snapshot_to
         takes_value: true

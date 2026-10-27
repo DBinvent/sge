@@ -55,9 +55,15 @@ impl ConfigMap {
 
 #[inline]
 pub fn logger(debug: bool) -> Logger {
+    logger_to(debug, false)
+}
+
+/// The logger, writing to standard error when `stderr` - where standard output carries
+/// what was asked for: [superset] a ZIP, which a log line would corrupt
+pub fn logger_to(debug: bool, stderr: bool) -> Logger {
     let mut builder = TerminalLoggerBuilder::new();
     builder.channel_size(1024);
-    builder.destination(Destination::Stdout);
+    builder.destination(if stderr { Destination::Stderr } else { Destination::Stdout });
     builder.format(Format::Compact);
     builder.source_location(SourceLocation::None);
     builder.level(if debug {
@@ -69,6 +75,12 @@ pub fn logger(debug: bool) -> Logger {
 }
 
 impl ConfigMap {
+    /// [superset] The log to standard error, at the level it had: standard output carries
+    /// the snapshot's ZIP
+    pub fn log_to_stderr(&mut self) {
+        self.log = logger_to(self.get_bool("verbose", false), true);
+    }
+
     /// universal properties loader, or create default id filename is empty
     #[inline]
     pub fn load(filename: &str) -> Result<Self, String> {

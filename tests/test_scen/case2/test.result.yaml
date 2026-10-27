@@ -4,6 +4,7 @@ database:
   tables:
   - table:
       tableName: sge_history
+      description: The schema deployment log
       columns:
       - column:
           name: id
@@ -24,6 +25,7 @@ database:
           type: bpchar
           constraint:
             nullable: false
+          description: "P: Pre-Deploy, S: Schema, V: Version, R: Re-Runnable, A: After-Migrate"
       - column:
           name: version
           type: varchar(80)
@@ -59,6 +61,7 @@ database:
           defaultValue: "false"
           constraint:
             nullable: false
+          description: Successful execution of the script
       - column:
           name: msg
           type: varchar(250)
@@ -99,6 +102,7 @@ database:
       owner: $USER
   - table:
       tableName: test_table
+      description: The new table
       columns:
       - column:
           name: id

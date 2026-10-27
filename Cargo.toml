@@ -1,6 +1,6 @@
 [package]
 name = "schema_guard"
-version = "2.1.0"
+version = "2.2.0"
 authors = ["Vladimir Krinitsyn <v.krinitsyn@gmail.com>", "DBinvent <support@dbinvent.com>"]
 edition = "2018"
 license = "MIT"
@@ -81,8 +81,9 @@ smallvec = "1.6.1"
 rust-i18n = "^4.2.4"
 
 # 2.1: its messages in sge's language (set_lang, the logger's lang), and the _pg
-# deploys, which return Postgres's own error for sge to say (dbm_pg.rs)
-schema_guard_tokio = { version = "^2.1", features = ["slog"] }
+# deploys, which return Postgres's own error for sge to say (dbm_pg.rs); 2.1.1: pg_error_in,
+# the line of the statement the server points at
+schema_guard_tokio = { version = "^2.2.0", features = ["slog"] }
 
 #postgres-openssl = { version = "^0.5.0", optional = true }
 #openssl = { version = "^0.10.33", optional = true }
@@ -93,8 +94,13 @@ native-tls = { version = "^0.2.11", optional = true }
 #openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 [features]
-default = ["cli"]
+default = ["cli", "superset"]
 cli = ["dep:clap"]
+# [superset] `--snapshot_format=superset`: the snapshot as Apache Superset's import bundle,
+# with schema_guard_tokio 2.2's superset module - here the sibling checkout ([patch] below),
+# until 2.2 is on crates.io. ytserv links this library with no default features, so it
+# builds against the schema_guard_tokio crates.io has; a release of sge with it waits for 2.2
+superset = []
 tls = ["dep:postgres-native-tls", "dep:native-tls"]
 #openssl = ["dep:postgres-openssl", "dep:openssl"]
 

@@ -646,6 +646,13 @@ pub(crate) struct LoadResult {
 
 impl LoadResult {
     pub(crate) async fn load(etl: &Etl, db_client: &mut Transaction<'_>, log: &Logger) -> Result<Self, String> {
+        let mut lr = LoadResult::load_schema(etl, db_client).await?;
+        let _ = etl.extract(&mut lr, db_client, log).await?;
+        Ok(lr)
+    }
+
+    /// The schema alone, no `--snapshot_data` extracted: [superset]'s bundle uses none
+    pub(crate) async fn load_schema(etl: &Etl, db_client: &mut Transaction<'_>) -> Result<Self, String> {
         let input = schema_guard_tokio::loader::load_info_schema(etl.db_name.as_str(), db_client).await?;
         let owners = schema_guard_tokio::loader::load_info_schema_owner(etl.db_name.as_str(), db_client).await?;
 
@@ -707,9 +714,7 @@ impl LoadResult {
             };
             schemas.push(ys);
         }
-        let mut lr = LoadResult { database: schemas };
-        let _ = etl.extract(&mut lr, db_client, log).await?;
-        Ok(lr)
+        Ok(LoadResult { database: schemas })
     }
 
     /// load impl

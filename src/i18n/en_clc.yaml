@@ -67,9 +67,9 @@ subcommands:
         about: Create a history log table to track scripts executions
         help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'. Use '--dry_run' to avoid DB change. See more options in ''sge help' command."
     - snapshot:
-        about: Perform a schema dump into '--snapshot_to' file in yaml or json format.
+        about: Perform a schema dump into '--snapshot_to' file in yaml or json format, or as Apache Superset's import bundle.
         help: |
-          Perform a DB schema dump into a '--snapshot_to' file (or dir) in yaml or json format.
+          Perform a DB schema dump into a '--snapshot_to' file (or dir) in yaml or json format, or as Apache Superset's import bundle (a ZIP, '--snapshot_format=superset').
 
           Use '--snapshot_version' to define a D<number>__db_name.yaml.
 
@@ -329,8 +329,16 @@ args:
     - out_format:
         long: snapshot_format
         default_value: yaml
-        possible_values: [yaml, json]
-        help: "The format of generated information of DB schema by the 'snapshot' command, also see '--snapshot_to' parameter."
+        possible_values: [yaml, json, superset]
+        help: "The format of generated information of DB schema by the 'snapshot' command, also see '--snapshot_to' parameter. 'superset' writes Apache Superset's import bundle (a ZIP, Superset 2.1 and later): a dataset for each table - see '--superset_uri' and '--superset_uuid'."
+    - superset_uri:
+        long: superset_uri
+        takes_value: true
+        help: "The SQLAlchemy URI Superset connects to the database with, for '--snapshot_format=superset'. Default: built from the db_* settings, as postgresql://user:password@host:port/name. Its password is written masked: Superset's import asks for it."
+    - superset_uuid:
+        long: superset_uuid
+        takes_value: true
+        help: "The UUID of a database connection Superset has already (Settings, Database Connections), for '--snapshot_format=superset': the import keeps that connection as it is and asks for no password - the only way 'superset import-datasources' takes the bundle."
     - snapshot_to:
         long: snapshot_to
         takes_value: true

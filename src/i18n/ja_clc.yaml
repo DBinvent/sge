@@ -72,9 +72,9 @@ subcommands:
         about: "スクリプトの実行を追跡する履歴テーブルを作成します"
         help: "'--logdb_name' データベース（未設定なら '--db_name'）の '--schema' スキーマに、履歴テーブル '--table' を作成します。'--dry_run'：データベースを変更しません。その他のオプション：'sge help'。"
     - snapshot:
-        about: "スキーマのスナップショットを '--snapshot_to' ファイルに yaml または json 形式で出力します。"
+        about: "スキーマのスナップショットを '--snapshot_to' ファイルに yaml または json 形式、または Apache Superset のインポートバンドルとして出力します。"
         help: |
-          データベーススキーマのスナップショットを '--snapshot_to' ファイル（またはディレクトリ）に yaml または json 形式で出力します。
+          データベーススキーマのスナップショットを '--snapshot_to' ファイル（またはディレクトリ）に yaml または json 形式、または Apache Superset のインポートバンドル（ZIP、'--snapshot_format=superset'）として出力します。
 
           '--snapshot_version' で D<番号>__db_name.yaml の番号を指定します。
 
@@ -334,8 +334,16 @@ args:
     - out_format:
         long: snapshot_format
         default_value: yaml
-        possible_values: [yaml, json]
-        help: "'snapshot' コマンドが生成するデータベーススキーマ情報の形式。'--snapshot_to' オプションも参照してください。"
+        possible_values: [yaml, json, superset]
+        help: "'snapshot' コマンドが生成するデータベーススキーマ情報の形式。'--snapshot_to' オプションも参照してください。'superset' は Apache Superset のインポートバンドル（ZIP、Superset 2.1 以降）を書き出します：テーブルごとに 1 つのデータセット - '--superset_uri' と '--superset_uuid' を参照してください。"
+    - superset_uri:
+        long: superset_uri
+        takes_value: true
+        help: "Superset がデータベースに接続する SQLAlchemy URI（'--snapshot_format=superset' 用）。既定値：db_* の設定から postgresql://user:password@host:port/name の形で作られます。パスワードはマスクして書き出されます：Superset のインポートが入力を求めます。"
+    - superset_uuid:
+        long: superset_uuid
+        takes_value: true
+        help: "Superset に既にあるデータベース接続の UUID（Settings, Database Connections）（'--snapshot_format=superset' 用）：インポートはその接続をそのまま使い、パスワードを求めません - 'superset import-datasources' がバンドルを受け付ける唯一の方法です。"
     - snapshot_to:
         long: snapshot_to
         takes_value: true

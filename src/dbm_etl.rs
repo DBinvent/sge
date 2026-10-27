@@ -213,6 +213,8 @@ pub(crate) struct Etl {
     pub schema_dump: Option<String>,
     pub table_tr: bool,
     pub yaml_format: bool,
+    /// [superset] `--snapshot_format=superset`: Apache Superset's import bundle
+    pub superset: bool,
     pub ver: Option<String>,
     pub dry_run: bool,
     pub dry_run_to: Option<String>,
@@ -268,6 +270,7 @@ impl Etl {
             schema_dump,
             table_tr: cfg.get("schema_transaction") == "table" || cfg.is_retry(),
             yaml_format: cfg.get_def("out_format", "yaml".to_lowercase()).to_lowercase().as_str() == "yaml",
+            superset: cfg.get_def("out_format", "yaml".to_string()).to_lowercase() == "superset",
             ver: cfg.get_opt("snapshot_version"),
             dry_run: cfg.get_bool("dry_run", false),
             dry_run_to: cfg.get_opt("dry_run_to")
@@ -369,6 +372,44 @@ impl Etl {
                 Ok(())
             }
             Err(e) => Err(e)
+        }
+    }
+
+    /// [superset] Somewhere to write the bundle: `--snapshot_to`, or a standard output that
+    /// is no terminal - a ZIP is no text to show there. Asked before the schema is read
+    #[cfg(feature = "superset")]
+    pub(crate) fn superset_writable(&self) -> Result<(), String> {
+        use std::io::IsTerminal;
+        if self.schema_dump.is_none() && std::io::stdout().is_terminal() {
+            return Err(tr!("etl.superset_tty"));
+        }
+        Ok(())
+    }
+
+    /// [superset] The snapshot as Apache Superset's import bundle, written where a snapshot
+    /// is: to `--snapshot_to` - a file, or `D<n>__<db>.zip` in a directory - or to standard
+    /// output, unless that is a terminal: a ZIP is no text to show there
+    #[cfg(feature = "superset")]
+    pub(crate) fn dump_superset(&self, loaded: &crate::dbm_log::LoadResult,
+        db: &schema_guard_tokio::superset::SupersetDatabase) -> Result<(), String> {
+        use schema_guard_tokio::superset;
+        use std::io::Write;
+        let files = superset::bundle(&superset::datasets_of_schemas(&loaded.database), db, std::time::SystemTime::now());
+        let zip = superset::zip(&files, &format!("{}_superset", self.db_name))?;
+        match &self.schema_dump {
+            None => {
+                let mut out = std::io::stdout();
+                out.write_all(&zip).and_then(|_| out.flush()).map_err(|e| tr!("etl.write", file = "-", err = e))
+            }
+            Some(file) => {
+                if let Some(i) = file.rfind("/") {
+                    let _ = fs::create_dir_all(&file[..i]).map_err(|e| tr!("etl.write_dir", file = file, err = e))?;
+                }
+                let file = if Path::new(&file).is_dir() {
+                    self.dump_to(format!("{}.zip", self.db_name))?
+                } else { file.clone() };
+                fs::write(&file, zip).map_err(|e| tr!("etl.write", file = file, err = e))
+            }
         }
     }
 
@@ -1099,6 +1140,7 @@ Boston,United States,\"4628910\"\"\"
             schema_dump: None,
             table_tr: false,
             yaml_format: false,
+            superset: false,
             ver: None,
             dry_run: false,
             dry_run_to: None
