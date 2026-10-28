@@ -26,3 +26,5 @@
 /keys/
 /.c*
 /once.sh
+# CocoIndex Code (ccc)
+/.cocoindex_code/

@@ -12,7 +12,8 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
-  # the actions .github/workflows runs (audit.yml: cargo audit and cargo geiger)
+  # the actions .github/workflows runs (audit.yml: cargo audit and cargo geiger;
+  # trivy.yml: trivy, pinned to a commit - Dependabot moves the pin)
   - package-ecosystem: github-actions
     directory: /
     schedule:
