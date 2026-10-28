@@ -82,7 +82,8 @@ rust-i18n = "^4.2.4"
 
 # 2.1: its messages in sge's language (set_lang, the logger's lang), and the _pg
 # deploys, which return Postgres's own error for sge to say (dbm_pg.rs); 2.1.1: pg_error_in,
-# the line of the statement the server points at
+# the line of the statement the server points at; 2.2: the superset module (the superset
+# feature)
 schema_guard_tokio = { version = "^2.2.0", features = ["slog"] }
 
 #postgres-openssl = { version = "^0.5.0", optional = true }
@@ -97,9 +98,8 @@ native-tls = { version = "^0.2.11", optional = true }
 default = ["cli", "superset"]
 cli = ["dep:clap"]
 # [superset] `--snapshot_format=superset`: the snapshot as Apache Superset's import bundle,
-# with schema_guard_tokio 2.2's superset module - here the sibling checkout ([patch] below),
-# until 2.2 is on crates.io. ytserv links this library with no default features, so it
-# builds against the schema_guard_tokio crates.io has; a release of sge with it waits for 2.2
+# with schema_guard_tokio 2.2's superset module. ytserv links this library with no
+# default features: no superset there
 superset = []
 tls = ["dep:postgres-native-tls", "dep:native-tls"]
 #openssl = ["dep:postgres-openssl", "dep:openssl"]
