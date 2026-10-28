@@ -38,7 +38,8 @@ ARG POSTGRESQL_VERSION=11.11
 # `mdbook` is the standard Rust tool for making searchable HTML manuals.
 RUN apt-get update && \
     export DEBIAN_FRONTEND=noninteractive && \
-    apt-get install -yq \
+    apt-get install -yq --no-install-recommends \
+        ca-certificates \
         build-essential \
         cmake \
         curl \
@@ -81,40 +82,43 @@ RUN ln -s "/usr/bin/g++" "/usr/bin/musl-g++"
 # necessarily the right ones) in an effort to compile OpenSSL 1.1's "engine"
 # component. It's possible that this will cause bizarre and terrible things to
 # happen. There may be "sanitized" header
+# Each library unpacks into its own WORKDIR (the source tarball's top directory
+# stripped), not a cd in the RUN, and is removed once installed.
+WORKDIR /tmp/openssl
 RUN echo "Building OpenSSL" && \
     ls /usr/include/linux && \
     mkdir -p /usr/local/musl/include && \
     ln -s /usr/include/linux /usr/local/musl/include/linux && \
     ln -s /usr/include/x86_64-linux-gnu/asm /usr/local/musl/include/asm && \
     ln -s /usr/include/asm-generic /usr/local/musl/include/asm-generic && \
-    cd /tmp && \
     short_version="$(echo "$OPENSSL_VERSION" | sed s'/[a-z]$//' )" && \
-    curl -fLO "https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz" || \
-        curl -fLO "https://www.openssl.org/source/old/$short_version/openssl-$OPENSSL_VERSION.tar.gz" && \
-    tar xvzf "openssl-$OPENSSL_VERSION.tar.gz" && cd "openssl-$OPENSSL_VERSION" && \
+    { curl -fL "https://www.openssl.org/source/openssl-$OPENSSL_VERSION.tar.gz" -o src.tar.gz || \
+        curl -fL "https://www.openssl.org/source/old/$short_version/openssl-$OPENSSL_VERSION.tar.gz" -o src.tar.gz; } && \
+    tar xzf src.tar.gz --strip-components=1 && \
     env CC=musl-gcc ./Configure no-shared no-zlib -fPIC --prefix=/usr/local/musl -DOPENSSL_NO_SECURE_MEMORY linux-x86_64 && \
     env C_INCLUDE_PATH=/usr/local/musl/include/ make depend && \
     env C_INCLUDE_PATH=/usr/local/musl/include/ make && \
     make install && \
     rm /usr/local/musl/include/linux /usr/local/musl/include/asm /usr/local/musl/include/asm-generic && \
-    rm -r /tmp/*
+    rm -rf /tmp/openssl
 
+WORKDIR /tmp/zlib
 RUN echo "Building zlib" && \
-    cd /tmp && \
-    curl -fLO "http://zlib.net/zlib-$ZLIB_VERSION.tar.gz" && \
-    tar xzf "zlib-$ZLIB_VERSION.tar.gz" && cd "zlib-$ZLIB_VERSION" && \
+    curl -fL "https://zlib.net/fossils/zlib-$ZLIB_VERSION.tar.gz" -o src.tar.gz && \
+    tar xzf src.tar.gz --strip-components=1 && \
     CC=musl-gcc ./configure --static --prefix=/usr/local/musl && \
     make && make install && \
-    rm -r /tmp/*
+    rm -rf /tmp/zlib
 
+WORKDIR /tmp/postgresql
 RUN echo "Building libpq" && \
-    cd /tmp && \
-    curl -fLO "https://ftp.postgresql.org/pub/source/v$POSTGRESQL_VERSION/postgresql-$POSTGRESQL_VERSION.tar.gz" && \
-    tar xzf "postgresql-$POSTGRESQL_VERSION.tar.gz" && cd "postgresql-$POSTGRESQL_VERSION" && \
+    curl -fL "https://ftp.postgresql.org/pub/source/v$POSTGRESQL_VERSION/postgresql-$POSTGRESQL_VERSION.tar.gz" -o src.tar.gz && \
+    tar xzf src.tar.gz --strip-components=1 && \
     CC=musl-gcc CPPFLAGS=-I/usr/local/musl/include LDFLAGS=-L/usr/local/musl/lib ./configure --with-openssl --without-readline --prefix=/usr/local/musl && \
-    cd src/interfaces/libpq && make all-static-lib && make install-lib-static && \
-    cd ../../bin/pg_config && make && make install && \
-    rm -r /tmp/*
+    make -C src/interfaces/libpq all-static-lib install-lib-static && \
+    make -C src/bin/pg_config install && \
+    rm -rf /tmp/postgresql
+WORKDIR /
 
 # (Please feel free to submit pull requests for musl-libc builds of other C
 # libraries needed by the most popular and common Rust crates, to avoid
@@ -150,7 +154,7 @@ RUN curl https://sh.rustup.rs -sSf | \
         rustup component add clippy && \
     env CARGO_HOME=/opt/rust/cargo \
         rustup target add x86_64-unknown-linux-musl
-ADD cargo-config.toml /opt/rust/cargo/config
+COPY cargo-config.toml /opt/rust/cargo/config
 
 # Set up our environment variables so that we cross-compile using musl-libc by
 # default.
@@ -178,7 +182,7 @@ RUN env CARGO_HOME=/opt/rust/cargo cargo install -f cargo-audit && \
     rm -rf /opt/rust/cargo/registry/
 
 # Allow sudo without a password.
-ADD sudoers /etc/sudoers.d/nopasswd
+COPY sudoers /etc/sudoers.d/nopasswd
 
 # Run all further code as user `rust`, create our working directories, install
 # our config file, and set up our credential helper.
@@ -197,4 +201,6 @@ RUN mkdir -p /home/rust/libs /home/rust/src /home/rust/.cargo && \
 # user `rust`, which will be uid 1000, gid 1000 outside the container.
 WORKDIR /home/rust/src
 
+# a build container, run once and gone: nothing to health-check
+HEALTHCHECK NONE
 ENTRYPOINT ["/home/rust/src/mu-build.sh"]

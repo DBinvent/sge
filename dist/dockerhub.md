@@ -21,6 +21,9 @@ Docs: [dbinvent.com/sge](https://www.dbinvent.com/sge/) - [downloads](https://ww
 
 The image runs `sge` in `/work`: mount the migrations there.
 
+It runs as the user `sge`, uid/gid 1000: a file sge writes there (`dry_run_to`)
+needs `/work` writable by that uid - another uid: `--user "$(id -u):$(id -g)"`.
+
 ```sh
 docker run --rm -v "$PWD:/work" dbinvent/sge \
     --db_url=postgres://app:secret@db.example.com/app --source_dir=. migrate

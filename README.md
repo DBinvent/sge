@@ -2,6 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/schema_guard.svg)](https://crates.io/crates/schema_guard)
 [![audit](https://github.com/dbinvent/sge/actions/workflows/audit.yml/badge.svg)](https://github.com/dbinvent/sge/actions/workflows/audit.yml)
+[![trivy](https://github.com/dbinvent/sge/actions/workflows/trivy.yml/badge.svg)](https://github.com/dbinvent/sge/actions/workflows/trivy.yml)
 [![coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](tests/README.md)
 [![docker](https://img.shields.io/docker/v/dbinvent/sge?sort=semver&label=docker)](https://hub.docker.com/r/dbinvent/sge)
 [![license](https://img.shields.io/crates/l/schema_guard.svg)](LICENSE)
@@ -135,6 +136,8 @@ It recommends `postgresql` for `psql`; with PGDG's `postgresqlNN` instead, add
 **Docker**: [`dbinvent/sge`](https://hub.docker.com/r/dbinvent/sge) - a static
 `sge` and the `psql` it applies SQL files with, on Alpine (about 12 MB). It runs
 in `/work`: mount the scripts there.
+It runs as the user `sge`, uid/gid 1000: a file sge writes there (`dry_run_to`)
+needs `/work` writable by that uid - another uid: `--user "$(id -u):$(id -g)"`.
 
 ```
 docker run --rm -v "$PWD:/work" dbinvent/sge --db_url=postgres://app:secret@db.example.com/app --source_dir=. migrate
