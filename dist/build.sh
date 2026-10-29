@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeu
 # Builds the sge release in its four forms, one version (Cargo.toml), and writes
-# what ../infra_apt's reusable workflow (v4) publishes to $GITHUB_OUTPUT (see its
+# what ../infra_apt's reusable workflow (v5) publishes to $GITHUB_OUTPUT (see its
 # README, "Onboarding a new project"):
 #   deb=<abs path>      the schema-guard .deb: the glibc sge (cargo-deb names the
 #                       package after the crate, schema_guard, with its "_" as "-")
@@ -12,9 +12,11 @@ set -Eeu
 #   tgz=<abs path>      the tarball: the image's static sge, laid out for /usr/local
 #                       (sudo tar -xzf sge-latest.tar.gz -C /usr/local)
 #   version=<x.y.z>
-# The image is built on DOCKER_HOST when that is set, else on this host's daemon -
-# with buildx, its SBOM and provenance attestations kept with it, which needs that
-# daemon's containerd image store: the push carries them to Docker Hub.
+# The image is built on DOCKER_HOST (ssh:// or tcp://: lab10, also from the GitHub
+# action, whose apt.yml names it) - this host's own daemon only with DOCKER_LOCAL=1,
+# as dist/publish.sh and infra_apt's publish-docker.sh take it. With buildx, its SBOM
+# and provenance attestations kept with it, which needs that daemon's containerd
+# image store: the push carries them to Docker Hub.
 # The SBOM (CycloneDX, target/sbom/sbom.cdx.json) is the image's: the Dockerfile
 # writes it, and the deb, rpm and tarball carry the same file.
 #
@@ -44,6 +46,12 @@ fi
 for c in docker file; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERROR: $c is not installed" >&2; exit 1; }
 done
+# docker is lab10's: an empty DOCKER_HOST - a runner's service has no login profile -
+# would build on this host's daemon unnoticed
+case "${DOCKER_HOST:-}" in
+  ssh://*|tcp://*) ;;
+  *) [ "${DOCKER_LOCAL:-0}" = 1 ] || { echo "ERROR: DOCKER_HOST names no build host (ssh:// or tcp://) - DOCKER_LOCAL=1 builds here" >&2; exit 1; } ;;
+esac
 if ! docker buildx version >/dev/null 2>&1; then
   echo "ERROR: docker buildx is not installed: sudo apt install docker-buildx (Ubuntu's docker.io;" >&2
   echo "with Docker's docker-ce: docker-buildx-plugin)" >&2

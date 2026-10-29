@@ -16,7 +16,7 @@ jobs:
   build:
     # Pinned to a tag, not @main - bump deliberately, so an edit in infra_apt
     # cannot silently change this pipeline.
-    uses: DBinvent/infra_apt/.github/workflows/publish-apt.yml@v4
+    uses: DBinvent/infra_apt/.github/workflows/publish-apt.yml@v5
     with:
       project: sge
       # the package's name, deb and rpm (cargo-deb's, from the crate schema_guard;
