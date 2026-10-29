@@ -1,0 +1,38 @@
+name: docker scout
+
+# Docker Scout on the published image, dbinvent/sge:latest on Docker Hub - what users
+# pull, not a local build (trivy.yml scans that). Fails on a CRITICAL or HIGH CVE;
+# the README's badge is this workflow's result. After each publish, and weekly: an
+# advisory can come out with nothing changed here.
+on:
+  workflow_run:
+    workflows: ["Publish sge"]
+    types: [completed]
+  schedule:
+    - cron: "47 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scout
+  cancel-in-progress: true
+
+jobs:
+  cves:
+    # a failed publish pushed nothing new: the weekly run covers the image as it is
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      # pinned to a commit, like trivy-action in trivy.yml. Dependabot bumps the pin.
+      # The token is apt.yml's, of the Docker Hub account dbinvent: Scout needs a login
+      - uses: docker/scout-action@e7e2a72bf1485d10a58f30696b6c513b261ce4fa # v1.29.0
+        with:
+          command: cves
+          image: registry://dbinvent/sge:latest
+          only-severities: critical,high
+          exit-code: true
+          summary: true
+          dockerhub-user: dbinvent
+          dockerhub-password: ${{ secrets.DOCKER_TOKEN }}
