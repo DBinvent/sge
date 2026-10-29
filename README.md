@@ -346,3 +346,11 @@ MIT, as Schema Guard is - see `LICENSE`. Copyright (c) 2020-2026 DBinvent.
 
 There is no license key, signature check, activation or expiry.
 
+### SBOM
+
+Every release carries a CycloneDX SBOM - the crates sge is built from, at their
+versions - as `/usr/share/doc/schema-guard/sbom.cdx.json`: in the deb and the rpm,
+in the tarball under `share/doc/schema-guard/`, and in the Docker image, which also
+has SBOM and provenance attestations on Docker Hub:
+`docker buildx imagetools inspect dbinvent/sge --format '{{json .SBOM}}'`.
+

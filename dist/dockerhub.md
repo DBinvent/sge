@@ -53,6 +53,12 @@ host's environment: pass it on with `-e LANG`, or name one, `-e LANG=de_DE.UTF-8
 On a [YT Cluster](https://hub.docker.com/r/dbinvent/yt), a migration applies to
 the node it runs on: run it against each node in turn.
 
+## SBOM
+
+The image has SBOM and provenance attestations - Alpine's packages and sge's crates:
+`docker buildx imagetools inspect dbinvent/sge --format '{{json .SBOM}}'`. sge's own
+CycloneDX SBOM is in the image too, `/usr/share/doc/schema-guard/sbom.cdx.json`.
+
 ## License
 
 MIT. The image carries it in `/usr/share/doc/schema-guard/LICENSE`. PostgreSQL's

@@ -6,6 +6,9 @@ name: trivy
 #   cargo audit does not see
 # Each gives its findings to Code scanning (the Security tab), then fails the run on
 # a HIGH or CRITICAL one that has a fix. A finding to accept goes in .trivyignore.
+# Each also keeps a CycloneDX SBOM of what it scanned as the run's artifact (sbom-fs,
+# sbom-image): the image's has Alpine's packages, and the crates through the
+# sbom.cdx.json the Dockerfile puts in it.
 # On a push and a pull request (Dependabot's among them), and weekly: an advisory
 # can come out with nothing changed here.
 on:
@@ -58,6 +61,20 @@ jobs:
           exit-code: "1"
           trivyignores: .trivyignore
           skip-setup-trivy: true
+      - name: SBOM, CycloneDX
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: cyclonedx
+          output: sbom-fs.cdx.json
+          skip-setup-trivy: true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sbom-fs
+          path: sbom-fs.cdx.json
 
   image:
     runs-on: ubuntu-latest
@@ -91,3 +108,17 @@ jobs:
           exit-code: "1"
           trivyignores: .trivyignore
           skip-setup-trivy: true
+      - name: SBOM, CycloneDX
+        if: always()
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: dbinvent/sge:trivy
+          format: cyclonedx
+          output: sbom-image.cdx.json
+          skip-setup-trivy: true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: sbom-image
+          path: sbom-image.cdx.json

@@ -123,6 +123,8 @@ assets= [
     ["lib-licenses.txt", "usr/share/doc/schema-guard/lib-licenses.txt", "644"],
     ["COPYRIGHT", "usr/share/doc/schema-guard/copyright", "644"],
     ["LICENSE", "usr/share/doc/schema-guard/LICENSE", "644"],
+    # the image's SBOM, CycloneDX - dist/build.sh takes it out of the image
+    ["target/sbom/sbom.cdx.json", "usr/share/doc/schema-guard/sbom.cdx.json", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -144,6 +146,7 @@ assets= [
     {source = "lib-licenses.txt", dest = "/usr/share/doc/schema-guard/lib-licenses.txt", mode = "644", doc = true},
     {source = "COPYRIGHT", dest = "/usr/share/doc/schema-guard/copyright", mode = "644", doc = true},
     {source = "LICENSE", dest = "/usr/share/doc/schema-guard/LICENSE", mode = "644", doc = true},
+    {source = "target/sbom/sbom.cdx.json", dest = "/usr/share/doc/schema-guard/sbom.cdx.json", mode = "644", doc = true},
 ]
 
 # psql, which sge runs: EL9's own postgresql package or PGDG's postgresqlNN - a weak

@@ -22,9 +22,15 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="fix audit github action run">
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="added docker scout">
+      <change beforePath="$PROJECT_DIR$/.github/workflows/apt.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/apt.yml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/trivy.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/trivy.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/integration-test6.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/integration-test6.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/build.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/dockerhub.md" beforeDir="false" afterPath="$PROJECT_DIR$/dist/dockerhub.md" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -559,15 +565,20 @@
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
   <component name="VcsManagerConfiguration">
     <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
     <option name="CHECK_NEW_TODO" value="false" />
-    <MESSAGE value="fix csv sorting" />
-    <MESSAGE value="man added" />
-    <MESSAGE value="fixed ETL with view" />
-    <MESSAGE value="fixed test case for etl" />
-    <MESSAGE value="etl:skip fixes" />
-    <MESSAGE value="etl:clean/force fixes on tables list" />
     <MESSAGE value="#9 it pass" />
     <MESSAGE value="#9 it pass - fix alter owner" />
     <MESSAGE value="#9 IT: ignore REVOKE USAGE" />
@@ -587,7 +598,13 @@
     <MESSAGE value="fix runner" />
     <MESSAGE value="added zip file support, translation languages and PG error propagation support from sg.&#10;test coverage bumped to 93%" />
     <MESSAGE value="fix audit github action run" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix audit github action run" />
+    <MESSAGE value="add testing" />
+    <MESSAGE value="add apache superset output support" />
+    <MESSAGE value="init" />
+    <MESSAGE value="trivy" />
+    <MESSAGE value="trivy fix" />
+    <MESSAGE value="added docker scout" />
+    <option name="LAST_COMMIT_MESSAGE" value="added docker scout" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

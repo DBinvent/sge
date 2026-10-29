@@ -1,21 +1,12 @@
 name: Publish sge
 
-# Path-scoped, like trust-atria-srv's: only what can change a package should
-# cut a release, not a README edit.
+# Every commit or merge on main publishes: the apt and yum packages, the tarball and
+# the Docker image - a README or workflow edit too, as the same version again.
 on:
   workflow_dispatch:
   push:
     # main only: a push to another branch - a Dependabot update's - is no release
     branches: [main]
-    paths:
-      - "src/**"
-      - "locales/**"
-      - "man/**"
-      - "build.rs"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "Dockerfile"
-      - "dist/**"
 
 concurrency:
   group: deploy
@@ -42,15 +33,20 @@ jobs:
       build_script: ./dist/build.sh
       # the tarball: paks/sge-latest.tar.gz
       pak_name: sge
-      # the image dist/build.sh built and checked on the runner's daemon, pushed
+      # the image dist/build.sh built and checked on docker_host, pushed from there
       docker_image: dbinvent/sge
+      # docker is lab10's, not the runner's (lab3): the build and the push go to it over
+      # ssh, as the runner's user. The runner's service has no login profile, so the
+      # DOCKER_HOST of a shell there is not its: it is named here
+      docker_host: ssh://lab10
       docker_description: "Schema Guard: PostgreSQL schema migration, SQL scripts and declarative YAML (MIT)"
       docker_readme: dist/dockerhub.md
       # lab3's labels: the self-hosted runner that holds the signing key and /media/lab/repo
       runner: '["self-hosted", "Linux", "X64"]'
       conf_dir: ./dist/repo-conf
-      # the image and its build stage (clux/muslrust) are not kept on the runner
-      cleanup_docker: true
+      # off: the cleanup is docker system prune -a on the runner's own daemon (lab3),
+      # which builds nothing - and lab10's holds other projects' images (dbinvent/yt)
+      cleanup_docker: false
     secrets:
       gpg_key: ${{ secrets.GPG_KEY }}
       docker_token: ${{ secrets.DOCKER_TOKEN }}

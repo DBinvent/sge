@@ -12,7 +12,11 @@ set -Eeu
 #   tgz=<abs path>      the tarball: the image's static sge, laid out for /usr/local
 #                       (sudo tar -xzf sge-latest.tar.gz -C /usr/local)
 #   version=<x.y.z>
-# The image is built on DOCKER_HOST when that is set, else on this host's daemon.
+# The image is built on DOCKER_HOST when that is set, else on this host's daemon -
+# with buildx, its SBOM and provenance attestations kept with it, which needs that
+# daemon's containerd image store: the push carries them to Docker Hub.
+# The SBOM (CycloneDX, target/sbom/sbom.cdx.json) is the image's: the Dockerfile
+# writes it, and the deb, rpm and tarball carry the same file.
 #
 # Not ../build.sh: that one is the old release build - and sudo.
 START_TIME=$(date +%s)
@@ -40,6 +44,18 @@ fi
 for c in docker file; do
   command -v "$c" >/dev/null 2>&1 || { echo "ERROR: $c is not installed" >&2; exit 1; }
 done
+if ! docker buildx version >/dev/null 2>&1; then
+  echo "ERROR: docker buildx is not installed: sudo apt install docker-buildx (Ubuntu's docker.io;" >&2
+  echo "with Docker's docker-ce: docker-buildx-plugin)" >&2
+  exit 1
+fi
+# attestations are kept only in the containerd image store (the docker driver's)
+if ! docker info -f '{{.DriverStatus}}' 2>/dev/null | grep -q 'io.containerd.snapshotter'; then
+  echo "ERROR: ${DOCKER_HOST:-this host}'s docker has no containerd image store, which the" >&2
+  echo "image's attestations need: \"features\": {\"containerd-snapshotter\": true} in" >&2
+  echo "/etc/docker/daemon.json, and restart docker" >&2
+  exit 1
+fi
 
 VERSION=$(grep -m1 -oP '(?<=^version = ")[^"]+' "$SRC_DIR/Cargo.toml")
 IMAGE="${IMAGE:-dbinvent/sge}"
@@ -48,7 +64,8 @@ echo "Building sge $VERSION from $SRC_DIR: the deb, the image $IMAGE, the rpm, t
 
 cd "$SRC_DIR"
 
-# 1. the deb. Unit tests only: the integration tests start a Postgres of their own
+# 1. the glibc sge the deb carries. Unit tests only: the integration tests start a
+# Postgres of their own
 cargo test --lib --bins
 cargo build --release
 
@@ -57,6 +74,29 @@ cargo build --release
 # and the tarball carry them too
 man/build.sh target/release/sge target/man
 
+# 2. the image, under every tag, and its check. Its SBOM attestation scans the image
+# (Alpine's packages, and the crates through its sbom.cdx.json); provenance: how and
+# from what it was built
+build_args=(--pull --build-arg "SGE_VERSION=$VERSION" --sbom=true --provenance=mode=max)
+for t in $TAGS; do build_args+=(-t "$IMAGE:$t"); done
+echo "Building $IMAGE ($TAGS) on ${DOCKER_HOST:-this host} ..."
+docker buildx build "${build_args[@]}" "$SRC_DIR"
+SGE_VERSION="$VERSION" "$SCRIPT_DIR/docker-smoke.sh" "$IMAGE:$VERSION"
+
+# the image's own sge: the static binary the rpm ([package.metadata.generate-rpm])
+# and the tarball carry
+MUSL="$SRC_DIR/target/x86_64-unknown-linux-musl/release/sge"
+mkdir -p "$(dirname "$MUSL")"
+cid="$(docker create "$IMAGE:$VERSION")"
+# and its SBOM, for the packages ([package.metadata.deb] and generate-rpm assets)
+SBOM="$SRC_DIR/target/sbom/sbom.cdx.json"
+mkdir -p "$(dirname "$SBOM")"
+docker cp "$cid:/usr/local/bin/sge" "$MUSL"
+docker cp "$cid:/usr/share/doc/schema-guard/sbom.cdx.json" "$SBOM"; docker rm "$cid" >/dev/null
+file "$MUSL" | grep -q 'static' || { echo "ERROR: the image's sge is not a static binary" >&2; exit 1; }
+grep -q '"bomFormat": *"CycloneDX"' "$SBOM" || { echo "ERROR: the image's sbom.cdx.json is no CycloneDX SBOM" >&2; exit 1; }
+
+# 3. the deb, now the SBOM is there.
 # --no-build: package exactly the binary tested and built above
 cargo deb --no-build
 
@@ -73,33 +113,18 @@ if [ ! -f "$DEB" ]; then
   DEB="${CANDIDATES[0]}"
 fi
 
-# 2. the image, under every tag, and its check
-build_args=(--pull --build-arg "SGE_VERSION=$VERSION")
-for t in $TAGS; do build_args+=(-t "$IMAGE:$t"); done
-echo "Building $IMAGE ($TAGS) on ${DOCKER_HOST:-this host} ..."
-docker build "${build_args[@]}" "$SRC_DIR"
-SGE_VERSION="$VERSION" "$SCRIPT_DIR/docker-smoke.sh" "$IMAGE:$VERSION"
-
-# the image's own sge: the static binary the rpm ([package.metadata.generate-rpm])
-# and the tarball carry
-MUSL="$SRC_DIR/target/x86_64-unknown-linux-musl/release/sge"
-mkdir -p "$(dirname "$MUSL")"
-cid="$(docker create "$IMAGE:$VERSION")"
-docker cp "$cid:/usr/local/bin/sge" "$MUSL"; docker rm "$cid" >/dev/null
-file "$MUSL" | grep -q 'static' || { echo "ERROR: the image's sge is not a static binary" >&2; exit 1; }
-
-# 3. the rpm. -o is a directory only when it exists
+# 4. the rpm. -o is a directory only when it exists
 rm -rf target/generate-rpm; mkdir -p target/generate-rpm
 cargo generate-rpm -o target/generate-rpm/
 mapfile -t RPMS < <(ls -1 "$SRC_DIR"/target/generate-rpm/schema-guard-"${VERSION}"-*.rpm 2>/dev/null || true)
 [ "${#RPMS[@]}" -eq 1 ] || { echo "ERROR: expected exactly one schema-guard $VERSION .rpm, found ${#RPMS[@]}" >&2; exit 1; }
 RPM="${RPMS[0]}"
 
-# 4. the tarball
+# 5. the tarball
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 install -D -m 755 "$MUSL" "$STAGE/bin/sge"
 install -d "$STAGE/share/doc/schema-guard" "$STAGE/share/man"
-install -m 644 LICENSE COPYRIGHT lib-licenses.txt "$STAGE/share/doc/schema-guard/"
+install -m 644 LICENSE COPYRIGHT lib-licenses.txt "$SBOM" "$STAGE/share/doc/schema-guard/"
 cp -r target/man/. "$STAGE/share/man/"
 mkdir -p target/tgz
 TGZ="$SRC_DIR/target/tgz/sge-$VERSION-x86_64-linux.tar.gz"
