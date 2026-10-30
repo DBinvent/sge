@@ -1,0 +1,58 @@
+# [i18n] see zip.yml - plan's digest (dbm_digest.rs)
+_version: 2
+digest.title:
+  en: "sge plan: %{target}"
+  ru: "план sge: %{target}"
+  fr: "plan sge : %{target}"
+  de: "sge-Plan: %{target}"
+  zh: "sge 计划：%{target}"
+  ja: "sge の計画：%{target}"
+digest.summary:
+  en: "tables: %{tables}, scripts: %{files}"
+  ru: "таблиц: %{tables}, скриптов: %{files}"
+  fr: "tables : %{tables}, scripts : %{files}"
+  de: "Tabellen: %{tables}, Skripte: %{files}"
+  zh: "%{tables} 张表，%{files} 个脚本"
+  ja: "テーブル %{tables}、スクリプト %{files}"
+digest.counts:
+  en: "dml: rows counted in the database as it is now; N statements: their rows not counted - on a table the plan creates, or a statement that cannot be counted"
+  ru: "dml: строки, подсчитанные в базе как она есть сейчас; N statements: операторы, чьи строки не подсчитаны - на таблице, которую создаёт план, или такие, что нельзя подсчитать"
+  fr: "dml : lignes comptées dans la base telle qu'elle est ; N statements : des instructions dont les lignes ne sont pas comptées - sur une table que le plan crée, ou impossibles à compter"
+  de: "dml: Zeilen, in der Datenbank in ihrem jetzigen Stand gezählt; N statements: Anweisungen, deren Zeilen nicht gezählt sind - auf einer Tabelle, die der Plan anlegt, oder nicht zählbar"
+  zh: "dml：按数据库当前状态统计的行数；N statements：未统计行数的语句 - 作用于计划将创建的表，或无法统计"
+  ja: "dml：データベースの現在の状態で数えた行数。N statements：行を数えていない文 - 計画が作るテーブルへの文、または数えられない文"
+digest.no_ticket:
+  en: "No ticket"
+  ru: "Без задачи"
+  fr: "Sans ticket"
+  de: "Ohne Ticket"
+  zh: "无工单"
+  ja: "チケットなし"
+digest.other:
+  en: "other"
+  ru: "прочее"
+  fr: "autre"
+  de: "sonstiges"
+  zh: "其他"
+  ja: "その他"
+digest.not_parsed:
+  en: "statements not read: %{count}"
+  ru: "не прочитано операторов: %{count}"
+  fr: "instructions non lues : %{count}"
+  de: "nicht gelesene Anweisungen: %{count}"
+  zh: "未能读取的语句：%{count}"
+  ja: "読めない文：%{count}"
+digest.not_read:
+  en: "not read: %{err}"
+  ru: "не прочитан: %{err}"
+  fr: "non lu : %{err}"
+  de: "nicht gelesen: %{err}"
+  zh: "未能读取：%{err}"
+  ja: "読めません：%{err}"
+digest.history:
+  en: "sge's history table"
+  ru: "таблица журнала sge"
+  fr: "la table d'historique de sge"
+  de: "sges Verlaufstabelle"
+  zh: "sge 的历史表"
+  ja: "sge の履歴テーブル"
