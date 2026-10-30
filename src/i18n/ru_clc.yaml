@@ -63,6 +63,9 @@ subcommands:
 
           Подробнее и рекомендации: https://www.dbinvent.com/sge
 
+    - plan:
+        about: "Что изменил бы migrate, в Markdown на стандартный вывод: пробный запуск migrate, который читает базу - только select - и ничего не меняет"
+        help: "Читает базу и скрипты, как migrate - только select, '--createdb' не выполняется - и пишет, что изменил бы migrate, в Markdown на стандартный вывод, журнал - в стандартный поток ошибок: по таблицам, скрипты, которые их меняют, DDL с колонками, DML со строками, которые он меняет, подсчитанными в базе. IF [NOT] EXISTS и IF блока DO проверяются там же: невыполненное условие - не изменение. COPY, INSERT ... SELECT и команды psql не читаются. '--jira_prefix' группирует по задачам Jira из комментариев скриптов; '--dry_run_to' записывает и его SQL. Другие параметры - в команде 'sge help'."
     - prepare:
         about: "Создание таблицы журнала для учёта выполнения скриптов"
         help: "Создание таблицы журнала '--table' в схеме '--schema' в базе '--logdb_name', если она задана, иначе в '--db_name'. '--dry_run' — без изменений в базе. Остальные параметры: 'sge help'."
@@ -326,6 +329,10 @@ args:
         long: dry_run_to
         takes_value: true
         help: "Файл, в который записывается сгенерированный SQL-скрипт"
+    - jira_prefix:
+        long: jira_prefix
+        takes_value: true
+        help: "Ключи проектов Jira через запятую (PROJ,OPS): их задачи - PROJ-123 - в комментариях скриптов группируют plan по задачам"
     - out_format:
         long: snapshot_format
         default_value: yaml

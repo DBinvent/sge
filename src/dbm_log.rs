@@ -237,7 +237,7 @@ impl StatementLog {
         StatementLog {
             table: format!("{}.{}", cfg.schema(), cfg.history_table_name()),
             started: Instant::now(),
-            dry_run: cfg.get_bool("dry_run", false),
+            dry_run: cfg.is_dry_run(),
             id: 0,
             source: "baseline".to_string(),
             target: tlim(&cfg.target(), SRC_T_M_LEN),
@@ -503,6 +503,7 @@ impl StatementLog {
 
     #[inline]
     fn dry_write(&self, cfg: &ConfigMap, log: &Logger) -> Result<i32, String> {
+        crate::dbm_digest::script(self.source_type, &self.version, &self.source, &cfg.get("source_dir"));
         StatementLog::dry_store(
             cfg.get_opt("dry_run_to"),
             format!("\\i [{}]{} \n", cfg.get("source_dir"), self.source),

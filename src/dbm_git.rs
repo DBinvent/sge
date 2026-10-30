@@ -268,6 +268,19 @@ fn git_run(args: &[&str], cwd: Option<&Path>, ssh: Option<&str>, cred: Option<&s
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// [git] The run's git source checked out and `source_dir` pointed into it, as a zip's
+/// is (dbm_zip.rs): the loader's list, the checksums, psql's directory, a data file, a
+/// dry run's `\i` lines and the plan all read the checkout - not the configured
+/// `source_dir`. Recorded by its commit for the history rows
+pub(crate) fn point(cfg: &mut ConfigMap, log: &Logger) -> Result<Option<GitSource>, String> {
+    let g = materialize(cfg, log)?;
+    if let Some(g) = &g {
+        remember(g);
+        cfg.insert(&"source_dir".to_string(), g.path.as_str());
+    }
+    Ok(g)
+}
+
 /// Clone if absent, fetch if present, then pin to the requested ref.
 ///
 /// Returns `Ok(None)` when no git source is configured, which is the ordinary
@@ -683,6 +696,23 @@ mod tests {
 
     /// [git] source_git_dir: the scripts from a sub-directory of the checkout; one
     /// that is not there, or climbs out of it, refused
+    /// [git] point: source_dir is the checkout's - the scripts read from there, not
+    /// from the configured directory; no git source leaves source_dir as it was
+    #[test]
+    fn source_dir_is_pointed_into_the_checkout() {
+        let d = scratch("point");
+        let (o, _) = origin(&d);
+        let mut c = cfg(&o, &d.join("cache"), &[("source_dir", "/elsewhere"), ("source_git_dir", "sql")]);
+        let g = point(&mut c, &log()).unwrap().expect("a git source");
+        assert_eq!(c.get("source_dir"), g.path);
+        assert!(Path::new(&c.get("source_dir")).join("V3__main.sql").is_file());
+        assert!(revision().is_some(), "recorded - process-wide, so other tests' too");
+        let mut c = ConfigMap::of(&[("source_dir", "./sql")]);
+        assert!(point(&mut c, &log()).unwrap().is_none());
+        assert_eq!(c.get("source_dir"), "./sql");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
     #[test]
     fn the_scripts_can_sit_in_a_sub_directory() {
         let d = scratch("subdir");

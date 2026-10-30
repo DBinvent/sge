@@ -11,7 +11,11 @@
 The relational database schema management tool.
 
 > [!NOTE]
-The Schema Guard as YAML library available in schema_guard_tokio crate or https://github.com/vkrinitsyn/schema_guard/tree/std
+> This command line tool in addition to versioned SQL scripts
+> tracked in a history table like Flyway, *also* provides: dry runs, ETL: snapshots and loads, git as a script
+> source, Apache Superset schema format dump and `plan` phase like Terraform,
+> All provided for free by [DBinvent.com](https://dbinvent.com) the YT Cluster -
+> The Infinite Scale Postgres cluster solution.
 
 
 ## SQL script tracker and DB deployment tool by schema definition for Postgres
@@ -150,7 +154,7 @@ A container has none of the host's environment: `-e LANG` passes the host's
 language on, `-e LANG=de_DE.UTF-8` names one - for the help and the messages, as
 under Usage. The image needs no locale installed for it.
 
-Tags: the version (`2.0.1`), `2.0`, `latest`. `git` is not in the image: for a
+Tags: the version (`2.3.0`), `2.3`, `latest`. `git` is not in the image: for a
 git script source, build `FROM dbinvent/sge` with `apk add git openssh-client`.
 
 **Static binary** (musl, no glibc; any Linux on x86-64), the image's own `sge`,
@@ -175,6 +179,100 @@ A push to `main` that changes the code publishes the version in the first four
 forms (`.github/workflows/apt.yml`): `dist/build.sh` builds the deb, the image from
 this repository's `Dockerfile`, and the rpm and the tarball from the image's static
 binary; `dist/publish.sh` does the same by hand.
+
+### GitHub Actions
+
+A sample workflow - plan, approval with a double check, migrate - with the image
+alone: `sge plan` writes what migrate would change as Markdown on the run's summary
+page, the required reviewers of an environment approve it, and migrate runs once they
+have. The double check comes first: a new plan, compared with the one approved - one
+that differs stops the run, "the database changed since the plan". Two environments
+(Settings > Environments): `db`, the database's password, its deployment branches main
+alone; `production`, the required reviewers and no secrets - one approval a run. A
+plan with nothing to change asks for none.
+
+```yaml
+# .github/workflows/db.yml - plan, approval with a double check, migrate
+name: db
+on:
+  push:
+    branches: [main]
+    paths: ["db/**"]
+  workflow_dispatch:                    # by hand, with its inputs
+    inputs:
+      target:
+        description: "version to migrate to - empty: all"
+        default: ""
+      double_check:
+        description: "plan again before migrate, stop if the database changed"
+        type: boolean
+        default: true
+permissions:
+  contents: read
+env:
+  TARGET: ${{ inputs.target }}          # sge --target: scripts after it wait
+  DOUBLE_CHECK: ${{ github.event_name != 'workflow_dispatch' || inputs.double_check }}
+jobs:
+  plan:                                 # what migrate would change, on the run's summary page
+    runs-on: ubuntu-latest
+    environment: db                     # the database's password, main alone
+    outputs:
+      changes: ${{ steps.plan.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v7
+        with: {persist-credentials: false}
+      - id: plan
+        env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          : > plan.sql
+          docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME=/tmp -e DB_PASSWORD \
+            -v "$PWD:$PWD" -w "$PWD" dbinvent/sge:2.3.0 -c db/prod.cfg ${TARGET:+--target="$TARGET"} \
+            --dry_run_to=plan.sql --jira_prefix=PROJ plan > plan.md
+          cat plan.md >> "$GITHUB_STEP_SUMMARY"
+          grep -q '[^[:space:]]' plan.sql && echo changes=yes >> "$GITHUB_OUTPUT" || true
+      - uses: actions/upload-artifact@v7
+        with: {name: plan, path: "plan.*"}
+
+  approval:                             # the reviewers read the plan and approve it
+    needs: plan
+    if: needs.plan.outputs.changes == 'yes'
+    runs-on: ubuntu-latest
+    environment: production             # required reviewers, no secrets
+    steps:
+      - run: echo "migration approved"
+
+  migrate:                              # the double check, then migrate
+    needs: approval
+    runs-on: ubuntu-latest
+    environment: db
+    concurrency: {group: db, cancel-in-progress: false}
+    steps:
+      - uses: actions/checkout@v7
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@v8
+        if: env.DOUBLE_CHECK == 'true'
+        with: {name: plan, path: approved}
+      - env:
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+        run: |
+          sge() { docker run --rm --network host --user "$(id -u):$(id -g)" -e HOME=/tmp -e DB_PASSWORD \
+            -v "$PWD:$PWD" -w "$PWD" dbinvent/sge:2.3.0 -c db/prod.cfg ${TARGET:+--target="$TARGET"} "$@"; }
+          if [ "$DOUBLE_CHECK" = true ]; then   # a new plan, the one approved
+            : > now.sql
+            sge --dry_run_to=now.sql plan > /dev/null
+            cmp -s now.sql approved/plan.sql || { echo "::error::the database changed since the plan"; exit 1; }
+          fi
+          sge migrate
+```
+
+`--jira_prefix` groups the plan by the tickets in the scripts' comments (`PROJ-123`);
+without it, by table. The run's artifact `plan` keeps the plan and its SQL.
+
+Run by hand (Actions > db > Run workflow), it takes two inputs, both optional:
+`target`, the version to migrate to - `sge --target`, the scripts after it wait;
+empty, all of them - and `double_check`, on unless turned off. A push runs with
+both as they default. The full guide: [sge plan](https://www.dbinvent.com/plan-d).
 
 ### Build from source
 

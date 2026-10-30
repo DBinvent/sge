@@ -272,7 +272,7 @@ impl Etl {
             yaml_format: cfg.get_def("out_format", "yaml".to_lowercase()).to_lowercase().as_str() == "yaml",
             superset: cfg.get_def("out_format", "yaml".to_string()).to_lowercase() == "superset",
             ver: cfg.get_opt("snapshot_version"),
-            dry_run: cfg.get_bool("dry_run", false),
+            dry_run: cfg.is_dry_run(),
             dry_run_to: cfg.get_opt("dry_run_to")
         })
     }
@@ -544,8 +544,9 @@ impl Etl {
             debug!(log, "{}", tr!("etl.uploading_count", count = datas.len()));
         }
 
-        for (schema_name, yt, update, file, dstl) in datas.values() {
+        for (dfv, (schema_name, yt, update, file, dstl)) in datas.iter() {
             debug!(log, "{}", tr!("etl.uploading", file = file));
+            crate::dbm_digest::source('D', &dfv.v.s, file.strip_prefix(self.dir.as_str()).unwrap_or(file), None);
             let mut r = csv::Reader::from_path(file)
                 .map_err(|e| tr!("etl.read_csv", file = file, err = e))?;
             match EtlComposer::new(&self, dbc, *schema_name, *yt, *update, file, &mut r, log)?
@@ -849,7 +850,10 @@ impl <'a> EtlComposer <'a>  {
     async fn deploy(&self, csv_reader: &mut Reader<File>, db: &mut Transaction<'_>) -> Result<bool, String>
     {
         let mut cnt = 0;
+        let mut rows = 0;   // the records read: a dry run's statements, which it runs none of
         let mut clean_sql = String::new();
+        // [plan] each row's key - with no key, its every column - for a plan's counts
+        let mut keys = vec![];
         let mut record = csv::StringRecord::new();
         let clean = match self.etl.rule {
             EtlRule::Clean => self.update, // clean only if update
@@ -863,15 +867,27 @@ impl <'a> EtlComposer <'a>  {
                 if clean {
                     warn!(self.log, "{}", tr!("etl.clean_no_pk", table = self.table));
                 }
+                if self.etl.dry_run {
+                    keys.push(self.conditions_all(&record));
+                }
                 self.insert_statement_nopk(&record)
             } else {
                 if clean {
                     self.values_inpk(&record, &mut clean_sql);
                 }
+                if self.etl.dry_run {
+                    let mut k = String::new();
+                    self.values_inpk(&record, &mut k);
+                    keys.push(k);
+                }
                 self.insert_statement_pk(&record)
             };
 
+            rows += 1;
             cnt += self.execute("insert/update", sql, db).await?;
+        }
+        if self.etl.dry_run {
+            self.plan(&keys, &clean_sql);
         }
         let cleaned = if clean_sql.len() > 0 {
             let (lb, rb) = if self.hidx_pks_clmn.len() > 1 { ('(',')') } else { (' ', ' ')};
@@ -880,12 +896,15 @@ impl <'a> EtlComposer <'a>  {
         if cleaned > 0 {
             info!(self.log, "{}", tr!("etl.cleaned", count = cleaned, file = self.file, table = self.table));
         }
-        if cnt > 0 {
+        // the sequences after the rows: in a dry run's plan too, which counted none
+        if cnt > 0 || (self.etl.dry_run && rows > 0) {
             for (pk, def) in &self.pk_defaults {
                 if let Some(sql) = self.build_sequence(pk, def) {
                     let _ = self.execute("sequence",sql, db).await?;
                 }
             }
+        }
+        if cnt > 0 {
             info!(self.log, "{}", tr!("etl.loaded", count = cnt, file = self.file, table = self.table));
         }
         Ok(cleaned + cnt > 0)
@@ -893,13 +912,40 @@ impl <'a> EtlComposer <'a>  {
 
     async fn execute(&self, method: &str, sql: String, db: &mut Transaction<'_>) -> Result<u64, String> {
         if self.etl.dry_run {
-            let _ = StatementLog::dry_store(self.etl.dry_run_to.clone(), sql, &self.log)?;
+            // [plan] the rows - and the sequences set after them - counted once the file
+            // is read (plan)
+            let _ = StatementLog::dry_store(self.etl.dry_run_to.clone(), format!("{};\n", sql), &self.log)?;
             Ok(0)
         } else {
             #[cfg(debug_assertions)] debug!(self.log, "ETL_{}: {}", method, sql);
             db.execute(sql.as_str(), &[]).await
                 .map_err(|e| tr!("etl.execute", method = method, table = self.table, err = crate::dbm_pg::pg(&e)))
         }
+    }
+
+    /// [plan] the file's rows as a plan counts them: those the table has already - by key,
+    /// so many at a time; with no key, those it has a row equal to - inserted less those,
+    /// and updated when the rule updates; those the clean deletes; the sequences set after,
+    /// when a row loads. A row met twice, once
+    fn plan(&self, keys: &[String], clean_sql: &str) {
+        let unique: Vec<&String> = keys.iter().collect::<BTreeSet<_>>().into_iter().collect();
+        let pk = !self.hidx_pks_clmn.is_empty();
+        let (lb, rb) = if self.hidx_pks_clmn.len() > 1 { ("(", ")") } else { ("", "") };
+        let matched = if pk {
+            unique.chunks(crate::dbm_digest::KEYS).map(|ch| format!("SELECT count(*) FROM {} WHERE {}{}{} IN ({})",
+                self.table, lb, self.columns_pklst, rb, ch.iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "))).collect()
+        } else {
+            unique.chunks(100).map(|ch| format!("SELECT {}", ch.iter()
+                .map(|c| format!("(EXISTS (SELECT 1 FROM {} WHERE {}))::int", self.table, c)).collect::<Vec<_>>().join(" + ")))
+                .collect()
+        };
+        let deleted = if clean_sql.is_empty() {
+            vec![]
+        } else {
+            vec![format!("SELECT count(*) FROM {} WHERE {}{}{} NOT IN ({})", self.table, lb, self.columns_pklst, rb, clean_sql)]
+        };
+        let setval = self.pk_defaults.iter().any(|(pk, def)| self.build_sequence(pk, def).is_some());
+        crate::dbm_digest::data(&self.table, unique.len() as u64, matched, pk && self.update, deleted, setval);
     }
 
     /// bump sequence from default

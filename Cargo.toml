@@ -1,13 +1,15 @@
 [package]
 name = "schema_guard"
-version = "2.2.0"
+version = "2.3.0"
 authors = ["Vladimir Krinitsyn <v.krinitsyn@gmail.com>", "DBinvent <support@dbinvent.com>"]
 edition = "2018"
 license = "MIT"
 description = "Schema Guard Enterprise: Relation DataBase Schema Management tool"
+repository = "https://github.com/DBinvent/sge.git"
 homepage = "https://www.dbinvent.com/sge"
 readme = "README.md"
-
+documentation = "https://vkrinitsyn.github.io/sg1"
+keywords = ["schema_guard", "sge", "postgres", "superset", "flyway"]
 
 # https://doc.rust-lang.org/reference/linkage.html
 [lib]
@@ -67,6 +69,9 @@ clap = {version = "4.6.7", features = ["string"], optional = true}
 base64 = "^0.23.1"
 
 uuid = {version="^1.28.0", features = ["v4"]}
+# [digest] a dry run's SQL read for its digest (dbm_digest.rs): tables, columns, rows.
+# No recursive-protection: its stacker builds C; sqlparser's own depth limit stays
+sqlparser = { version = "^0.63", default-features = false, features = ["std"] }
 csv = "1.1.6"
 # [zip] a zip archive as the script source (dbm_zip.rs): stored and deflated entries
 # only - flate2's default backend, miniz_oxide, pure Rust; no bzip2, zstd, lzma or AES,
@@ -83,8 +88,9 @@ rust-i18n = "^4.2.4"
 # 2.1: its messages in sge's language (set_lang, the logger's lang), and the _pg
 # deploys, which return Postgres's own error for sge to say (dbm_pg.rs); 2.1.1: pg_error_in,
 # the line of the statement the server points at; 2.2: the superset module (the superset
-# feature)
-schema_guard_tokio = { version = "^2.2.0", features = ["slog"] }
+# feature); 2.3: the _plan deploys, whose dry run hands each table's schema.table and
+# changes beside the SQL - plan's digest, no SQL read back
+schema_guard_tokio = { version = "^2.3.0", features = ["slog"] }
 
 #postgres-openssl = { version = "^0.5.0", optional = true }
 #openssl = { version = "^0.10.33", optional = true }

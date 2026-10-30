@@ -27,6 +27,8 @@ mod dbm_zip;
 pub(crate) mod dbm_superset;
 /// [yt] rolling migration across a YT Cluster, node by node
 pub mod dbm_yt;
+/// [plan] what migrate would change, per table, for a review - see `plan`
+mod dbm_digest;
 pub mod dbm_etl;
 
 use crate::dbm_log::*;
@@ -51,6 +53,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use schema_guard_tokio::loader::{InfoSchemaType, load_info_schema};
 use schema_guard_tokio::table::Table;
+use schema_guard_tokio::changes::{Changes, DryRun};
 use crate::dbm_files::{FilesMap, FileVersion, load_all};
 
 const STATEMENT_LOG_TABLE_YML: &'static str = include_str!("hl_table.yaml");
@@ -172,12 +175,43 @@ fn migration_options(cfg: &ConfigMap) -> schema_guard_tokio::MigrationOptions {
 
 /// Main entry point
 /// Relational (PostgreSQL) database migration management
-pub async fn migrate(mut cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
+pub async fn migrate(cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
+    migrate_run(cfg, prepare_only, log).await
+}
+
+/// [plan] What migrate would change, as Markdown on standard output: migrate's dry
+/// run - the database read, selects alone; '--createdb' not followed. Its own scope:
+/// the digest is this run's
+pub async fn plan(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
+    print!("{}", plan_md(cfg, log).await?);
+    Ok(())
+}
+
+async fn plan_md(mut cfg: ConfigMap, log: &Logger) -> Result<String, String> {
+    cfg.insert(&"dry_run".to_string(), "yes");
+    cfg.insert(&"createdb".to_string(), "false");
+    dbm_digest::scope(async {
+        dbm_digest::start(&cfg);
+        let result = migrate_run(cfg.clone(), false, log).await;
+        let collected = dbm_digest::take();
+        result?;
+        // [plan] the database asked, read only, what the run's steps hinge on
+        let db = connect("db_", &cfg, None, "plan", log).await?;
+        Ok(match collected {
+            Some(c) => dbm_digest::finish(c, Some(&db)).await,
+            None => String::new(),
+        })
+    }).await
+}
+
+async fn migrate_run(mut cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
     trace!(log, "{}", tr!("lib.trace_migrate", prepare = prepare_only, logdb = cfg.get("logdb"),
         is_logdb = cfg.is_logdb(), is_primary = cfg.is_primary()));
     // [zip] an archive is unpacked first and source_dir pointed into it; the guard
     // removes the directory when this function returns - completed or failed
     let _zip = dbm_zip::materialize(&mut cfg, log)?;
+    // [git] a repository is checked out first and source_dir pointed into it, as above
+    dbm_git::point(&mut cfg, log)?;
     let mut client = connect(if cfg.is_primary() {"logdb_"} else {"db_"}, &cfg, None, "logdata", log).await?;
     let mut copy_log = if !cfg.is_primary() && cfg.is_logdb() {
         trace!(log, "{}", tr!("lib.trace_copylog"));
@@ -262,7 +296,7 @@ async fn migrate_db(
         Ok(vec![])
     } else {
         // select table for update -- row level lock, revert changes
-        let logs = { StatementLog::load_all(&mut t, cfg.get_bool("dry_run", true), cfg).await? };
+        let logs = { StatementLog::load_all(&mut t, cfg.is_dry_run(), cfg).await? };
 
         let db_name = cfg.get("db_name");
         let mut dbc = if log_db_name != db_name {
@@ -338,10 +372,14 @@ pub(crate) async fn baseline_deploy(
     baseline.table_name = cfg.history_table_name();
     // [sg-tokio] deploy is async, dropped is_retry, gained MigrationOptions,
     // and the callback must be Send + Sync
-    let dr: Box<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync> =
-        Box::new(|input| cfg.dry_run(input));
-    match baseline.deploy_pg(dbc, t, &schema, BASELINE,
-      if cfg.get_bool("dry_run", false) { Some(dr.as_ref()) } else {None},
+    // [digest] its schema.table and changes, beside the SQL
+    let dr: Box<DryRun<'_>> = Box::new(|input: Vec<String>, table: Option<&str>, changes: Option<&Changes>| {
+        dbm_digest::changes(table, changes);
+        cfg.dry_run(input)
+    });
+    dbm_digest::source('B', "", BASELINE, None);
+    match baseline.deploy_plan_pg(dbc, t, &schema, BASELINE,
+      if cfg.is_dry_run() { Some(dr.as_ref()) } else {None},
       &migration_options(cfg)
     ).await {
         Ok(exec) => {
@@ -459,14 +497,18 @@ async fn deploy_all_schemas(
         let etl = dbm_etl::Etl::from(cfg)?;
         let table_tr = cfg.get("schema_transaction") == "table" || cfg.is_retry();
         let mut do_persist = false;
-        let dry_run = cfg.get_bool("dry_run", false);
+        let dry_run = cfg.is_dry_run();
         // [sg-tokio] the async signature requires Send + Sync on the callback
-        let dry_run_fn: Box<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync> =
-            Box::new(|input| cfg.dry_run(input));
+        // [digest] each table's schema.table and changes, beside the SQL
+        let dry_run_fn: Box<DryRun<'_>> = Box::new(|input: Vec<String>, table: Option<&str>, changes: Option<&Changes>| {
+            dbm_digest::changes(table, changes);
+            cfg.dry_run(input)
+        });
         let dry_run_fn = dry_run_fn.as_ref();
         // for (ver, (file, ysv)) in &files.schemas
         // debug!(log, "looking key={} obj[{:?}] in keys [{:?}]", ver, ver, files.schemas.keys());
         if let Some((file, ysv)) = &files.schemas.get(ver) {
+            dbm_digest::source('S', &ver.s, file, Some(&dbm_digest::path(&cfg.get("source_dir"), file)));
             // debug!(log, "deploying Schema {} [{}]", file, ysv.len());
             match client.transaction().await {
                 Ok(mut t) => {
@@ -487,7 +529,7 @@ async fn deploy_all_schemas(
                         || ysv.list.iter().any(|ys| ys.tables.list.iter().any(|yt| yt.is_table_transaction()));
                     if !per_table {
                         for ys in &ysv.list {
-                            match ys.deploy_all_tables_pg(dbc, &mut t, dry, &opt).await {
+                            match ys.deploy_all_tables_plan_pg(dbc, &mut t, dry, &opt).await {
                                 Ok(n) => {
                                     debug!(log, "{}", tr!("lib.deployed_tables", count = n, schema = ys.schema_name, file = file, dry_run = dry_run));
                                     do_persist = do_persist || n > 0;
@@ -501,7 +543,7 @@ async fn deploy_all_schemas(
                         }
                         if err.is_none() {
                             for ys in &ysv.list {
-                                match ys.deploy_all_fk_pg(ysv, dbc, &mut t, cfg.is_retry(), dry).await {
+                                match ys.deploy_all_fk_plan_pg(ysv, dbc, &mut t, cfg.is_retry(), dry).await {
                                     Ok(n) => do_persist = do_persist || n > 0,
                                     Err(e) => {
                                         err = Some(dbm_pg::deploy(e));
@@ -518,7 +560,7 @@ async fn deploy_all_schemas(
                                 if yt.is_template() {
                                     continue;
                                 }
-                                match yt.deploy_pg(dbc, &mut t, &ys.schema_name, &ys.file, dry, &opt).await {
+                                match yt.deploy_plan_pg(dbc, &mut t, &ys.schema_name, &ys.file, dry, &opt).await {
                                     Ok(ok) => {
                                         debug!(log, "{}", tr!(if ok { "lib.deployed_table_ok" } else { "lib.deployed_table_failed" },
                                             table = format!("{}.{}", ys.schema_name, yt.table_name), file = file, dry_run = dry_run));
@@ -546,7 +588,7 @@ async fn deploy_all_schemas(
                                     if yt.is_template() {
                                         continue;
                                     }
-                                    match yt.deploy_fk_pg(ysv, dbc, &mut t, &ys.schema_name, cfg.is_retry(), &ys.file, dry).await {
+                                    match yt.deploy_fk_plan_pg(ysv, dbc, &mut t, &ys.schema_name, cfg.is_retry(), &ys.file, dry).await {
                                         Ok(ok) => {
                                             if ok {
                                                 do_persist = true;
@@ -695,7 +737,7 @@ async fn connect(
     debug!(log, "{}", tr!("lib.connecting", module = module, url = log_url, db = dbname));
     match if cfg.is_ssl() {
         #[cfg(not(feature = "tls"))]
-        return Err(tr!("lib.no_tls", db = db));
+        return Err(tr!("lib.no_tls", db = format!("postgresql:///{}?{}", crate::dbm_cfg::url_value(&dbname), log_url)));   // its password as the logs show it
         #[cfg(feature = "tls")]
         spawn_connect_tls(db.as_str(), match make_tls_connector(&cfg.get(format!("{}sslrootcert", prefix).as_str())) {
             Ok(c) => c,
@@ -932,6 +974,290 @@ mod tests {
         Logger::root(slog::Discard, o!())
     }
 
+    /// [plan] a throwaway cluster of the newest PostgreSQL installed - PG_BIN, else
+    /// /usr/lib/postgresql/<ver>/bin - on its unix socket alone; stopped and removed when
+    /// dropped. None without one: the test says so and passes
+    pub(crate) struct Pg {
+        bin: std::path::PathBuf,
+        pub(crate) dir: std::path::PathBuf,
+        pub(crate) port: u16,
+    }
+
+    impl Pg {
+        pub(crate) fn start(name: &str) -> Option<Pg> {
+            let bin = match std::env::var("PG_BIN") {
+                Ok(b) => std::path::PathBuf::from(b),
+                Err(_) => {
+                    let mut v: Vec<(u32, std::path::PathBuf)> = std::fs::read_dir("/usr/lib/postgresql").ok()?
+                        .filter_map(|e| e.ok())
+                        .filter_map(|e| Some((e.file_name().to_str()?.parse().ok()?, e.path().join("bin"))))
+                        .filter(|(_, b): &(u32, std::path::PathBuf)| b.join("initdb").exists())
+                        .collect();
+                    v.sort();
+                    match v.pop() {
+                        Some((_, b)) => b,
+                        None => {
+                            eprintln!("no PostgreSQL installed (PG_BIN, /usr/lib/postgresql): skipped");
+                            return None;
+                        }
+                    }
+                }
+            };
+            let dir = std::env::temp_dir().join(format!("sge-{}-{}", name, std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let port = 40000 + (std::process::id() % 10000) as u16;
+            let run = |c: &mut std::process::Command| c.output().unwrap().status.success();
+            assert!(run(std::process::Command::new(bin.join("initdb")).args(["-A", "trust", "-U", "postgres", "-E", "UTF8", "--no-locale", "-D"])
+                .arg(dir.join("data"))), "initdb");
+            let pg = Pg { bin, dir, port };
+            assert!(run(std::process::Command::new(pg.bin.join("pg_ctl")).args(["-w", "-l"]).arg(pg.dir.join("log")).arg("-D").arg(pg.dir.join("data"))
+                .arg("-o").arg(format!("-c listen_addresses='' -k {} -p {}", pg.dir.display(), pg.port)).arg("start")),
+                "pg_ctl start: {}", std::fs::read_to_string(pg.dir.join("log")).unwrap_or_default());
+            Some(pg)
+        }
+    }
+
+    impl Drop for Pg {
+        fn drop(&mut self) {
+            let _ = std::process::Command::new(self.bin.join("pg_ctl")).args(["-w", "-m", "immediate", "-D"]).arg(self.dir.join("data"))
+                .arg("stop").output();
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// [plan] sge plan against a real server: sge's history table, a schema file's table
+    /// and its data file's rows - with the schema file's ticket - a script's insert by its
+    /// own ticket, an after script; and the database as it was, nothing written
+    #[tokio::test]
+    async fn plan_says_what_migrate_would_change() {
+        let Some(pg) = Pg::start("plan") else { return };
+        let src = pg.dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("S1__schema.yaml"), r#"# PROJ-1
+database:
+  - schema:
+    schemaName: app
+    tables:
+      - table:
+          tableName: t
+          data_file: D1__t.csv
+          columns:
+            - column: {name: id, type: serial, constraint: {primaryKey: true, nullable: false}}
+            - column: {name: name, type: varchar(50)}
+"#).unwrap();
+        std::fs::write(src.join("D1__t.csv"), "id,name\n1,a\n2,b\n").unwrap();
+        std::fs::write(src.join("V1_1__v.sql"), "-- PROJ-2\nINSERT INTO app.t (name) VALUES ('c');\n").unwrap();
+        std::fs::write(src.join("after.sql"), "UPDATE app.t SET name = name;\n").unwrap();
+        let host = pg.dir.to_string_lossy().to_string();
+        let mut cfg = ConfigMap::load("").unwrap();
+        for (k, v) in [("db_host", host.as_str()), ("db_port", &pg.port.to_string()), ("db_user", "postgres"), ("db_name", "postgres"),
+            ("source_dir", &src.to_string_lossy()), ("jira_prefix", "PROJ"), ("createdb", "yes")] {
+            cfg.insert(&k.to_string(), v);
+        }
+        let md = plan_md(cfg, &log()).await.unwrap();
+        assert!(md.starts_with(&format!("## {}\n", tr!("digest.title", target = format!("postgres@{}", host)))), "{}", md);
+        assert!(md.contains(concat!("\n### PROJ-1\n\n- **app.t**\n",
+            "  - `S1__schema.yaml`: ddl create (id, name)\n",
+            "  - `D1__t.csv`: ddl sequence setval | dml insert 2\n")), "{}", md);
+        assert!(md.contains("\n### PROJ-2\n\n- **app.t**\n  - `V1_1__v.sql`: dml insert 1\n"), "{}", md);
+        // app.t is the plan's own: its rows are not counted
+        assert!(md.contains("  - `after.sql`: dml update 1 statement\n"), "{}", md);
+        assert!(md.contains(&format!("- **public.sge_history**\n  - {}: ddl create (", tr!("digest.history"))), "{}", md);
+
+        // a plan reads: no history table, no schema written
+        let (c, conn) = tokio_postgres::connect(&format!("host={} port={} user=postgres dbname=postgres", host, pg.port), NoTls).await.unwrap();
+        tokio::spawn(conn);
+        let n: i64 = c.query_one("select count(*) from pg_tables where tablename = 'sge_history' or schemaname = 'app'", &[]).await.unwrap().get(0);
+        assert_eq!(n, 0);
+    }
+
+    /// [plan] the database asked, read only: IF [NOT] EXISTS that does not hold is no
+    /// change; the rows an UPDATE's and a DELETE's WHERE select, an INSERT's whose key is
+    /// there or not, a DO's IF's branch, a data file's rows by key - with no key, by every
+    /// column; its clean's deletes; a TRUNCATE's, the rows its table has - counted; on a
+    /// table the plan creates, and a count the database refuses - a nextval(), after a
+    /// set_config() that turns read only off - its statements; COPY and INSERT ... SELECT
+    /// not read. An IF whose condition is NULL takes its ELSE, one with a quote and a
+    /// comment is read. Each kind of object asked for, by its schema
+    /// and under a search_path. Nothing written, the sequence not taken from; a role that
+    /// reads alone makes the same plan
+    #[tokio::test]
+    async fn plan_asks_the_database() {
+        let Some(pg) = Pg::start("ask") else { return };
+        let host = pg.dir.to_string_lossy().to_string();
+        let (c, conn) = tokio_postgres::connect(&format!("host={} port={} user=postgres dbname=postgres", host, pg.port), NoTls).await.unwrap();
+        tokio::spawn(conn);
+        c.batch_execute("CREATE TABLE public.t (id int primary key, name text);\n\
+            INSERT INTO public.t VALUES (1, 'a'), (2, 'b'), (3, 'c');\n\
+            CREATE TABLE public.e (id int primary key, v int);\n\
+            INSERT INTO public.e VALUES (1, 10), (5, 50);\n\
+            CREATE TABLE public.k (a int, b text);\n\
+            INSERT INTO public.k VALUES (1, 'x');\n\
+            CREATE TABLE public.a (x int);\n\
+            INSERT INTO public.a VALUES (1);\n\
+            CREATE TABLE public.o (id int);\n\
+            ALTER TABLE public.o ADD CONSTRAINT o_chk CHECK (id > 0);\n\
+            CREATE POLICY pol ON public.o USING (true);\n\
+            CREATE FUNCTION public.tf() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN RETURN NEW; END$$;\n\
+            CREATE TRIGGER trg BEFORE INSERT ON public.o FOR EACH ROW EXECUTE FUNCTION public.tf();\n\
+            CREATE FUNCTION public.f() RETURNS int LANGUAGE sql AS 'SELECT 1';\n\
+            CREATE TYPE public.ty AS (a int);\n\
+            CREATE SCHEMA shop;\n\
+            CREATE SEQUENCE public.s;").await.unwrap();
+        let src = pg.dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("S1__schema.yaml"), r#"database:
+  - schema:
+    schemaName: public
+    tables:
+      - table:
+          tableName: e
+          data_file: D1__e.csv
+          columns:
+            - column: {name: id, type: int, constraint: {primaryKey: true, nullable: false}}
+            - column: {name: v, type: int}
+      - table:
+          tableName: k
+          data_file: D1__k.csv
+          columns:
+            - column: {name: a, type: int}
+            - column: {name: b, type: text}
+"#).unwrap();
+        std::fs::write(src.join("D1__e.csv"), "id,v\n1,10\n2,20\n3,30\n").unwrap();
+        std::fs::write(src.join("D1__k.csv"), "a,b\n1,x\n2,y\n2,y\n").unwrap();
+        std::fs::write(src.join("V1_1__smart.sql"), "-- PROJ-7\n\
+            CREATE TABLE IF NOT EXISTS public.t (id int);\n\
+            DROP TABLE IF EXISTS public.gone;\n\
+            CREATE TABLE IF NOT EXISTS public.n (id int);\n\
+            ALTER TABLE public.t ADD COLUMN IF NOT EXISTS name text;\n\
+            ALTER TABLE public.t ADD COLUMN IF NOT EXISTS email text;\n\
+            CREATE INDEX IF NOT EXISTS t_pkey ON public.t (id);\n\
+            UPDATE public.t SET name = 'x' WHERE id >= 2;\n\
+            DELETE FROM public.t WHERE id = 99;\n\
+            DELETE FROM public.t WHERE id = 1;\n\
+            INSERT INTO public.t (id, name) VALUES (3, 'c'), (4, 'd') ON CONFLICT (id) DO NOTHING;\n\
+            INSERT INTO public.t (id, name) VALUES (2, 'z') ON CONFLICT (id) DO UPDATE SET name = excluded.name;\n\
+            INSERT INTO public.t SELECT * FROM public.t;\n\
+            COPY public.t FROM stdin;\n9\tz\n\\.\n\
+            DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = 't') THEN ALTER TABLE public.t ADD COLUMN never int; END IF; END $$;\n\
+            DO $$ BEGIN IF (SELECT count(*) FROM public.t WHERE name <> 'O''Brien') > 0 -- rows there\n THEN UPDATE public.t SET name = 'y' WHERE id = 3; ELSE DELETE FROM public.t; END IF; END $$;\n\
+            DO $$ BEGIN IF (SELECT name FROM public.t WHERE id = 99) = 'on' THEN UPDATE public.k SET b = 'n'; ELSE DELETE FROM public.k WHERE a = 1; END IF; END $$;\n\
+            UPDATE public.a SET x = 2 WHERE set_config('default_transaction_read_only', 'off', false) = 'off';\n\
+            UPDATE public.e SET v = 1 WHERE id = nextval('public.s');\n\
+            UPDATE public.n SET id = 1;\n\
+            TRUNCATE public.k, public.n;\n\
+            ALTER TABLE public.o DROP CONSTRAINT IF EXISTS no_chk;\n\
+            ALTER TABLE public.o DROP CONSTRAINT IF EXISTS o_chk;\n\
+            DROP TRIGGER IF EXISTS notrg ON public.o;\n\
+            DROP TRIGGER IF EXISTS trg ON public.o;\n\
+            DROP POLICY IF EXISTS nopol ON public.o;\n\
+            DROP POLICY IF EXISTS pol ON public.o;\n\
+            CREATE INDEX IF NOT EXISTS o_id ON public.o (id);\n\
+            CREATE EXTENSION IF NOT EXISTS plpgsql;\n\
+            CREATE SCHEMA IF NOT EXISTS shop;\n\
+            CREATE SEQUENCE IF NOT EXISTS public.s;\n\
+            CREATE SEQUENCE IF NOT EXISTS s2;\n\
+            DROP FUNCTION IF EXISTS public.nof();\n\
+            DROP FUNCTION IF EXISTS f();\n\
+            DROP TYPE IF EXISTS public.noty;\n\
+            DROP TYPE IF EXISTS ty;\n\
+            SET search_path TO shop, public;\n\
+            ALTER TABLE IF EXISTS o ADD COLUMN IF NOT EXISTS id int;\n\
+            ALTER TABLE o ADD COLUMN IF NOT EXISTS z int;\n\
+            RESET search_path;\n").unwrap();
+        let cfg = |user: &str| {
+            let mut cfg = ConfigMap::load("").unwrap();
+            for (k, v) in [("db_host", host.as_str()), ("db_port", &pg.port.to_string()), ("db_user", user), ("db_name", "postgres"),
+                ("source_dir", &src.to_string_lossy()), ("jira_prefix", "PROJ"), ("etl", "clean"), ("snapshot_data", "public.e")] {
+                cfg.insert(&k.to_string(), v);
+            }
+            cfg
+        };
+        let md = plan_md(cfg("postgres"), &log()).await.unwrap();
+        // a role that reads alone makes the same plan (pg_read_all_data: PostgreSQL 14 on)
+        let v: i32 = c.query_one("SELECT current_setting('server_version_num')::int", &[]).await.unwrap().get(0);
+        if v >= 140000 {
+            c.batch_execute("CREATE ROLE reader LOGIN; GRANT pg_read_all_data TO reader;").await.unwrap();
+            assert_eq!(plan_md(cfg("reader"), &log()).await.unwrap(), md);
+        }
+        assert!(md.contains(concat!("\n### PROJ-7\n\n",
+            "- **public.a**\n  - `V1_1__smart.sql`: dml update 1\n",
+            "- **public.e**\n  - `V1_1__smart.sql`: dml update 1 statement\n",
+            "- **public.k**\n  - `V1_1__smart.sql`: dml delete 1, truncate 1\n",
+            "- **public.n**\n  - `V1_1__smart.sql`: ddl create (id) | dml update 1 statement, truncate 1 statement\n",
+            "- **public.o**\n  - `V1_1__smart.sql`: ddl alter: drop constraint o_chk; drop trigger trg; drop policy pol; index o_id (id); alter: add z\n",
+            "- **public.t**\n  - `V1_1__smart.sql`: ddl alter: add email | dml insert 1, update 4, delete 1\n",
+            "- **other**\n  - `V1_1__smart.sql`: ddl sequence public.s2; drop function f; drop type ty\n")), "{}", md);
+        // clean: id 5 is not in the file; k: a row met twice is one, 1 x there already
+        assert!(md.contains("- **public.e**\n  - `D1__e.csv`: dml insert 2, update 1, delete 1\n"), "{}", md);
+        assert!(md.contains("- **public.k**\n  - `D1__k.csv`: dml insert 1\n"), "{}", md);
+        assert!(md.contains(&tr!("digest.counts")), "{}", md);
+        for not in ["gone", "t_pkey", "never", "add name", "copy", "no_chk", "notrg", "nopol", "plpgsql", "schema shop", "nof", "noty",
+            "add id", "shop.o"] {
+            assert!(!md.contains(not), "{} in {}", not, md);
+        }
+
+        // nothing written, nothing taken
+        for (t, rows) in [("public.t", 3), ("public.e", 2), ("public.k", 1)] {
+            let n: i64 = c.query_one(format!("select count(*) from {}", t).as_str(), &[]).await.unwrap().get(0);
+            assert_eq!(n, rows, "{}", t);
+        }
+        let cols: i64 = c.query_one("select count(*) from information_schema.columns where table_name = 't'", &[]).await.unwrap().get(0);
+        assert_eq!(cols, 2);
+        let called: bool = c.query_one("select is_called from public.s", &[]).await.unwrap().get(0);
+        assert!(!called, "a plan takes no value from a sequence");
+    }
+
+    /// [git] a git source runs from its checkout - source_dir names an empty directory:
+    /// the plan reads its script, with its ticket, and migrate runs it, checksummed
+    #[tokio::test]
+    async fn a_git_source_runs_from_its_checkout() {
+        let Some(pg) = Pg::start("git") else { return };
+        let origin = pg.dir.join("origin");
+        std::fs::create_dir_all(origin.join("sql")).unwrap();
+        let body = "-- PROJ-3\nCREATE TABLE public.g (id int);\n";
+        std::fs::write(origin.join("sql/V1_1__g.sql"), body).unwrap();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(["-c", "user.name=sge", "-c", "user.email=sge@example.invalid", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main"])
+                .args(args).current_dir(&origin).output().unwrap();
+            assert!(out.status.success(), "git {:?}: {}", args, String::from_utf8_lossy(&out.stderr));
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        git(&["init", "-q"]);
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "g"]);
+        std::fs::create_dir_all(pg.dir.join("empty")).unwrap();
+        let host = pg.dir.to_string_lossy().to_string();
+        let cfg = || {
+            let mut cfg = ConfigMap::load("").unwrap();
+            for (k, v) in [("db_host", host.as_str()), ("db_port", &pg.port.to_string()), ("db_user", "postgres"), ("db_name", "postgres"),
+                ("source_dir", &pg.dir.join("empty").to_string_lossy()), ("source_git", &format!("file://{}", origin.display())),
+                ("source_git_dir", "sql"), ("source_git_cache", &pg.dir.join("cache").to_string_lossy()),
+                ("jira_prefix", "PROJ"), ("createdb", "yes")] {
+                cfg.insert(&k.to_string(), v);
+            }
+            cfg
+        };
+
+        let md = plan_md(cfg(), &log()).await.unwrap();
+        assert!(md.contains("\n### PROJ-3\n\n- **public.g**\n  - `V1_1__g.sql`: ddl create (id)\n"), "{}", md);
+        assert!(!md.contains(&tr!("digest.not_read", err = "")), "{}", md);
+
+        migrate(cfg(), false, &log()).await.unwrap();
+        let (c, conn) = tokio_postgres::connect(&format!("host={} port={} user=postgres dbname=postgres", host, pg.port), NoTls).await.unwrap();
+        tokio::spawn(conn);
+        let n: i64 = c.query_one("select count(*) from pg_tables where tablename = 'g'", &[]).await.unwrap().get(0);
+        assert_eq!(n, 1);
+        // the checksum of the checkout's file; script_tag is process-wide (dbm_git::REVISION),
+        // other tests' too
+        let r = c.query_one("select checksum from public.sge_history where source = 'V1_1__g.sql'", &[]).await.unwrap();
+        use base64::Engine;
+        use md5::Digest;
+        assert_eq!(r.get::<_, String>(0), base64::engine::general_purpose::STANDARD.encode(md5::Md5::digest(body.as_bytes())));
+    }
+
     /// [connect] what is refused before any server is asked: no database named, TLS
     /// on a build without it; and a server that is not there, as the superuser too
     #[tokio::test]
@@ -940,9 +1266,9 @@ mod tests {
         assert!(e.starts_with("SGE-E006 ") && e.contains("db_name"), "{}", e);
         #[cfg(not(feature = "tls"))]
         {
-            let c = ConfigMap::of(&[("db_name", "app"), ("db_sslcert", "/c.pem")]);
+            let c = ConfigMap::of(&[("db_name", "app"), ("db_sslcert", "/c.pem"), ("db_password", "secret")]);
             let e = connect("db_", &c, None, "t", &log()).await.err().unwrap();
-            assert!(e.starts_with("SGE-E007 "), "{}", e);
+            assert!(e.starts_with("SGE-E007 ") && e.contains("password=***") && !e.contains("secret"), "{}", e);
         }
         let nowhere = [("db_host", "127.0.0.1"), ("db_port", "1"), ("db_name", "app"), ("db_user", "app"),
             ("db_password", "secret"), ("createdb", "true")];

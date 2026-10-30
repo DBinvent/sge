@@ -229,6 +229,13 @@ impl ConfigMap {
         )
     }
 
+    /// [lock] a dry run only when one is asked for: a migrate takes its history's row
+    /// lock (select ... for update) unless it is one
+    #[inline]
+    pub fn is_dry_run(&self) -> bool {
+        self.get_bool("dry_run", false)
+    }
+
     /// find the target database name for log storage, use a database from connection if not set use '' as current db
     /// if logdb set, than db_target must default to {host/db_name}
     #[inline]
@@ -487,6 +494,19 @@ mod tests {
         assert_eq!(ConfigMap::unquote("'x'\n"), "x", "a line's own newline");
         assert_eq!(ConfigMap::unquote("'x\""), "'x\"", "quotes that do not match");
         assert_eq!(ConfigMap::unquote("''"), "''");
+    }
+
+    /// [lock] no dry_run named is a migrate, which locks its history; only a dry run
+    /// asked for skips the lock
+    #[test]
+    fn a_migrate_is_no_dry_run_unless_one_is_asked_for() {
+        if std::env::var("DRY_RUN").is_err() {
+            assert!(!ConfigMap::of(&[]).is_dry_run());
+        }
+        assert!(ConfigMap::of(&[("dry_run", "yes")]).is_dry_run());
+        assert!(ConfigMap::of(&[("dry_run", "true")]).is_dry_run());
+        assert!(!ConfigMap::of(&[("dry_run", "no")]).is_dry_run());
+        assert!(!ConfigMap::of(&[("dry_run", "false")]).is_dry_run());
     }
 
     /// [url] a connection URL fills the keys it names - only those not set already -

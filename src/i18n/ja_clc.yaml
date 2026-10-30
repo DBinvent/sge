@@ -68,6 +68,9 @@ subcommands:
 
           詳細とベストプラクティス：https://www.dbinvent.com/sge
 
+    - plan:
+        about: "migrate が行う変更を Markdown で標準出力へ：データベースを読むだけ（select のみ）で何も変更しない migrate の試行実行"
+        help: "migrate と同じようにデータベースとスクリプトを読み（select のみ、'--createdb' は行いません）、migrate が行う変更を Markdown で標準出力へ、ログを標準エラーへ書きます：テーブルごとに、それを変更するスクリプト、DDL とその列、DML とそれが変更する行数（データベースで数えます）。IF [NOT] EXISTS と DO ブロックの IF もそこで確かめ、成り立たないものは変更としません。COPY、INSERT ... SELECT、psql のコマンドは読みません。'--jira_prefix' でスクリプトのコメント中の Jira チケットごとにまとめ、'--dry_run_to' でその SQL も書きます。他のオプションは 'sge help' コマンドを参照してください。"
     - prepare:
         about: "スクリプトの実行を追跡する履歴テーブルを作成します"
         help: "'--logdb_name' データベース（未設定なら '--db_name'）の '--schema' スキーマに、履歴テーブル '--table' を作成します。'--dry_run'：データベースを変更しません。その他のオプション：'sge help'。"
@@ -331,6 +334,10 @@ args:
         long: dry_run_to
         takes_value: true
         help: "生成した SQL スクリプトを書き出すファイル名"
+    - jira_prefix:
+        long: jira_prefix
+        takes_value: true
+        help: "Jira のプロジェクトキー、カンマ区切り（PROJ,OPS）：スクリプトのコメント中のチケット - PROJ-123 - で plan をチケットごとにまとめる"
     - out_format:
         long: snapshot_format
         default_value: yaml

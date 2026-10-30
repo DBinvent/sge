@@ -67,8 +67,9 @@ where
             cfg.insert(ks, v.as_str());
         }
     }
-    // [superset] a snapshot's ZIP on standard output: the log goes to standard error
-    if cfg.get("out_format").to_lowercase() == "superset" && cfg.get_opt("snapshot_to").is_none() {
+    // [superset] a snapshot's ZIP on standard output, [plan] plan's Markdown: the log
+    // goes to standard error
+    if cmd == "plan" || (cfg.get("out_format").to_lowercase() == "superset" && cfg.get_opt("snapshot_to").is_none()) {
         cfg.log_to_stderr();
     }
     match act(cmd.as_str(), cfg).await {
@@ -187,6 +188,7 @@ async fn act(cmd: &str, cfg: ConfigMap, ) -> Result<(), String> {
     match cmd {
         "migrate" => sge::migrate(cfg, false, &log).await,
         "prepare" => sge::migrate(cfg, true, &log).await,
+        "plan" => sge::plan(cfg, &log).await,
         "snapshot" => sge::load(true, cfg, &log).await,
         "info" => sge::load(false, cfg, &log).await,
         // clap refuses a command it does not define before act() is reached: this is one
@@ -373,7 +375,7 @@ mod tests {
             }
             c
         };
-        for cmd in ["migrate", "prepare", "snapshot", "info"] {
+        for cmd in ["migrate", "plan", "prepare", "snapshot", "info"] {
             let e = act(cmd, cfg()).await.unwrap_err();
             assert!(e.starts_with("SGE-E009 "), "{}: {}", cmd, e);
         }

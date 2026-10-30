@@ -94,17 +94,12 @@ impl Serialize for FileVersion {
 pub(crate) fn load_all(cfg: &ConfigMap, log: &Logger) -> Result<FilesMap, String> {
     let mut schema = FilesMap::new();
 
-    // [git] A git source is resolved to a directory and then handled as one.
-    // Everything below - filters, version parsing, checksums, history - is
-    // deliberately unaware of where the directory came from, so sourcing from
-    // git cannot change which scripts run or how they are recorded.
-    let mut dir = match crate::dbm_git::materialize(cfg, log)? {
-        Some(g) => {
-            crate::dbm_git::remember(&g);
-            g.path
-        }
-        None => cfg.get("source_dir"),
-    };
+    // [git] A git or zip source has source_dir pointed into it before this
+    // (dbm_git::point, dbm_zip::materialize). Everything below - filters, version
+    // parsing, checksums, history - is deliberately unaware of where the directory
+    // came from, so sourcing from git cannot change which scripts run or how they
+    // are recorded.
+    let mut dir = cfg.get("source_dir");
     if dir.len() == 0 { dir.push_str("./"); }
     else if dir.as_bytes()[dir.len()-1] != b'/' { dir.push('/'); }
 

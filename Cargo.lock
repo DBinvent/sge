@@ -1356,7 +1356,7 @@ dependencies = [
 
 [[package]]
 name = "schema_guard"
-version = "2.2.0"
+version = "2.3.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -1381,6 +1381,7 @@ dependencies = [
  "slog-term",
  "sloggers",
  "smallvec",
+ "sqlparser",
  "time",
  "tokio",
  "tokio-postgres",
@@ -1391,9 +1392,9 @@ dependencies = [
 
 [[package]]
 name = "schema_guard_tokio"
-version = "2.2.0"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3e3c2f67389fb9f45205c546e6901c4d114df5f2ea10bc6070d7070f905cbdc"
+checksum = "9bf3aa9b978d4f7c782a1c22195bfce39fa51e9e11e6369a7dd0559792d50414"
 dependencies = [
  "lazy_static",
  "regex",
@@ -1701,6 +1702,15 @@ checksum = "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4"
 dependencies = [
  "libc",
  "windows-sys",
+]
+
+[[package]]
+name = "sqlparser"
+version = "0.63.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3679862809bd1f92e563cf6fd820e28f39135303668001c10331d5027183e8b4"
+dependencies = [
+ "log",
 ]
 
 [[package]]

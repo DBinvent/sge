@@ -8,7 +8,7 @@ latest release to get them.
 
 | Version | Supported |
 |---|---|
-| 2.2.x (latest) | yes |
+| 2.3.x (latest) | yes |
 | older | no |
 
 ## Reporting a vulnerability

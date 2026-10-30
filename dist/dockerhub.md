@@ -1,4 +1,4 @@
-# Schema Guard (sge): PostgreSQL schema migration
+# Schema Guard Enterprise (sge): PostgreSQL schema migration
 
 A static `sge` and the `psql` it applies SQL files with, on Alpine - about 12 MB.
 Open source, MIT: [DBinvent/sge](https://github.com/DBinvent/sge).
@@ -15,7 +15,7 @@ Docs: [dbinvent.com/sge](https://www.dbinvent.com/sge/) - [downloads](https://ww
 
 ## Tags
 
-`2.1.0`, ... (a version), `2.0` (its latest), `latest`. x86-64.
+`2.3.0`, ... (a version), `2.3` (its latest), `latest`. x86-64.
 
 ## Use
 
@@ -52,6 +52,11 @@ host's environment: pass it on with `-e LANG`, or name one, `-e LANG=de_DE.UTF-8
 
 On a [YT Cluster](https://hub.docker.com/r/dbinvent/yt), a migration applies to
 the node it runs on: run it against each node in turn.
+
+## GitHub Actions
+
+A sample workflow - plan, approval, migrate - with this image alone: see
+[the README](https://github.com/DBinvent/sge#github-actions).
 
 ## SBOM
 

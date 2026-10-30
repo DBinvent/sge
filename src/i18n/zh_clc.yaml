@@ -68,6 +68,9 @@ subcommands:
 
           更多信息和最佳实践：https://www.dbinvent.com/sge
 
+    - plan:
+        about: "migrate 将做的变更，以 Markdown 写到标准输出：migrate 的试运行，只读取数据库（仅 select），不做任何更改"
+        help: "像 migrate 一样读取数据库和脚本（仅 select，不执行 '--createdb'），把 migrate 会做的变更以 Markdown 写到标准输出，日志写到标准错误：按表列出修改它的脚本、DDL 及其列、DML 及其修改的行数（在数据库中统计）。IF [NOT] EXISTS 和 DO 块的 IF 也在数据库中检查：不成立的不算变更。不读取 COPY、INSERT ... SELECT 和 psql 命令。'--jira_prefix' 按脚本注释中的 Jira 工单分组；'--dry_run_to' 同时写出其 SQL。更多选项见 'sge help' 命令。"
     - prepare:
         about: "创建历史记录表，用于追踪脚本执行"
         help: "在 '--logdb_name' 数据库（若已设置，否则为 '--db_name'）的 '--schema' 模式中创建历史记录表 '--table'。'--dry_run'：不修改数据库。更多选项：'sge help'。"
@@ -331,6 +334,10 @@ args:
         long: dry_run_to
         takes_value: true
         help: "写入生成的 SQL 脚本的文件名"
+    - jira_prefix:
+        long: jira_prefix
+        takes_value: true
+        help: "Jira 项目键，以逗号分隔（PROJ,OPS）：脚本注释中的工单 - PROJ-123 - 将 plan 按工单分组"
     - out_format:
         long: snapshot_format
         default_value: yaml

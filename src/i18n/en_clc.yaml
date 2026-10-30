@@ -63,6 +63,9 @@ subcommands:
 
           Check https://www.dbinvent.com/sge for more information and best practices.
 
+    - plan:
+        about: "What migrate would change, as Markdown on standard output: a dry run of migrate that reads the database - selects alone - and changes nothing"
+        help: "Read the database and the scripts as migrate would - selects alone, '--createdb' not followed - and write what migrate would change as Markdown on standard output, the log on standard error: per table, the scripts that change it, DDL with its columns, DML with the rows it changes, counted in the database. IF [NOT] EXISTS and a DO block's IF are checked there: what does not hold is no change. COPY, INSERT ... SELECT and psql's commands are not read. '--jira_prefix' groups it by the Jira tickets in the scripts' comments; '--dry_run_to' writes its SQL too. See more options in 'sge help' command."
     - prepare:
         about: Create a history log table to track scripts executions
         help: "Create a history log table defined in '--table' placed in '--schema' in the '--logdb_name' database, if set, or if not set use '--db_name'. Use '--dry_run' to avoid DB change. See more options in ''sge help' command."
@@ -326,6 +329,10 @@ args:
         long: dry_run_to
         takes_value: true
         help: The name of file to dump the generated SQL script
+    - jira_prefix:
+        long: jira_prefix
+        takes_value: true
+        help: "Jira project keys, comma-separated (PROJ,OPS): their tickets - PROJ-123 - in the scripts' comments group plan by ticket"
     - out_format:
         long: snapshot_format
         default_value: yaml

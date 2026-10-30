@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn every_key_used_has_its_message_and_every_message_a_use() {
         let all = messages();
-        let is_key = |s: &str| ["lib.", "main.", "cfg.", "files.", "log.", "etl.", "git.", "zip.", "pg."].iter()
+        let is_key = |s: &str| ["lib.", "main.", "cfg.", "files.", "log.", "etl.", "git.", "zip.", "pg.", "digest."].iter()
             .any(|p| s.starts_with(p) && s.len() > p.len());
         let mut used = std::collections::BTreeSet::new();
         for f in std::fs::read_dir(format!("{}/src", env!("CARGO_MANIFEST_DIR"))).unwrap() {
@@ -202,7 +202,7 @@ mod tests {
         for l in CONFIGS.iter().step_by(2) {
             assert_eq!(en, names(l), "{}", l);
         }
-        assert_eq!(en.0, vec!["info", "migrate", "prepare", "snapshot"]);
+        assert_eq!(en.0, vec!["info", "migrate", "plan", "prepare", "snapshot"]);
         assert!(!en.1.iter().any(|a| a.contains("licen") || a == "email" || a == "subscribe"), "{:?}", en.1);
     }
 }

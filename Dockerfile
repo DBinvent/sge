@@ -31,7 +31,7 @@ RUN cargo build --release --locked --target x86_64-unknown-linux-musl --bin sge 
 
 FROM alpine:3.23
 ARG SGE_VERSION=unknown
-LABEL org.opencontainers.image.title="Schema Guard" \
+LABEL org.opencontainers.image.title="Schema Guard Enterprise" \
       org.opencontainers.image.description="PostgreSQL schema migration: versioned SQL scripts and declarative YAML, tracked per environment" \
       org.opencontainers.image.url="https://www.dbinvent.com/sge" \
       org.opencontainers.image.source="https://github.com/DBinvent/sge" \
