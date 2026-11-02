@@ -375,7 +375,7 @@ args:
 
           Le fichier est enregistré dans un dossier 'snapshot_data' ou dans le dossier courant.
 
-          Le joker (*) est accepté comme nom de table.
+          Nommez chaque table : le joker (*) n'est pas encore pris en charge.
 
           '--snapshot_version' remplace le numéro 'D<next>__' dans le nom du fichier généré.
 

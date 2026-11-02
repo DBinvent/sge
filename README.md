@@ -4,7 +4,7 @@
 [![audit](https://github.com/dbinvent/sge/actions/workflows/audit.yml/badge.svg)](https://github.com/dbinvent/sge/actions/workflows/audit.yml)
 [![trivy](https://github.com/dbinvent/sge/actions/workflows/trivy.yml/badge.svg)](https://github.com/dbinvent/sge/actions/workflows/trivy.yml)
 [![docker scout](https://github.com/dbinvent/sge/actions/workflows/scout.yml/badge.svg)](https://github.com/dbinvent/sge/actions/workflows/scout.yml)
-[![coverage](https://img.shields.io/badge/coverage-93%25-brightgreen.svg)](tests/README.md)
+[![coverage](https://raw.githubusercontent.com/dbinvent/sge/badges/coverage.svg?sanitize=true)](https://github.com/dbinvent/sge/actions/workflows/coverage.yml)
 [![docker](https://img.shields.io/docker/v/dbinvent/sge?sort=semver&label=docker)](https://hub.docker.com/r/dbinvent/sge)
 [![license](https://img.shields.io/crates/l/schema_guard.svg)](LICENSE)
 

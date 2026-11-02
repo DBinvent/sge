@@ -12,5 +12,6 @@ Integration tests
 Coverage
 
 - `cargo llvm-cov --no-fail-fast --summary-only`: the whole `cargo test`, unit and
-  integration tests together, over `src/`. 93% of the lines - the README's badge,
-  set by hand: update it when the figure moves.
+  integration tests together, over `src/` (93% of the lines, by hand). The README's
+  badge is CI's own figure: `.github/workflows/coverage.yml` measures it on each push
+  to `main` and keeps the badge on the `badges` branch.

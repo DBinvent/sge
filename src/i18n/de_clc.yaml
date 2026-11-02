@@ -375,7 +375,7 @@ args:
 
           Die Datei wird in einem Verzeichnis 'snapshot_data' oder im aktuellen Verzeichnis abgelegt.
 
-          Der Platzhalter (*) ist als Tabellenname erlaubt.
+          Jede Tabelle einzeln angeben: ein Platzhalter (*) wird noch nicht unterstützt.
 
           '--snapshot_version' überschreibt die Nummer 'D<next>__' im Namen der erzeugten Datei.
 

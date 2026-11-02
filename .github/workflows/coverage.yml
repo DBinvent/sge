@@ -1,0 +1,45 @@
+name: coverage
+
+# [coverage] The whole `cargo test` - the unit tests and the integration tests together,
+# each integration test on a throwaway PostgreSQL it starts itself (tests/postgres.sh,
+# the newest server installed) - and its line coverage over src/, as tests/README.md
+# measures it. The badge is our own, no third party: drawn from lcov.info and kept on the
+# `badges` branch (the last step), which the README shows. No gate yet: set
+# --fail-under-lines once this has measured its figure here.
+on:
+  push:
+    branches-ignore: ["dependabot/**"]   # their pull request runs it
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # the coverage badge's push, to the badges branch
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      # the PostgreSQL server binaries: each integration test initdb's its own
+      - run: sudo apt-get update && sudo apt-get install -y postgresql
+      - run: cargo llvm-cov --no-fail-fast --lcov --output-path lcov.info
+      # [coverage] our own badge, no third party: lcov.info's line coverage, drawn by
+      # .github/coverage-badge.py and kept on the `badges` branch - one commit, replaced
+      # each time - which the README shows. On a push to the default branch only: a pull
+      # request measures, no more
+      - name: coverage badge
+        if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pct=$(python3 .github/coverage-badge.py lcov.info /tmp/badges/coverage.svg)
+          cd /tmp/badges
+          git init -q -b badges
+          git add coverage.svg
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "coverage ${pct}%"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" badges

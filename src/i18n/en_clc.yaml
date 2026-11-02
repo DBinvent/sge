@@ -370,7 +370,7 @@ args:
 
           The file will be stored into a 'snapshot_data' directory or current directory.
 
-          Wildcard (*) is allowed for a table name.
+          Name each table: a wildcard (*) is not supported yet.
 
           Use '--snapshot_version' to override 'D<next>__' number in the generated file name.
 
