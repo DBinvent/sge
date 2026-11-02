@@ -36,9 +36,16 @@ fi
 
 if [ ! -f "$wd/postmaster.pid" ]; then
   echo "Starting Postgres$pver on port $3. use '$0 stop $2 $3 && rm -rf $wd' to stop and clean it."
-  ./postgres -p "$3" --hba_file="$wd/pg_hba.conf" -k "$wd" -D "$wd" &
-  sleep 2
+  # its output to a log of its own: the caller reads this script's output to its end,
+  # which a server still holding it would never give
+  ./postgres -p "$3" --hba_file="$wd/pg_hba.conf" -k "$wd" -D "$wd" > "$wd/postgres.log" 2>&1 &
 fi
+# until it answers, not a fixed sleep: a cold machine's first start takes longer
+for _ in $(seq 1 60); do
+  ./pg_isready -q -p "$3" -h "$wd" && break
+  sleep 1
+done
+./pg_isready -q -p "$3" -h "$wd" || { echo "Postgres$pver on port $3 did not start: $(tail -5 "$wd/postgres.log" 2>/dev/null)"; exit 1; }
 
 if [ $# -eq 5 ]; then
   psql -p $3 -h $wd -c "ALTER USER $USER WITH PASSWORD '$5'" postgres

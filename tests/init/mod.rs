@@ -180,7 +180,9 @@ pub fn prepare_db() -> Result<PgInstance, String> {
         }
     });
 
-    for i in 0..10 {
+    // until postgres.sh is done - it waits for the server to answer, up to a minute on a
+    // cold machine (CI's first starts) - or says why it is not
+    for i in 0..90 {
         thread::sleep(Duration::from_secs(1));
         let res = status.read().unwrap();
         match &*res {
