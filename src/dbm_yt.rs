@@ -1,34 +1,12 @@
-//! [yt] Rolling migration across a YT Cluster, one node at a time.
+//! [yt] What YT Cluster uses of sge, and only YT Cluster: **not a public API**. It is not
+//! covered by the crate's version, so it can change in any release, a patch included.
 //!
-//! **Status:** planned. The planner (`yt_migrate.sql`, below) is not in this
-//! release and nothing calls the driver yet; `yt_cluster = true` reads only the
-//! cluster's `C sg_migration` row (`sg_migration`, `enabled`). The design stays
-//! here, with the driver, for when the planner comes.
+//! `yt_cluster = true` reads the cluster's `C sg_migration` row (`sg_migration`, `enabled`).
 //!
-//! ## The split
-//!
-//! `yt_migrate()` (see `yt_migrate.sql`) is the **planner**: a trigger on the
-//! history table that, when a schema or version script succeeds locally,
-//! enqueues one pending row per peer node - followers first, leader last - with
-//! guards against overlapping rolls. It never connects anywhere, because
-//! PostgreSQL cannot reach a peer without `dblink`/`postgres_fdw`, and
-//! requiring those would mean storing credentials for every node on every node.
-//!
-//! This module is the **driver**: it reads those pending rows and applies the
-//! migration to each node in turn over `psql`, marking each row as it goes and
-//! **stopping at the first failure**.
-//!
-//! sge is the right place for the driver for one reason: it is already the
-//! component that holds connection details for more than one database and
-//! already shells out to `psql`. Nothing new is introduced - the roll is the
-//! existing single-node deploy, repeated against a list.
-//!
-//! ## Why one node at a time
-//!
-//! Serial, waiting for each node, is what keeps the cluster serving: every node
-//! not currently migrating is up and answering. It is also what makes failure
-//! survivable - the roll halts with a *known* number of nodes migrated rather
-//! than an arbitrary one, and the history table says exactly which.
+//! Rolling a migration across the cluster belongs to YT Cluster: its worker runs an ordinary
+//! sge deploy on each node, and sge connects to no peer. The rest of this module - `pending`,
+//! `mark`, `describe`, `node_address`, `node_cfg`, `ROLLING_GUARD` - is left from an earlier
+//! plan, where a SQL planner queued the nodes and sge connected to each: only its tests call it.
 //!
 //! ## ⚠ Backward compatibility is the operator's responsibility
 //!
@@ -61,7 +39,7 @@ use tokio_postgres::Client;
 
 use crate::dbm_cfg::ConfigMap;
 
-/// One node's queued migration, as recorded by `yt_migrate()`.
+/// One node's queued migration, a row of the history table.
 #[derive(Debug, Clone)]
 pub struct Pending {
     pub id: i32,
@@ -72,7 +50,7 @@ pub struct Pending {
     pub version: String,
 }
 
-/// Marker written by the planner; also the thing this module looks for.
+/// What marks a node's queued row in the history table.
 const PENDING: &str = "yt:pending";
 
 /// Is cluster rolling switched on at all?

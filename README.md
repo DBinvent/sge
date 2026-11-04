@@ -38,7 +38,7 @@ It is microservice-ready: several databases (one per microservice) and several e
  - create database if absent
  - ability to connect by certs
  - git repository as a script source, with the deployed revision recorded
- - YT Cluster aware: a cluster's own schema migration options (node-by-node rolling is planned)
+ - YT Cluster aware: a cluster's own schema migration options (node-by-node rolling is planned, in YT Cluster)
  - use both: schema/table definition and script execution tracking
  - simple ETL for extraction on snapshot and load data on migration
  - support separate db connection for history table as a remote copy or primary one
@@ -380,26 +380,15 @@ With `yt_cluster = true`, sge reads the cluster's own SchemaGuard options - the
 `C sg_migration` row of its config table - and applies YAML schema files by
 them: the same options the cluster judges a schema difference by.
 
-Rolling a migration across the cluster - one node at a time over `psql`,
-**followers first, leader last**, **halting at the first failure** - is planned:
-the driver is in `src/dbm_yt.rs`, and the SQL planner it needs is not in this
+Rolling a migration across the cluster, one node at a time, is planned in YT Cluster
+itself: its worker runs an ordinary sge deploy on each node, and sge connects to no
+peer. `src/dbm_yt.rs` is YT Cluster's own, not a public API: it can change in any
 release.
 
 | key | meaning |
 |---|---|
-| `yt_cluster` | enable rolling migration. Default `false`. |
+| `yt_cluster` | read the cluster's `C sg_migration` row. Default `false`. |
 | `yt_config_table` | the cluster config table. Default `public.yt_config`. |
-
-Only the *host* is taken from the cluster roster: module `N` carries the
-cluster's own RPC endpoint (`host:7421`), which is not a PostgreSQL port. User,
-port, password and TLS come from the ordinary `db_*` configuration.
-
-The planner will be SQL and the driver sge because PostgreSQL cannot reach a
-peer without `dblink`/`postgres_fdw`, and requiring those would mean storing
-credentials for every node on every node. Serial application is what keeps the
-cluster serving - every node not currently migrating is up - and what makes a
-failure survivable: the roll stops with a *known* number of nodes migrated, and
-the history table says exactly which.
 
 > #### ⚠ Migrations rolled this way must be backward compatible
 >

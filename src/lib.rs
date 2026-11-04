@@ -25,7 +25,8 @@ mod dbm_git;
 mod dbm_zip;
 #[cfg(feature = "superset")]
 pub(crate) mod dbm_superset;
-/// [yt] rolling migration across a YT Cluster, node by node
+/// [yt] YT Cluster's own, not a public API: not covered by the crate's version
+#[doc(hidden)]
 pub mod dbm_yt;
 /// [plan] what migrate would change, per table, for a review - see `plan`
 mod dbm_digest;
