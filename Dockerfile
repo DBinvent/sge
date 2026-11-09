@@ -41,7 +41,10 @@ LABEL org.opencontainers.image.title="Schema Guard Enterprise" \
 # busybox from edge: 3.23's 1.37 has wget's CVE-2025-60876, fixed in 1.38, which no
 # stable Alpine has yet. It needs only musl, so nothing else comes from edge. Back to
 # 3.23's busybox (drop the upgrade) once a stable release has the fix.
-RUN apk add --no-cache postgresql18-client \
+# apk upgrade: the base image's packages to 3.23's fixes - its zlib 1.3.2-r1 has CVE-2026-4738
+# (critical, Docker Scout 2026-11-09), fixed in 3.23's 1.4-r0
+RUN apk upgrade --no-cache && apk add --no-cache postgresql18-client \
+    && apk info -e 'zlib>=1.4' \
     && apk upgrade --no-cache -X https://dl-cdn.alpinelinux.org/alpine/edge/main \
         busybox busybox-binsh ssl_client \
     && apk info -e 'busybox>=1.38' \
