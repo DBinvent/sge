@@ -181,14 +181,17 @@ pub fn prepare_db() -> Result<PgInstance, String> {
     });
 
     // until postgres.sh is done - it waits for the server to answer, up to a minute on a
-    // cold machine (CI's first starts) - or says why it is not
-    for i in 0..90 {
+    // cold machine (CI's first starts) - or says why it is not. Not done by then is said as
+    // that: going on gave "Connection refused" from a server that had not been started
+    let mut done = false;
+    for i in 0..180 {
         thread::sleep(Duration::from_secs(1));
         let res = status.read().unwrap();
         match &*res {
             Ok(e) => {
                 if e.len() > 0 {
                     info!(LOG, "{}", e);
+                    done = true;
                     break;
                 } else {
                     print!(".");
@@ -198,6 +201,9 @@ pub fn prepare_db() -> Result<PgInstance, String> {
                 return Err(e.clone());
             }
         }
+    }
+    if !done {
+        return Err(format!("postgres.sh start on port {} did not finish in 180 s", port));
     }
 
     let mut cfg = ConfigMap::load("")?;

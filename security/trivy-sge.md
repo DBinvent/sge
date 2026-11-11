@@ -1,5 +1,8 @@
 # Trivy: Schema Guard
 
+[![trivy](https://github.com/DBinvent/sge/actions/workflows/trivy.yml/badge.svg)](https://github.com/DBinvent/sge/actions/workflows/trivy.yml) - the Trivy workflow on every push and weekly, on
+the crates and on the image as the Dockerfile builds it: it fails on a HIGH or CRITICAL finding with a fix.
+
 The nightly's scan (yt-cluster-tests nightly/nightly.sh, `security_report`), run 20261030-140648, 2026-10-30 17:46 UTC:
 Trivy 0.69.3 on Schema Guard's crates - the lock file of the source the run tested - and on the
 image `dbinvent/sge:latest` as Docker Hub serves it: every known vulnerability counted by severity, the CRITICAL

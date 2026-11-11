@@ -22,15 +22,28 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="added docker scout">
-      <change beforePath="$PROJECT_DIR$/.github/workflows/apt.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/apt.yml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/workflows/trivy.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/trivy.yml" afterDir="false" />
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="docs changes">
+      <change afterPath="$PROJECT_DIR$/src/dbm_compare.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.github/workflows/audit.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/audit.yml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/dist/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/build.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dist/dockerhub.md" beforeDir="false" afterPath="$PROJECT_DIR$/dist/dockerhub.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/dist/docker-smoke.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/docker-smoke.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/security/trivy-sge.md" beforeDir="false" afterPath="$PROJECT_DIR$/security/trivy-sge.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dbm_cfg.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_cfg.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dbm_digest.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_digest.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dbm_etl.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_etl.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dbm_files.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_files.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dbm_git.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_git.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dbm_log.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_log.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/dbm_yt.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_yt.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/i18n.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/i18n.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/init/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/init/mod.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/postgres.sh" beforeDir="false" afterPath="$PROJECT_DIR$/tests/postgres.sh" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -74,7 +87,7 @@
   <component name="GithubPullRequestsUISettings">{
   &quot;selectedUrlAndAccountId&quot;: {
     &quot;url&quot;: &quot;https://github.com/dbinvent/sge.git&quot;,
-    &quot;accountId&quot;: &quot;8b5ab6ce-4cbc-4044-a6f7-b21f2de4dd4e&quot;
+    &quot;accountId&quot;: &quot;0570cb3f-6a22-4115-bd53-ff6471ff90dc&quot;
   }
 }</component>
   <component name="HighlightingSettingsPerFile">
@@ -117,6 +130,65 @@
   <component name="MarkdownSettingsMigration">
     <option name="stateVersion" value="1" />
   </component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.0" />
+      <entry key="MS500" value="1.0" />
+      <entry key="S2" value="1.0" />
+      <entry key="S5" value="1.0" />
+      <entry key="S10" value="1.0" />
+      <entry key="S30" value="1.0" />
+      <entry key="S60" value="1.0" />
+      <entry key="M2" value="1.0" />
+      <entry key="M5" value="1.0" />
+      <entry key="M10" value="1.0" />
+      <entry key="M15" value="1.0" />
+      <entry key="M30" value="1.0" />
+      <entry key="H1" value="1.0000000000000209" />
+      <entry key="H2" value="1.00000014423812" />
+      <entry key="H4" value="1.0003797869402218" />
+      <entry key="D1" value="1.2691059732513232" />
+      <entry key="W1" value="1.829011350577038" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="0.5864174746159394" />
+      <entry key="MS500" value="0.8987551266110297" />
+      <entry key="S2" value="0.9736667628755977" />
+      <entry key="S5" value="0.9893823033619269" />
+      <entry key="S10" value="0.9946769844336034" />
+      <entry key="S30" value="0.9982225038573258" />
+      <entry key="S60" value="0.9991108566407062" />
+      <entry key="M2" value="0.9995553294544061" />
+      <entry key="M5" value="0.9998221080483063" />
+      <entry key="M10" value="0.999911050068108" />
+      <entry key="M15" value="0.9999406991662494" />
+      <entry key="M30" value="0.999970349143538" />
+      <entry key="H1" value="0.9999851744618916" />
+      <entry key="H2" value="0.9999927314404142" />
+      <entry key="H4" value="1.0003760789994716" />
+      <entry key="D1" value="1.269105174167584" />
+      <entry key="W1" value="1.8290111825198518" />
+    </decayedShown>
+  </component>
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 0
@@ -137,6 +209,7 @@
     &quot;Cargo.Test lib::tests.executor&quot;: &quot;Run&quot;,
     &quot;Cargo.Test tests::config_log_deser_test.executor&quot;: &quot;Run&quot;,
     &quot;CidrDebugProfileConversion&quot;: &quot;true&quot;,
+    &quot;Git.Working.Tree.Tab.closed.by.user&quot;: &quot;closed&quot;,
     &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
@@ -579,10 +652,6 @@
   <component name="VcsManagerConfiguration">
     <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
     <option name="CHECK_NEW_TODO" value="false" />
-    <MESSAGE value="#9 it pass" />
-    <MESSAGE value="#9 it pass - fix alter owner" />
-    <MESSAGE value="#9 IT: ignore REVOKE USAGE" />
-    <MESSAGE value="#9 IT: ignore GRANT_ALL" />
     <MESSAGE value="#9 IT final fixes" />
     <MESSAGE value="#9 IT fixes after serge yaml update" />
     <MESSAGE value="moved and merged" />
@@ -604,7 +673,11 @@
     <MESSAGE value="trivy" />
     <MESSAGE value="trivy fix" />
     <MESSAGE value="added docker scout" />
-    <option name="LAST_COMMIT_MESSAGE" value="added docker scout" />
+    <MESSAGE value="plan: to preview changes" />
+    <MESSAGE value="sbom, plan: to preview changes fix" />
+    <MESSAGE value="coverage" />
+    <MESSAGE value="docs changes" />
+    <option name="LAST_COMMIT_MESSAGE" value="docs changes" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

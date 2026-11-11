@@ -297,6 +297,9 @@ pub(crate) fn materialize(cfg: &ConfigMap, log: &Logger) -> Result<Option<GitSou
         let r = cfg.get("source_git_ref");
         if r.trim().is_empty() { "HEAD".to_string() } else { r.trim().to_string() }
     };
+    if requested.starts_with('-') {
+        return Err(tr!("git.flag_url", url = requested));
+    }
     let depth = cfg.get("source_git_depth");
     let depth: u32 = if depth.trim().is_empty() { 1 } else { depth.trim().parse().unwrap_or(1) };
 
@@ -421,7 +424,7 @@ fn fetch(repo: &Path, requested: &str, depth: u32, ssh: Option<&str>, cred: Opti
     // failing the run.
     warn!(log, "{}", tr!("git.unshallow", requested = requested));
     let _ = git_run(&["fetch", "--quiet", "--unshallow"], Some(repo), ssh, cred, log);
-    git_run(&["fetch", "--quiet", "--force", "origin"], Some(repo), ssh, cred, log)?;
+    git_run(&["fetch", "--quiet", "--force", "origin", "+refs/heads/*:refs/remotes/origin/*"], Some(repo), ssh, cred, log)?;
     // FETCH_HEAD is the remote's branches now, not what was asked for: only a
     // commit already in the fetched history counts. A ref that is nowhere -
     // a typo - fails here, rather than deploying whatever the remote's default is.
@@ -661,6 +664,35 @@ mod tests {
         let c = cfg(&o, &d.join("cache"), &[("source_git_ref", &first[..10])]);
         let g = materialize(&c, &log()).unwrap();
         assert_eq!(g.unwrap().commit, first);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// [git] a commit of a branch that is not the remote's default is found too, deepened
+    /// or fetched by its whole hash: a rolling migration's later nodes ask for that
+    #[test]
+    fn a_commit_of_another_branch_is_found() {
+        let d = scratch("branch");
+        let (o, _) = origin(&d);
+        let dev = sh(&o, &["rev-parse", "dev"]);
+        for (i, r) in [dev.as_str(), &dev[..10]].iter().enumerate() {
+            let c = cfg(&o, &d.join(format!("cache{}", i)), &[("source_git_ref", r)]);
+            let g = materialize(&c, &log()).unwrap().unwrap();
+            assert_eq!(g.commit, dev, "{}", r);
+            assert!(has(&g, "sql/V2__dev.sql"), "{}", r);
+        }
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// [git] a ref is an argument of git fetch: one that reads as an option runs nothing
+    #[test]
+    fn a_ref_that_reads_as_an_option_is_refused() {
+        let d = scratch("flag");
+        let (o, _) = origin(&d);
+        let mark = d.join("ran");
+        let flag = format!("--upload-pack=touch {}", mark.display());
+        let e = materialize(&cfg(&o, &d.join("cache"), &[("source_git_ref", flag.as_str())]), &log()).expect_err("refused");
+        assert!(e.contains("--upload-pack"), "{}", e);
+        assert!(!mark.exists(), "git ran it");
         let _ = std::fs::remove_dir_all(d);
     }
 

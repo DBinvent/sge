@@ -8,3 +8,7 @@ v="$(docker run --rm "$IMG" --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' |
 echo "  OK    $IMG: sge $v"
 p="$(docker run --rm --entrypoint psql "$IMG" --version 2>&1)" || { echo "  FAIL  $IMG: psql: $p"; exit 1; }
 echo "  OK    $IMG: $p"
+# [compare] diff_data's command line, the version sge links when DIFF_DATA_VERSION names it
+d="$(docker run --rm --entrypoint diff_data "$IMG" --version 2>&1)" || { echo "  FAIL  $IMG: diff_data: $d"; exit 1; }
+[ -z "${DIFF_DATA_VERSION:-}" ] || [ "$d" = "data-diff $DIFF_DATA_VERSION" ] || { echo "  FAIL  $IMG: $d, not diff_data $DIFF_DATA_VERSION"; exit 1; }
+echo "  OK    $IMG: $d"

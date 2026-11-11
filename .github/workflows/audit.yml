@@ -1,4 +1,4 @@
-name: audit and geiger
+name: "audit&geiger"   # the badge's label (owner, 2026-11-07)
 
 # cargo audit: known vulnerabilities (RustSec) in the dependencies. cargo geiger:
 # unsafe code in sge and in each crate it uses, on the run's summary page.

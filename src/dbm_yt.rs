@@ -62,6 +62,27 @@ pub fn enabled(cfg: &ConfigMap) -> bool {
     cfg.get_bool("yt_cluster", false)
 }
 
+/// psql's `application_name` on a cluster: a run's scripts can be told from anything else. A
+/// worker killed under its psql finds and ends it before running again.
+pub const PSQL_APP: &str = "sge-roll";
+
+/// The commit a git source names now, whole: what every node of a roll deploys. `None`
+/// with no git source.
+pub fn resolve_git(cfg: &ConfigMap, log: &slog::Logger) -> Result<Option<String>, String> {
+    Ok(crate::dbm_git::materialize(cfg, log)?.map(|g| g.commit))
+}
+
+/// [sge-ci] A target version as sge reads it: `*`, or a version its files could carry. A cluster
+/// asks it before a roll, so a version sge cannot read is refused there, not at the roll's first
+/// node.
+pub fn target_ok(target: &str) -> Result<(), String> {
+    let t = target.trim();
+    if t.is_empty() || t.starts_with('*') {
+        return Ok(());
+    }
+    crate::dbm_files::semver_parse(t).map(|_| ())
+}
+
 /// Fully-qualified yt config table, default `public.yt_config`.
 pub fn cfg_table(cfg: &ConfigMap) -> String {
     let t = cfg.get("yt_config_table");
@@ -186,6 +207,17 @@ pub fn describe(queue: &[Pending]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [sge-ci] what a roll may name as its target, before any node runs it
+    #[test]
+    fn a_target_is_read_as_sge_reads_it() {
+        for good in ["*", "", "1", "1.4", "1.4.2", "20.0", " 2.1 "] {
+            assert!(target_ok(good).is_ok(), "{}", good);
+        }
+        for bad in ["v1.4", "1.4a", "abc", "1..2", "1.4.2.1"] {
+            assert!(target_ok(bad).is_err(), "{}", bad);
+        }
+    }
 
     #[test]
     fn a_failed_node_is_marked_so_the_planner_refuses_to_continue() {

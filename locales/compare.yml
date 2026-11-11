@@ -1,0 +1,30 @@
+# [i18n] see zip.yml - two databases' schemas compared (dbm_compare.rs): what a compare finds, no error
+_version: 2
+compare.table_missing:
+  en: "table %{table} is not in the target schema"
+  ru: "таблицы %{table} нет в целевой схеме"
+  fr: "la table %{table} n'est pas dans le schéma cible"
+  de: "Tabelle %{table} ist nicht im Zielschema"
+  zh: "目标模式中没有表 %{table}"
+  ja: "対象スキーマにテーブル %{table} がありません"
+compare.columns_missing:
+  en: "reference columns missing in the target: %{columns}"
+  ru: "в цели нет столбцов эталона: %{columns}"
+  fr: "colonnes de la référence absentes de la cible : %{columns}"
+  de: "im Ziel fehlende Spalten der Referenz: %{columns}"
+  zh: "目标中缺少的参照列：%{columns}"
+  ja: "対象にない参照の列：%{columns}"
+compare.types_differ:
+  en: "columns of another type: %{columns}"
+  ru: "столбцы другого типа: %{columns}"
+  fr: "colonnes d'un autre type : %{columns}"
+  de: "Spalten eines anderen Typs: %{columns}"
+  zh: "类型不同的列：%{columns}"
+  ja: "型の異なる列：%{columns}"
+compare.type_differs:
+  en: "%{column}: %{reference} in the reference, %{target} in the target"
+  ru: "%{column}: %{reference} в эталоне, %{target} в цели"
+  fr: "%{column} : %{reference} dans la référence, %{target} dans la cible"
+  de: "%{column}: %{reference} in der Referenz, %{target} im Ziel"
+  zh: "%{column}：参照中为 %{reference}，目标中为 %{target}"
+  ja: "%{column}：参照では %{reference}、対象では %{target}"

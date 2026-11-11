@@ -68,7 +68,7 @@ impl Eq for FileVersion {}
 
 impl PartialOrd for FileVersion {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.v.cmp(&other.v))
+        Some(self.cmp(other))
     }
 }
 
@@ -100,7 +100,7 @@ pub(crate) fn load_all(cfg: &ConfigMap, log: &Logger) -> Result<FilesMap, String
     // came from, so sourcing from git cannot change which scripts run or how they
     // are recorded.
     let mut dir = cfg.get("source_dir");
-    if dir.len() == 0 { dir.push_str("./"); }
+    if dir.is_empty() { dir.push_str("./"); }
     else if dir.as_bytes()[dir.len()-1] != b'/' { dir.push('/'); }
 
     load_dir(
@@ -195,7 +195,7 @@ fn load_dir(
     schema: &mut FilesMap,
     ff: &FileFilters,
     recursive: bool,
-    log: &Logger,
+    _log: &Logger,
 ) -> Result<(), String> {
     match fs::read_dir(dir) {
         Ok(paths) => {
@@ -205,9 +205,9 @@ fn load_dir(
                         let fm = p.metadata().unwrap();
                         let fi = p.path().to_string_lossy().to_string();
                         if fm.is_dir() && recursive {
-                            load_dir(root, fi.as_str(), schema, ff, recursive, log)?;
+                            load_dir(root, fi.as_str(), schema, ff, recursive, _log)?;
                         } else if fm.is_file() && fi.len() > 5 {
-                            let file_name = if root.len() > 0 {
+                            let file_name = if !root.is_empty() {
                                 fi[root.len()..].to_string()
                             } else {
                                 fi.clone()
@@ -256,11 +256,9 @@ fn load_dir(
                                             .insert(FileVersion::new(vv, key), file_name);
                                     }
                                 }
-                                b'a' | b'A' => {
-                                    if file_name.ends_with(".sql") {
-                                        let akey =  file_name[starting_pos..file_name.len() - 4].to_lowercase();
-                                        schema.after.insert(akey, file_name);
-                                    }
+                                b'a' | b'A' if file_name.ends_with(".sql") => {
+                                    let akey =  file_name[starting_pos..file_name.len() - 4].to_lowercase();
+                                    schema.after.insert(akey, file_name);
                                 }
                                 _ => {
                                     // unknown file code type
@@ -346,14 +344,8 @@ pub(crate) fn semver_parse(input: &str) -> Result<Version, String> {
     if input.is_empty() {
         return Ok(Version::new(0, 0, 0));
     }
-    let fd = match input.find(".") {
-        None => 0,
-        Some(i) => i,
-    };
-    let ld = match input.rfind(".") {
-        None => 0,
-        Some(i) => i,
-    };
+    let fd = input.find(".").unwrap_or_default();
+    let ld = input.rfind(".").unwrap_or_default();
     let input = if fd < ld {
         input.to_string()
     } else if fd == 0 {
@@ -399,10 +391,8 @@ mod tests {
         for l in list {
             ff.insert(l.clone(), l.s.clone());
         }
-        let mut i = 1;
-        for (f, _s) in ff {
+        for (i, (f, _s)) in (1..).zip(ff) {
             assert_eq!(f.v.patch, i);
-            i += 1;
         }
     }
 

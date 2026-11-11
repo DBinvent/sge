@@ -751,7 +751,7 @@ fn take_steps(entries: &mut [Entry], owners: &Owners, answers: &Answers) {
             };
             match s {
                 Step::Ddl { on, what, when, made: m } => {
-                    if when.iter().all(|(o, want, l)| there(o, l, &made, &alias, owners, answers).map_or(true, |h| h == *want)) {
+                    if when.iter().all(|(o, want, l)| there(o, l, &made, &alias, owners, answers).is_none_or(|h| h == *want)) {
                         let t = match on {
                             Target::Table(t) => t,
                             Target::Of(o) => owners.table(&o).unwrap_or_default(),
@@ -882,7 +882,7 @@ fn tickets(text: &str, prefixes: &[String]) -> Vec<String> {
         while let Some(i) = text[from..].find(p.as_str()) {
             let at = from + i;
             from = at + p.len();
-            if text[..at].chars().last().map_or(false, |c| c.is_alphanumeric() || c == '_') {
+            if text[..at].chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_') {
                 continue;
             }
             let rest = &text[from..];
@@ -891,7 +891,7 @@ fn tickets(text: &str, prefixes: &[String]) -> Vec<String> {
             }
             let digits: String = rest[1..].chars().take_while(|c| c.is_ascii_digit()).collect();
             let after = rest[1 + digits.len()..].chars().next();
-            if !digits.is_empty() && after.map_or(true, |c| !c.is_alphanumeric() && c != '_') {
+            if !digits.is_empty() && after.is_none_or(|c| !c.is_alphanumeric() && c != '_') {
                 if let Ok(n) = digits.parse::<u64>() {
                     found.insert((pi, n, format!("{}-{}", p, digits)));
                 }
@@ -935,9 +935,7 @@ fn sql_comments(text: &str) -> String {
             let escapes = q == b'\'' && i > 0 && (b[i - 1] == b'E' || b[i - 1] == b'e');
             let mut j = i + 1;
             while j < b.len() {
-                if escapes && b[j] == b'\\' {
-                    j += 2;
-                } else if b[j] == q && b.get(j + 1) == Some(&q) {
+                if (escapes && b[j] == b'\\') || (b[j] == q && b.get(j + 1) == Some(&q)) {
                     j += 2;
                 } else if b[j] == q {
                     break;
@@ -1323,7 +1321,7 @@ impl<'a> Reader<'a> {
                 let at = if lower.get(on + 1).map(String::as_str) == Some("only") { on + 2 } else { on + 1 };
                 let (t, _) = self.name_at(w, at);
                 let i = lower.iter().position(|x| x == "index").unwrap_or(0) + 1;
-                let named = lower.get(i).map_or(false, |x| !["on", "concurrently", "if"].contains(&x.as_str()));
+                let named = lower.get(i).is_some_and(|x| !["on", "concurrently", "if"].contains(&x.as_str()));
                 self.ddl(t, if named { format!("index {}", word_raw(w[i])) } else { "index".into() });
                 return true;
             }
@@ -2193,7 +2191,7 @@ fn esc(s: &str) -> String {
     let c: Vec<char> = s.chars().collect();
     let mut out = String::new();
     for (i, ch) in c.iter().enumerate() {
-        let edge = |j: Option<&char>| j.map_or(true, |x| !x.is_alphanumeric());
+        let edge = |j: Option<&char>| j.is_none_or(|x| !x.is_alphanumeric());
         let mark = matches!(ch, '\\' | '*' | '`' | '|' | '<' | '>' | '[' | ']')
             || (*ch == '_' && (edge(if i == 0 { None } else { c.get(i - 1) }) || edge(c.get(i + 1))));
         if mark {

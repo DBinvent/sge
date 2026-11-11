@@ -1,6 +1,6 @@
 [package]
 name = "schema_guard"
-version = "2.3.1"
+version = "2.3.2"
 authors = ["Vladimir Krinitsyn <v.krinitsyn@gmail.com>", "DBinvent <support@dbinvent.com>"]
 edition = "2018"
 license = "MIT"
@@ -91,6 +91,9 @@ rust-i18n = "^4.2.4"
 # feature); 2.3: the _plan deploys, whose dry run hands each table's schema.table and
 # changes beside the SQL - plan's digest, no SQL read back
 schema_guard_tokio = { version = "^2.3.0", features = ["slog"] }
+# [compare] the data step of a comprehensive diff (dbm_compare.rs): diff_data, the library only - no
+# command line (clap). 0.4.1: its YAML is serde-saphyr's, as here, no serde_yaml (2026-11-11)
+diff_data = { version = "^0.4.1", default-features = false }
 
 #postgres-openssl = { version = "^0.5.0", optional = true }
 #openssl = { version = "^0.10.33", optional = true }
@@ -119,6 +122,8 @@ section = "database"
 maintainer-scripts = "deb-scripts"
 assets= [
     ["target/release/sge", "usr/bin/", "755"],
+    # [compare] diff_data's command line beside sge (dist/build.sh builds it, 2026-11-11)
+    ["target/release/diff_data", "usr/bin/", "755"],
     # man/build.sh writes the man pages, English and each translation of sge --help
     ["target/man/man1/sge.1.gz", "usr/share/man/man1/sge.1.gz", "644"],
     ["target/man/ru/man1/sge.1.gz", "usr/share/man/ru/man1/sge.1.gz", "644"],
@@ -143,6 +148,8 @@ license = "MIT"
 auto-req = "disabled"
 assets= [
     {source = "target/x86_64-unknown-linux-musl/release/sge", dest = "/usr/bin/sge", mode ="755"},
+    # [compare] the image's static diff_data, beside its sge (dist/build.sh, 2026-11-11)
+    {source = "target/x86_64-unknown-linux-musl/release/diff_data", dest = "/usr/bin/diff_data", mode ="755"},
     {source = "target/man/man1/sge.1.gz", dest = "/usr/share/man/man1/sge.1.gz", mode = "644", doc = true},
     {source = "target/man/ru/man1/sge.1.gz", dest = "/usr/share/man/ru/man1/sge.1.gz", mode = "644", doc = true},
     {source = "target/man/fr/man1/sge.1.gz", dest = "/usr/share/man/fr/man1/sge.1.gz", mode = "644", doc = true},

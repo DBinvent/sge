@@ -260,7 +260,7 @@ mod tests {
         // clap itself finds consistent
         for l in ["en", "ru", "fr", "de", "zh", "ja"] {
             let c = command(sge::i18n::cl_config_for(l)).unwrap_or_else(|e| panic!("{}: {}", l, e));
-            assert!(c.get_name().len() > 0);
+            assert!(!c.get_name().is_empty());
             assert!(c.get_arguments().count() > 15, "{}", l);
             c.debug_assert();
         }

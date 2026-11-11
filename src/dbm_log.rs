@@ -36,6 +36,9 @@ pub(crate) struct StatementLog {
     /// [transient] to ignode on save
     #[serde(skip_serializing)]
     pub dry_run: bool,
+    /// [transient] [yt] each row committed as it is written
+    #[serde(skip_serializing)]
+    pub commit_each: bool,
     pub id: i32,
     /// filename
     pub source: String,
@@ -74,7 +77,7 @@ mod my_date_format {
     use chrono::{DateTime, NaiveDateTime, Utc};
     use serde::{self, Deserialize, Deserializer, Serializer};
 
-    const FORMAT: &'static str = "%Y-%m-%d %H:%M:%S";
+    const FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
     pub fn serialize<S>(date: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -127,7 +130,7 @@ impl StatementLog {
     ) -> Result<LogSchemaType, String> {
         let log_st = format!("{}.{}", cfg.schema(), cfg.history_table_name());
         let lock = format!(
-            "select version from {} where target = '{}' and source_type='S' and source = $1 {}",
+            "select version from {} where target = $1 and source_type='S' and source = '{}' {}",
             log_st,
             BASELINE,
             if dry_run { "" } else { "for update" }
@@ -137,7 +140,8 @@ impl StatementLog {
         match t.query(lock.as_str(), &[&target]).await {
             Ok(_) => {
                 let sql = format!(
-                    "select source_type||version, source, checksum, source_type from {} where target = $1 and ok",
+                    "select source_type||version, source, checksum, source_type from {} \
+                     where target = $1 and ok and coalesce(msg, '') not like 'yt:%'",
                     log_st
                 );
                 match t.query(sql.as_str(), &[&target]).await {
@@ -145,7 +149,8 @@ impl StatementLog {
                         for r in v {
                             let key: String = r.get(0);
                             let val: String = r.get(1);
-                            let checksum: String = r.get(2);
+                            let checksum: Option<String> = r.get(2);
+                            let checksum = checksum.unwrap_or_default();
                             let source_type: String = r.get(3);
                             if source_type.as_str() == "D" {
                                 res.insert(val.clone(), (val, checksum));
@@ -172,10 +177,15 @@ impl StatementLog {
     // map: db_name(target) -> catalog (schemas) -> max(version)/
     #[inline]
     #[allow(unused_mut)]
+    #[cfg(test)]
+    pub(crate) async fn status_for_test(t: &mut Client, cfg: &ConfigMap) -> Result<SortedStatementLog, String> {
+        StatementLog::load_ok(t, cfg).await
+    }
+
     async fn load_ok(t: &mut Client, cfg: &ConfigMap) -> Result<SortedStatementLog, String> {
         let mut sql = format!(
             "select target, catalog, version, script_tag, executed_by, executed_on, ok from {}.{} \
-             where version <> 'baseline' ",
+             where version <> 'baseline' and coalesce(msg, '') not like 'yt:%' ",
             cfg.schema(),
             cfg.history_table_name()
         );
@@ -213,7 +223,7 @@ impl StatementLog {
                             catalogs.insert(catalog.clone(), sl);
                             targets.insert(t, catalogs);
                         }
-                        Some(mut ts) => match ts.get(catalog.as_str()) {
+                        Some(ts) => match ts.get(catalog.as_str()) {
                             None => {
                                 ts.insert(catalog.clone(), sl);
                             }
@@ -238,6 +248,7 @@ impl StatementLog {
             table: format!("{}.{}", cfg.schema(), cfg.history_table_name()),
             started: Instant::now(),
             dry_run: cfg.is_dry_run(),
+            commit_each: crate::dbm_yt::enabled(cfg),
             id: 0,
             source: "baseline".to_string(),
             target: tlim(&cfg.target(), SRC_T_M_LEN),
@@ -265,7 +276,7 @@ impl StatementLog {
     }
 
     /// create an instance [StatementLog]
-    pub(crate) fn instance(&self, code: char, version: &String, dir: &String, file: &String) -> Self {
+    pub(crate) fn instance(&self, code: char, version: &str, dir: &str, file: &String) -> Self {
         let mut insta = self.clone();
         insta.source_type = code;
         insta.version = tlim(version, SLT_C_LEN);
@@ -273,7 +284,7 @@ impl StatementLog {
         insta.checksum = if file.as_str() == BASELINE || code == 'a' || code == 'A' {
             "".into()
         } else {
-            let file = if dir.len() > 0 {
+            let file = if !dir.is_empty() {
                 format!("{}{}{}", dir, if dir.as_bytes()[dir.len()-1] == b'/' {""} else {"/"}, file)
             } else { file.into() };
             match fs::File::open(file) {
@@ -303,8 +314,8 @@ impl StatementLog {
     ) -> Result<(), String> {
         if let Some((va, afile)) = files.after.get_key_value(key) {
             if afile.ends_with(cfg.get(key).as_str()) {
-                let _ = self.instance(' ', va, &"".into(), afile)
-                    .deploy(&logs, cfg, t, &mut None,  false, log).await?;
+                let _ = self.instance(' ', va, "", afile)
+                    .deploy(logs, cfg, t, &mut None,  false, log).await?;
             }
         }
         Ok(())
@@ -340,7 +351,7 @@ impl StatementLog {
         } else {
             let mut cmd = Command::new("psql");
             let dir = cfg.get("source_dir");
-            if dir.len() > 0 {
+            if !dir.is_empty() {
                 cmd.current_dir(dir.as_str());
             }
             // [tls] TLS as libpq reads it from the environment, like PGPASSWORD below.
@@ -361,6 +372,9 @@ impl StatementLog {
             }
             if let Some(pgpass) = cfg.get_opt("db_password") {
                 cmd.env("PGPASSWORD", pgpass);
+            }
+            if crate::dbm_yt::enabled(cfg) {
+                cmd.env("PGAPPNAME", crate::dbm_yt::PSQL_APP);
             }
             let single_transaction = if self.source_type == 'V' {
                 match cfg.get_opt("version_transaction") {
@@ -391,11 +405,11 @@ impl StatementLog {
                     if output.status.success() {
                         info!(log, "{}", tr!("log.ok", file = self.source));
                         let msg = trim_output(&output.stdout);
-                        if msg.len() > 0 {
+                        if !msg.is_empty() {
                             info!(log, "[{}]", msg);
                         }
                         let emsg = trim_output(&output.stderr);
-                        if emsg.len() > 0 {
+                        if !emsg.is_empty() {
                             if persist {
                                 error!(log, "psql({})> {}", self.source, emsg);
                             } else {
@@ -410,7 +424,7 @@ impl StatementLog {
                         // read in more than one language
                         let msg = format!(
                             "{} : {} {}",
-                            &self.source,
+                            self.source,
                             trim_output(&output.stdout),
                             trim_output(&output.stderr)
                         );
@@ -472,7 +486,7 @@ impl StatementLog {
         let rows = t.query(sql.as_str(),
             &[&self.target, &self.source_type.to_string(), &self.version, &self.source],
         ).await.map_err(|e| tr!("log.history_write", sql = sql, err = crate::dbm_pg::pg(&e)))?;
-        let id = if rows.len() > 0 {
+        let id = if !rows.is_empty() {
             let id: i32 = rows[0].get(0);
             let sql = format!(
 "update {} set ok = $1, msg = $2, took_sec = $3, executed_by = $4,\
@@ -495,6 +509,17 @@ impl StatementLog {
             let id: i32 = r.get(0);
             id
         };
+        // [yt] A node of a rolling migration can be killed between two scripts, and runs
+        // again when it is back: the one it ran must already say so, or it is applied twice.
+        // The history's lock goes with the commit, and is taken again.
+        if self.commit_each {
+            let write = |e: tokio_postgres::Error| tr!("log.history_write", sql = "COMMIT", err = crate::dbm_pg::pg(&e));
+            t.batch_execute("COMMIT").await.map_err(write)?;
+            t.batch_execute("BEGIN").await.map_err(write)?;
+            let lock = format!("select version from {} where target = $1 and source_type='S' and source = '{}' for update",
+                self.table, BASELINE);
+            t.query(lock.as_str(), &[&self.target]).await.map_err(write)?;
+        }
         match err {
             None => Ok(id),
             Some(e) => Err(e)
@@ -515,14 +540,14 @@ impl StatementLog {
     pub(crate) fn dry_store(file: Option<String>, sql: String, log: &Logger) -> Result<i32, String> {
         match &file {
             None => {
-                if sql.len() > 0 {
+                if !sql.is_empty() {
                     info!(log, "\n{}", sql);
                 }
                 Ok(0)
             }
             Some(f) => {
                 match OpenOptions::new()
-                    .write(true)
+                    
                     .append(true)
                     .create(true)
                     .open(f)
@@ -543,7 +568,7 @@ impl StatementLog {
 }
 
 #[inline]
-fn trim_output(input: &Vec<u8>) -> String {
+fn trim_output(input: &[u8]) -> String {
     String::from_utf8_lossy(input)
         .trim_matches(|c| c == ' ' || c == '\n' || c == '^')
         .into()
@@ -559,8 +584,7 @@ fn find_single_transaction(file: &str) -> bool {
             match line {
                 Ok(l) => {
                     let mut prev = ' ';
-                    let mut i = 0usize;
-                    for c in l.chars() {
+                    for (i, c) in l.chars().enumerate() {
                         if c != ' ' {
                             if i + SINGLE_TRANSACTION.len() + 4 > l.len() {
                                 break;
@@ -590,9 +614,8 @@ fn find_single_transaction(file: &str) -> bool {
                             }
                         }
                         prev = c;
-                        i += 1;
                     }
-                    if let Some(_) = single_transaction {
+                    if single_transaction.is_some() {
                         break;
                     }
                 }
@@ -602,19 +625,16 @@ fn find_single_transaction(file: &str) -> bool {
             }
         }
     }
-    match single_transaction {
-        None => true,
-        Some(s) => s,
-    }
+    single_transaction.unwrap_or(true)
 }
 
 /// Trim to limit
 #[inline]
-fn tlim(value: &String, max: usize) -> String {
+fn tlim(value: &str, max: usize) -> String {
     if value.len() >= max {
         value[0..max].into()
     } else {
-        value.clone()
+        value.to_string()
     }
 }
 
@@ -648,19 +668,35 @@ pub(crate) struct LoadResult {
 impl LoadResult {
     pub(crate) async fn load(etl: &Etl, db_client: &mut Transaction<'_>, log: &Logger) -> Result<Self, String> {
         let mut lr = LoadResult::load_schema(etl, db_client).await?;
-        let _ = etl.extract(&mut lr, db_client, log).await?;
+        etl.extract(&mut lr, db_client, log).await?;
         Ok(lr)
     }
 
     /// The schema alone, no `--snapshot_data` extracted: [superset]'s bundle uses none
     pub(crate) async fn load_schema(etl: &Etl, db_client: &mut Transaction<'_>) -> Result<Self, String> {
+        Self::load_schema_of(etl, db_client, None).await
+    }
+
+    /// [check] With `skip`, what two databases compare by: schemas and tables sorted by name,
+    /// without the tables it names (`schema.table`)
+    pub(crate) async fn load_schema_of(etl: &Etl, db_client: &mut Transaction<'_>, skip: Option<&[String]>) -> Result<Self, String> {
         let input = schema_guard_tokio::loader::load_info_schema(etl.db_name.as_str(), db_client).await?;
         let owners = schema_guard_tokio::loader::load_info_schema_owner(etl.db_name.as_str(), db_client).await?;
 
         let mut schemas = Vec::new();
+        let mut input = input.into_iter().collect::<Vec<_>>();
+        if skip.is_some() {
+            input.sort_by(|a, b| a.0.cmp(&b.0));
+        }
         for (schema, tables) in input {
             let mut tables = tables.values().cloned().collect::<Vec<PgTable>>();
-            tables.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
+            match skip {
+                Some(names) => {
+                    tables.retain(|t| !names.iter().any(|n| *n == format!("{}.{}", schema, t.table_name)));
+                    tables.sort_by(|a, b| a.table_name.cmp(&b.table_name));
+                }
+                None => tables.sort_by_key(|a| a.sort_order),
+            }
             let mut ytables = OrderedHashMap::new();
             for  table in &tables {
                 let mut yt = Table {
@@ -681,12 +717,12 @@ impl LoadResult {
                     grant: vec![],
                 };
                 let mut columns = table.columns.values().cloned().collect::<Vec<PgColumnDfn>>();
-                columns.sort_by(|a,b| a.sort_order.cmp(&b.sort_order));
+                columns.sort_by_key(|a| a.sort_order);
                 for c in columns {
                     let yc = Column {
                         // [sg-tokio] partitioning: the history table is not partitioned
                         partition_by: None,
-                        name: c.column_name.into(),
+                        name: c.column_name,
                         column_type: c.column_type.clone(),
                         default_value: c.column_default.clone(),
                         constraint: if !c.nullable || c.pk || c.fk.is_some() { Some(Constr {
@@ -867,7 +903,7 @@ mod tests {
         fs::write(format!("{}V1__a.sql", d), "select 1;").unwrap();
         let plan = format!("{}plan.sql", d);
         let c = ConfigMap::of(&[("source_dir", &d), ("dry_run", "true"), ("dry_run_to", &plan)]);
-        let sl = StatementLog::new(&c).instance('V', &"1".into(), &d, &"V1__a.sql".into());
+        let sl = StatementLog::new(&c).instance('V', "1", &d, &"V1__a.sql".into());
         assert_eq!(sl.deploy(&LogSchemaType::new(), &c, None, &mut None, true, &log()).await, Ok(0));
         assert_eq!(fs::read_to_string(&plan).unwrap(), format!("\\i [{}]V1__a.sql \n", d));
         let _ = fs::remove_dir_all(d);
@@ -881,7 +917,7 @@ mod tests {
         fs::write(format!("{}V1__a.sql", d), "select 1;").unwrap();
         let off = ConfigMap::of(&[("source_dir", &d)]);
         let on = ConfigMap::of(&[("source_dir", &d), ("checksum", "true")]);
-        let sl = StatementLog::new(&off).instance('V', &"1".into(), &d, &"V1__a.sql".into());
+        let sl = StatementLog::new(&off).instance('V', "1", &d, &"V1__a.sql".into());
         assert_eq!(sl.size, 9);
         let mut logs = LogSchemaType::new();
         logs.insert("V1".into(), ("V1__a.sql".into(), sl.checksum.clone()));
@@ -902,7 +938,7 @@ mod tests {
         let c = ConfigMap::of(&[("source_dir", &d), ("db_host", "127.0.0.1"), ("db_port", "1"),
             ("db_name", "none"), ("db_user", "nobody"), ("db_password", "x"), ("db_sslmode", "disable"),
             ("version_transaction", "single")]);
-        let sl = StatementLog::new(&c).instance('V', &"1".into(), &d, &"V1__a.sql".into());
+        let sl = StatementLog::new(&c).instance('V', "1", &d, &"V1__a.sql".into());
         assert_eq!(sl.deploy(&LogSchemaType::new(), &c, None, &mut None, true, &log()).await, Ok(0));
         assert_eq!(sl.persist_into(Some("e".into()), None).await, Ok(0));
         let _ = fs::remove_dir_all(d);
@@ -931,9 +967,9 @@ mod tests {
     /// a history message is cut to the column's width
     #[test]
     fn a_message_is_cut_to_its_column() {
-        assert_eq!(tlim(&"abcdef".to_string(), 3), "abc");
-        assert_eq!(tlim(&"ab".to_string(), 3), "ab");
-        assert_eq!(trim_output(&b" ^\nERROR: x\n ".to_vec()), "ERROR: x");
+        assert_eq!(tlim("abcdef", 3), "abc");
+        assert_eq!(tlim("ab", 3), "ab");
+        assert_eq!(trim_output(b" ^\nERROR: x\n ".as_ref()), "ERROR: x");
     }
 
     /// [md5] a script that cannot be read has no checksum, rather than a wrong one

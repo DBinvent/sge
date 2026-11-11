@@ -1,10 +1,10 @@
-/// TODO: --schema_transaction:
+// TODO: --schema_transaction:
 //     - (column-TBD): perform all changes on a column per transaction.
 //     - (retry-TBD): try to obtain a lock perform changes repeatably - suitable on high load systems src/schema_guard:1308
 
 /// [i18n] by LANG's first two letters; fr, de, zh (Simplified) and ja are not reviewed
 /// translations and say so in their `about`
-pub const CONFIGS: [&'static str; 12] = [
+pub const CONFIGS: [&str; 12] = [
 "en", include_str!("i18n/en_clc.yaml"),
 "ru", include_str!("i18n/ru_clc.yaml"),
 "fr", include_str!("i18n/fr_clc.yaml"),
@@ -42,6 +42,8 @@ pub fn set_lang(lang: &str) {
     }
     // schema_guard's messages in it too: its set_lang wins over the logger's lang
     schema_guard_tokio::set_lang(lang);
+    // [compare] and diff_data's, the data step of a compare
+    diff_data::i18n::set_lang(lang);
 }
 
 /// The language: set_lang's, else LANG's first two letters. One without its texts -
@@ -137,7 +139,7 @@ mod tests {
     #[test]
     fn every_key_used_has_its_message_and_every_message_a_use() {
         let all = messages();
-        let is_key = |s: &str| ["lib.", "main.", "cfg.", "files.", "log.", "etl.", "git.", "zip.", "pg.", "digest."].iter()
+        let is_key = |s: &str| ["lib.", "main.", "cfg.", "files.", "log.", "etl.", "git.", "zip.", "pg.", "digest.", "compare."].iter()
             .any(|p| s.starts_with(p) && s.len() > p.len());
         let mut used = std::collections::BTreeSet::new();
         for f in std::fs::read_dir(format!("{}/src", env!("CARGO_MANIFEST_DIR"))).unwrap() {

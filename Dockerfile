@@ -28,6 +28,11 @@ RUN cargo build --release --locked --target x86_64-unknown-linux-musl --bin sge 
     && cargo cyclonedx --format json --spec-version 1.5 --target x86_64-unknown-linux-musl \
         --override-filename sbom.cdx \
     && cp sbom.cdx.json /sbom.cdx.json
+# [compare] diff_data's command line beside sge: the published crate at the version sge links (its
+# Cargo.lock), static, built from the crate's own lock (2026-11-11)
+RUN v="$(awk '/^name = "diff_data"$/{getline; gsub(/version = |"/,""); print; exit}' Cargo.lock)" && test -n "$v" \
+    && cargo install diff_data --version "$v" --locked --target x86_64-unknown-linux-musl --root /dd \
+    && /dd/bin/diff_data --version
 
 FROM alpine:3.23
 ARG SGE_VERSION=unknown
@@ -50,6 +55,7 @@ RUN apk upgrade --no-cache && apk add --no-cache postgresql18-client \
     && apk info -e 'busybox>=1.38' \
     && addgroup -g 1000 sge && adduser -D -u 1000 -G sge -h /home/sge sge
 COPY --from=build /sge /usr/local/bin/sge
+COPY --from=build /dd/bin/diff_data /usr/local/bin/diff_data
 COPY LICENSE /usr/share/doc/schema-guard/LICENSE
 COPY --from=build /sbom.cdx.json /usr/share/doc/schema-guard/sbom.cdx.json
 WORKDIR /work

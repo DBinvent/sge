@@ -81,14 +81,14 @@ fn as_string(row: &Row, idx: usize, t: &Table) -> Result<String, String> {
                 None => "".to_string(),
                 Some(x) => x.to_string()
             },
-            t @ _ => match row.try_get::<_, Option<String>>(idx)
+            t => match row.try_get::<_, Option<String>>(idx)
                 .map_err(|e| tr!("etl.convert", pg_type = t.name(), err = crate::dbm_pg::pg(&e)))? {
                 None => NULL.to_string(),
                 // do escape
                 Some(v) => match v.as_str() {
                     NULL => NULL1.to_string(),
                     NULL1 => NULL2.to_string(),
-                    x @ _ => x.to_string()
+                    x => x.to_string()
                 }
             }
 
@@ -105,7 +105,7 @@ fn as_string(row: &Row, idx: usize, t: &Table) -> Result<String, String> {
             &Type::TIME => row.get::<_, chrono::NaiveTime>(idx).to_string(),
             &Type::TIMESTAMP => row.get::<_, chrono::NaiveDateTime>(idx).to_string(),
             &Type::TIMESTAMPTZ => row.get::<_, DateTime<Utc>>(idx).to_string(),
-            t @ _ => row.try_get::<_, String>(idx)
+            t => row.try_get::<_, String>(idx)
                 .map_err(|e| tr!("etl.convert", pg_type = t.name(), err = crate::dbm_pg::pg(&e)))?
         }
     };
@@ -129,18 +129,11 @@ fn unesc_null(input: String) -> Option<String> {
 #[inline]
 #[allow(dead_code)]
 fn is_quoted(t: &Type) -> bool {
-    match t {
-        &Type::INT2 |
-        &Type::INT4 |
-        &Type::INT8 |
-        &Type::FLOAT4 |
-        &Type::FLOAT8 => false,
-        _ => true
-    }
+    !matches!(t, &Type::INT2 | &Type::INT4 | &Type::INT8 | &Type::FLOAT4 | &Type::FLOAT8)
 }
 
 #[inline]
-fn is_str_escapable(t: &String) -> bool {
+fn is_str_escapable(t: &str) -> bool {
     let t = t.to_lowercase();
     t.contains("text") || t.contains("char")
 }
@@ -295,7 +288,7 @@ impl Etl {
     fn find_sets<'a>(&self, slf: &'a mut LoadResult, schema: &str, table: &String) -> Result<(String, String, String, &'a Table), String> {
         for s in slf.database.iter_mut() {
             if s.schema_name.as_str() == schema {
-                return match s.tables.get_mut(&table) {
+                return match s.tables.get_mut(table) {
                     None => Err(tr!("etl.not_found", table = format!("{}.{}", schema, table))),
                     Some(t) => {
                         let dump_to = self.dump_to(format!("{}_{}.csv", s.schema_name, table))?;
@@ -312,7 +305,7 @@ impl Etl {
     /// same as  COPY ttest TO '/tmp/ttest_dn.csv' csv;
     pub(crate) async fn extract(&self, slf: &mut LoadResult, db_client: &mut Transaction<'_>, log: &Logger) -> Result<(), String> {
         for t in &self.tables.list {
-            if t.table.len() > 0 {
+            if !t.table.is_empty() {
                 let (file, schema, table, yt) = match &t.schema {
                     None => self.find_set(slf, &t.table)?,
                     Some(s) => self.find_sets(slf, s.as_str(), &t.table)?
@@ -331,13 +324,13 @@ impl Etl {
                             let c = &r.columns()[i];
                             w.write_field(c.name()).map_err(write_error)?;
                         }
-                        let _ = w.write_record(None::<&[u8]>).map_err(write_error)?;
+                        w.write_record(None::<&[u8]>).map_err(write_error)?;
                         write_header = false;
                     }
                     for i in 0..r.len() {
-                        let _ = w.write_field(as_string(&r, i, yt)?).map_err(write_error)?;
+                        w.write_field(as_string(&r, i, yt)?).map_err(write_error)?;
                     }
-                    let _ = w.write_record(None::<&[u8]>).map_err(write_error)?;
+                    w.write_record(None::<&[u8]>).map_err(write_error)?;
                     c += 1;
                 }
                 if c == 0 {
@@ -359,14 +352,14 @@ impl Etl {
                     None => println!("{}", loaded),
                     Some(file) => {
                         if let Some(i) = file.rfind("/") {
-                            let _ = fs::create_dir_all(&file[..i]).map_err(|e| tr!("etl.write_dir", file = file, err = e))?;
+                            fs::create_dir_all(&file[..i]).map_err(|e| tr!("etl.write_dir", file = file, err = e))?;
                         }
 
                         let file = if Path::new(&file).is_dir() {
                             self.dump_to(format!("{}.yaml", self.db_name))?
                         } else { file.clone() };
 
-                        let _ = fs::write(&file, loaded).map_err(|e| tr!("etl.write", file = file, err = e))?;
+                        fs::write(&file, loaded).map_err(|e| tr!("etl.write", file = file, err = e))?;
                     },
                 }
                 Ok(())
@@ -403,7 +396,7 @@ impl Etl {
             }
             Some(file) => {
                 if let Some(i) = file.rfind("/") {
-                    let _ = fs::create_dir_all(&file[..i]).map_err(|e| tr!("etl.write_dir", file = file, err = e))?;
+                    fs::create_dir_all(&file[..i]).map_err(|e| tr!("etl.write_dir", file = file, err = e))?;
                 }
                 let file = if Path::new(&file).is_dir() {
                     self.dump_to(format!("{}.zip", self.db_name))?
@@ -446,7 +439,7 @@ impl Etl {
     #[inline]
     #[allow(dead_code)]
     pub(crate) fn is_anytable(&self) -> bool {
-        self.tables.list.len() > 0 && self.tables.get(&"*".to_string()).is_some()
+        !self.tables.list.is_empty() && self.tables.get(&"*".to_string()).is_some()
     }
 
     /// with schema
@@ -463,6 +456,7 @@ impl Etl {
     }
     // LoadResult
 
+    #[allow(clippy::too_many_arguments)] // the stages of one deploy, each its own: a struct of them would only rename them
     pub(crate) async fn deploy_all(
         self,
         ysv: &OrderedHashMap<Schema>,
@@ -494,7 +488,7 @@ impl Etl {
                             false
                         }
                         EtlRule::Skip => {
-                            if self.tables.len() == 0 {
+                            if self.tables.is_empty() {
                                 info!(log, "{}", tr!("etl.skipped_all", file = file));
                                 return Ok(false);
                             } else if self.find(&ys.schema_name, yt) {
@@ -504,7 +498,7 @@ impl Etl {
                             false
                         }
                         EtlRule::Clean | EtlRule::Force => {
-                            if self.tables.len() == 0 {
+                            if self.tables.is_empty() {
                                 true
                             } else {
                                 let update = self.find(&ys.schema_name, yt);
@@ -540,7 +534,7 @@ impl Etl {
             }
         }
 
-        if datas.len() > 0 {
+        if !datas.is_empty() {
             debug!(log, "{}", tr!("etl.uploading_count", count = datas.len()));
         }
 
@@ -549,7 +543,7 @@ impl Etl {
             crate::dbm_digest::source('D', &dfv.v.s, file.strip_prefix(self.dir.as_str()).unwrap_or(file), None);
             let mut r = csv::Reader::from_path(file)
                 .map_err(|e| tr!("etl.read_csv", file = file, err = e))?;
-            match EtlComposer::new(&self, dbc, *schema_name, *yt, *update, file, &mut r, log)?
+            match EtlComposer::new(&self, dbc, schema_name, yt, *update, file, &mut r, log)?
                 .deploy(&mut r, db).await {
                 Ok(ok) => {
                     if ok {
@@ -616,7 +610,8 @@ impl DataFileVersion {
         }
     }
 
-    fn cmp(&self, other: &Self)  -> Ordering {
+    /// The order of two data files: by version, then by weight, then by file name (Ord::cmp)
+    fn order(&self, other: &Self) -> Ordering {
         match self.v.cmp(&other.v) {
             Ordering::Equal => {
                 if self.w > other.w {
@@ -627,7 +622,7 @@ impl DataFileVersion {
                     self.file.cmp(&other.file)
                 }
             }
-            r @ _ => r
+            r => r
         }
     }
 }
@@ -654,13 +649,13 @@ impl PartialEq for DataFileVersion {
 
 impl PartialOrd for DataFileVersion {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(&other))
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for DataFileVersion {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.cmp(&other)
+        self.order(other)
     }
 }
 
@@ -708,17 +703,17 @@ fn add_sequence(
     pk_defaults: &mut BTreeMap<String, String>,
     schema_name: &String,
     yaml_table: &Table,
-    column_name: &String,
-    column_type: &String,
+    column_name: &str,
+    column_type: &str,
     column_default: &Option<String>
 ) {
     if !pk_defaults.contains_key(column_name) {
         if column_type.ends_with("serial") {
-            pk_defaults.insert(column_name.clone(), format!("nextval('{}.{}_{}_seq')",
+            pk_defaults.insert(column_name.to_string(), format!("nextval('{}.{}_{}_seq')",
                 schema_name, yaml_table.table_name, column_name));
         } else {
             if let Some(def) = column_default {
-                pk_defaults.insert(column_name.clone(), def.clone());
+                pk_defaults.insert(column_name.to_string(), def.clone());
             }
         }
     }
@@ -727,6 +722,7 @@ fn add_sequence(
 impl <'a> EtlComposer <'a>  {
     /// prepare composer context
     #[inline]
+    #[allow(clippy::too_many_arguments)] // the stages of one deploy, each its own: a struct of them would only rename them
     fn new(
         etl_cmd: &'a Etl,
         db_info_schema: &'a InfoSchemaType,
@@ -800,7 +796,7 @@ impl <'a> EtlComposer <'a>  {
             let cn = headers[i].to_string();
             if pks.contains(cn.as_str()) {
                 hidx_pks_clmn.insert(i as u16);
-                if columns_pklst.len() > 0 {
+                if !columns_pklst.is_empty() {
                     columns_pklst.push_str(", ");
                 }
                 columns_pklst.push_str(cn.as_str());
@@ -863,7 +859,7 @@ impl <'a> EtlComposer <'a>  {
         while csv_reader.read_record(&mut record)
             .map_err(|e| tr!("etl.read_csv", file = self.file, err = e))?
         {
-            let sql = if self.hidx_pks_clmn.len() == 0 {
+            let sql = if self.hidx_pks_clmn.is_empty() {
                 if clean {
                     warn!(self.log, "{}", tr!("etl.clean_no_pk", table = self.table));
                 }
@@ -889,7 +885,7 @@ impl <'a> EtlComposer <'a>  {
         if self.etl.dry_run {
             self.plan(&keys, &clean_sql);
         }
-        let cleaned = if clean_sql.len() > 0 {
+        let cleaned = if !clean_sql.is_empty() {
             let (lb, rb) = if self.hidx_pks_clmn.len() > 1 { ('(',')') } else { (' ', ' ')};
             self.execute("clean update", format!("DELETE FROM {} WHERE {}{}{} NOT IN ({})", self.table, lb, self.columns_pklst, rb, clean_sql), db).await?
         } else { 0 };
@@ -950,7 +946,7 @@ impl <'a> EtlComposer <'a>  {
 
     /// bump sequence from default
     #[inline]
-    fn build_sequence(&self, pk: &String, def: &String) -> Option<String> {
+    fn build_sequence(&self, pk: &str, def: &str) -> Option<String> {
         if def.starts_with("nextval") {
             let names:Vec<&str> = def.split("'").collect();
             let sequence = if names[1].contains(".") {
@@ -980,7 +976,7 @@ impl <'a> EtlComposer <'a>  {
     fn conditions_pk(&self, record: &StringRecord) -> String {
         let mut sql = String::new();
         for i in &self.hidx_pks_clmn {
-            self.build(record, &mut sql, *i as u16, true, true);
+            self.build(record, &mut sql, (*i), true, true);
         }
         sql
     }
@@ -988,7 +984,7 @@ impl <'a> EtlComposer <'a>  {
     /// is_null: true:  'is null' 'and'; false: '=null' ','
     #[inline]
     fn build(&self, record: &StringRecord, sql: &mut String, idx: u16, with_field: bool, is_null: bool) {
-        if sql.len() > 0 {
+        if !sql.is_empty() {
             sql.push_str(if is_null {" AND "} else {", "} );
         }
         if with_field {
@@ -1005,7 +1001,7 @@ impl <'a> EtlComposer <'a>  {
             }
         } else if self.hidx_str_clmn.contains(&idx) {
             escp_append(sql, &record[idx as usize], with_field);
-        } else if self.hidx_null_clmn.contains(&idx) && record[idx as usize].len() == 0 {
+        } else if self.hidx_null_clmn.contains(&idx) && record[idx as usize].is_empty() {
             sql.push_str(if is_null { IS_NULL } else if with_field { SETE_NULL } else { NULL });
         } else {
             if with_field {
@@ -1040,13 +1036,13 @@ impl <'a> EtlComposer <'a>  {
     fn values_inpk(&self, record: &StringRecord, x: &mut String) {
         let mut sql = String::new();
         for i in &self.hidx_pks_clmn {
-            self.build(record, &mut sql, *i as u16, false, false);
+            self.build(record, &mut sql, *i, false, false);
         }
         if self.hidx_pks_clmn.len() > 1 {
             sql.insert(0, '(');
             sql.push(')');
         }
-        if x.len() > 0 {
+        if !x.is_empty() {
             x.push_str(", ");
         }
         x.push_str(sql.as_str());
@@ -1091,11 +1087,11 @@ impl <'a> EtlComposer <'a>  {
 fn escp_append(sql: &mut String, input: &str, with_field: bool){
     let input = input.replace("'", "''");
     if with_field {
-        sql.push_str("=");
+        sql.push('=');
     }
-    sql.push_str("'");
+    sql.push('\'');
     sql.push_str(input.as_str());
-    sql.push_str("'");
+    sql.push('\'');
 }
 
 

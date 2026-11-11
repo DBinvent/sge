@@ -21,7 +21,11 @@ fi
 
 wd=$2/$3
 mkdir -p $wd
-pdir=$(dirname "$(find /usr  -type f -executable -name initdb | grep $pver | head -n 1)")
+# the packaged place first: a `find` over /usr takes minutes on a cold CI runner's disk
+pdir=/usr/lib/postgresql/$pver/bin
+if [ ! -x "$pdir/initdb" ]; then
+  pdir=$(dirname "$(find /usr  -type f -executable -name initdb | grep $pver | head -n 1)")
+fi
 echo "Working dir for this DB.v$pver instance set to $wd Postgres$pver bin folder is $pdir"
 # find a initdb
 cd "$pdir" || exit 1

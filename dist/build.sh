@@ -12,6 +12,8 @@ set -Eeu
 #   tgz=<abs path>      the tarball: the image's static sge, laid out for /usr/local
 #                       (sudo tar -xzf sge-latest.tar.gz -C /usr/local)
 #   version=<x.y.z>
+# Each form carries diff_data's command line beside sge ([compare], 2026-11-11): the published crate
+# at the version sge links, the deb's for this host's glibc, the image's static one in the rest.
 # The image is built on DOCKER_HOST (ssh:// or tcp://: lab10, also from the GitHub
 # action, whose apt.yml names it) - this host's own daemon only with DOCKER_LOCAL=1,
 # as dist/publish.sh and infra_apt's publish-docker.sh take it. With buildx, its SBOM
@@ -76,6 +78,13 @@ cd "$SRC_DIR"
 # Postgres of their own
 cargo test --lib --bins
 cargo build --release
+# [compare] diff_data's command line beside sge, in every form: the published crate at the version
+# sge links (Cargo.lock), built from the crate's own lock - for the deb into target/release (2026-11-11)
+DD_VERSION="$(awk '/^name = "diff_data"$/{getline; gsub(/version = |"/,""); print; exit}' "$SRC_DIR/Cargo.lock")"
+[ -n "$DD_VERSION" ] || { echo "ERROR: no diff_data in $SRC_DIR/Cargo.lock" >&2; exit 1; }
+cargo install diff_data --version "$DD_VERSION" --locked --root target/diff_data --target-dir target/diff_data-build
+install -m 755 target/diff_data/bin/diff_data target/release/diff_data
+[ "$(target/release/diff_data --version)" = "data-diff $DD_VERSION" ] || { echo "ERROR: target/release/diff_data is not diff_data $DD_VERSION" >&2; exit 1; }
 
 # the man pages: `sge --help` in English and in each of its translations, with the
 # NAME and EXAMPLES of man/<lang>.h2m, into target/man - see man/build.sh; the rpm
@@ -89,7 +98,7 @@ build_args=(--pull --build-arg "SGE_VERSION=$VERSION" --sbom=true --provenance=m
 for t in $TAGS; do build_args+=(-t "$IMAGE:$t"); done
 echo "Building $IMAGE ($TAGS) on ${DOCKER_HOST:-this host} ..."
 docker buildx build "${build_args[@]}" "$SRC_DIR"
-SGE_VERSION="$VERSION" "$SCRIPT_DIR/docker-smoke.sh" "$IMAGE:$VERSION"
+SGE_VERSION="$VERSION" DIFF_DATA_VERSION="$DD_VERSION" "$SCRIPT_DIR/docker-smoke.sh" "$IMAGE:$VERSION"
 
 # the image's own sge: the static binary the rpm ([package.metadata.generate-rpm])
 # and the tarball carry
@@ -100,8 +109,12 @@ cid="$(docker create "$IMAGE:$VERSION")"
 SBOM="$SRC_DIR/target/sbom/sbom.cdx.json"
 mkdir -p "$(dirname "$SBOM")"
 docker cp "$cid:/usr/local/bin/sge" "$MUSL"
+# [compare] and its diff_data, beside it
+MUSL_DD="$(dirname "$MUSL")/diff_data"
+docker cp "$cid:/usr/local/bin/diff_data" "$MUSL_DD"
 docker cp "$cid:/usr/share/doc/schema-guard/sbom.cdx.json" "$SBOM"; docker rm "$cid" >/dev/null
 file "$MUSL" | grep -q 'static' || { echo "ERROR: the image's sge is not a static binary" >&2; exit 1; }
+file "$MUSL_DD" | grep -q 'static' || { echo "ERROR: the image's diff_data is not a static binary" >&2; exit 1; }
 grep -q '"bomFormat": *"CycloneDX"' "$SBOM" || { echo "ERROR: the image's sbom.cdx.json is no CycloneDX SBOM" >&2; exit 1; }
 
 # 3. the deb, now the SBOM is there.
@@ -131,6 +144,7 @@ RPM="${RPMS[0]}"
 # 5. the tarball
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 install -D -m 755 "$MUSL" "$STAGE/bin/sge"
+install -m 755 "$MUSL_DD" "$STAGE/bin/diff_data"
 install -d "$STAGE/share/doc/schema-guard" "$STAGE/share/man"
 install -m 644 LICENSE COPYRIGHT lib-licenses.txt "$SBOM" "$STAGE/share/doc/schema-guard/"
 cp -r target/man/. "$STAGE/share/man/"

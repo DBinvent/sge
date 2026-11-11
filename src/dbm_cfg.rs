@@ -87,7 +87,7 @@ impl ConfigMap {
         let mut file_total_lines = 0;
         let mut file_loaded_lines = 0;
         let mut cfg = HashMap::new();
-        if filename.len() > 0 {
+        if !filename.is_empty() {
             let reader = BufReader::new(
                 File::open(filename)
                     .map_err(|e| tr!("cfg.load_file", file = filename, err = e))?,
@@ -147,9 +147,7 @@ impl ConfigMap {
     fn map_insert(map: &mut HashMap<String, String>, key: &String, value: &str) {
         if key.ends_with("_url") {
             for (k, v) in parse_url(key, value) {
-                if !map.contains_key(&k) {
-                    let _ = map.insert(k, v);
-                }
+                map.entry(k).or_insert(v);
             }
         } else {
             let _ = map.insert(key.into(), ConfigMap::unquote(value));
@@ -168,11 +166,8 @@ impl ConfigMap {
     pub fn get(&self, param: &str) -> String {
         match &self.get_opt(param) {
             None => match crate::CONFIG_APP.get(param) {
-                None => "".to_string(),
-                Some(v) => match v {
-                    None => "".to_string(),
-                    Some(r) => r.into(),
-                },
+                Some(Some(r)) => r.into(),
+                _ => "".to_string(),
             },
             Some(v) => v.into(),
         }
@@ -202,7 +197,7 @@ impl ConfigMap {
             let _ = write!(
                 content,
                 "{}{}={}",
-                if content.len() > 0 { amp } else { "" },
+                if !content.is_empty() { amp } else { "" },
                 param,
                 url_value(&v)
             );
@@ -211,11 +206,11 @@ impl ConfigMap {
 
     #[inline]
     pub(crate) fn get_pow_scr(&self, content: &mut String, prefix: &str, param: &str, amp: &str) {
-        if let Some(_) = self.get_opt(format!("{}{}", prefix, param).as_str()) {
+        if self.get_opt(format!("{}{}", prefix, param).as_str()).is_some() {
             let _ = write!(
                 content,
                 "{}{}=***",
-                if content.len() > 0 { amp } else { "" },
+                if !content.is_empty() { amp } else { "" },
                 param
             );
         }
@@ -259,7 +254,7 @@ impl ConfigMap {
     #[inline]
     pub(crate) fn is_ssl(&self) -> bool {
         let mut result = false;
-        if let Some(_) = self.get_opt("db_sslcert") {
+        if self.get_opt("db_sslcert").is_some() {
             result = true;
         }
         if let Some(mode) = self.get_opt("db_sslmode") {
@@ -314,7 +309,7 @@ impl Display for ConfigMap {
 
 /// "postgresql://[user[:password]@][host][:port][,...][/dbname][?param1=value1&...]"
 #[inline]
-fn parse_url(key: &String, url: &str) -> HashMap<String, String> {
+fn parse_url(key: &str, url: &str) -> HashMap<String, String> {
     let prefix = if key.starts_with("logdb_") { "logdb_".into() } else { "db_".into() };
     let mut map = HashMap::new();
     if let Some(i) = url.find("://") {
@@ -322,12 +317,10 @@ fn parse_url(key: &String, url: &str) -> HashMap<String, String> {
             let url = &url[i + 3 ..];
             let mut vu = Vec::new();
             let mut open = false;
-            let mut i = 0;
             let mut f = 0;
-            for c in url.as_bytes() {
-                let c = *c;
-                if c == b'/' || c == b'[' || c == b']' || c == b':'  || c == b',' || c == b'@' || c == b'?' {
-                    if !(open && c != b']') {
+            for (i, &c) in url.as_bytes().iter().enumerate() {
+                if (c == b'/' || c == b'[' || c == b']' || c == b':'  || c == b',' || c == b'@' || c == b'?')
+                    && !(open && c != b']') {
                         if c == b'[' {
                             open = true;
                         } else if c == b']' {
@@ -342,13 +335,11 @@ fn parse_url(key: &String, url: &str) -> HashMap<String, String> {
                             }
                         }
                     }
-                }
-                i += 1;
             }
             if f < url.len() {
                 vu.push(&url[f..]);
             }
-            if vu.len() > 0 {
+            if !vu.is_empty() {
                 let mut hosts = 0;
                 if let Some(v) = last(&mut vu, b'?') {
                     let v: Vec<&str> = v.split("&").collect();
@@ -394,7 +385,7 @@ fn parse_url(key: &String, url: &str) -> HashMap<String, String> {
                                     break;
                                 }
                             }
-                            if vu.len() == 0 || max > 10 {
+                            if vu.is_empty() || max > 10 {
                                 break;
                             }
                             max += 1;
@@ -419,7 +410,7 @@ fn parse_url(key: &String, url: &str) -> HashMap<String, String> {
 
 #[inline]
 fn last(vu: &mut Vec<&str>, c: u8) -> Option<String> {
-    if vu.len() > 0 && vu[vu.len() - 1].as_bytes()[0] == c {
+    if !vu.is_empty() && vu[vu.len() - 1].as_bytes()[0] == c {
         let v = vu.remove(vu.len() - 1);
         if v.len() > 1 {
             Some(v[1..].into())
@@ -605,7 +596,7 @@ mod tests {
     fn url_test_all()  {
 
         for url in URLS.iter() {
-            let map = parse_url(&"db_url".to_string(), url);
+            let map = parse_url("db_url", url);
             println!("url: {}\n{:?}\n", url, map);
         }
     }
@@ -629,8 +620,8 @@ mod tests {
     #[test]
     fn url_test_1()  {
 
-        let map = parse_url(&"db_url".to_string(), &URLS[10]);
-        println!("\n{}\n{:?}", &URLS[10], map);
+        let map = parse_url("db_url", URLS[10]);
+        println!("\n{}\n{:?}", URLS[10], map);
 
     }
 

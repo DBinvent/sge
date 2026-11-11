@@ -31,6 +31,8 @@ pub mod dbm_yt;
 /// [plan] what migrate would change, per table, for a review - see `plan`
 mod dbm_digest;
 pub mod dbm_etl;
+/// [compare] two databases' schemas compared: a comprehensive diff's schema part, diff_data's the data
+pub mod dbm_compare;
 
 use crate::dbm_log::*;
 
@@ -57,12 +59,12 @@ use schema_guard_tokio::table::Table;
 use schema_guard_tokio::changes::{Changes, DryRun};
 use crate::dbm_files::{FilesMap, FileVersion, load_all};
 
-const STATEMENT_LOG_TABLE_YML: &'static str = include_str!("hl_table.yaml");
+const STATEMENT_LOG_TABLE_YML: &str = include_str!("hl_table.yaml");
 
 
 // static YAML_SCHEMA: &'static str = include_str!("../sg/src/schema.yaml");
 
-/// TODO:  static JSON_SCHEMA: &'static str = include_str!("schema.json");
+// TODO:  static JSON_SCHEMA: &'static str = include_str!("schema.json");
 
 pub(crate) const BASELINE: &str = "baseline";
 
@@ -76,9 +78,9 @@ lazy_static! {
     pub static ref STATEMENT_LOG_TBL: Table =
         match YamlLoader::load_from_str(STATEMENT_LOG_TABLE_YML) {
             Ok(y) => {
-                if y.len() > 0 {
+                if !y.is_empty() {
                     let y = &y[0];
-                    Table::new(&y, y["tableName"].as_str().unwrap(), None).unwrap()
+                    Table::new(y, y["tableName"].as_str().unwrap(), None).unwrap()
                 } else {
                     panic!("zero config");
                 }
@@ -96,9 +98,7 @@ lazy_static! {
                         if let Some(k) = k.as_str() {
                             if k.as_bytes()[0] == b'$' {
                                 let k = k[1..].to_string();
-                                let v = match std::env::var(&k.to_uppercase()) {
-                                    Ok(v) => Some(v), Err(_) => None
-                                };
+                                let v = std::env::var(k.to_uppercase()).ok();
                                 defs.insert(k, v);
                             } else {
                                 defs.insert(k.into(), v["default_value"].as_str().map(|v| v.into()));
@@ -188,6 +188,20 @@ pub async fn plan(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     Ok(())
 }
 
+/// [check] What `plan` prints, returned: a caller compares it between databases
+pub async fn plan_text(cfg: ConfigMap, log: &Logger) -> Result<String, String> {
+    plan_md(cfg, log).await
+}
+
+/// [check] The schema `snapshot` writes, returned: sorted by name, so two databases' compare,
+/// without the tables `skip` names (`schema.table`)
+pub async fn snapshot_text(cfg: ConfigMap, skip: &[String], log: &Logger) -> Result<String, String> {
+    let mut client = connect("db_", &cfg, None, "loading data", log).await?;
+    let mut db = client.transaction().await.map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?;
+    let etl = dbm_etl::Etl::from(&cfg)?;
+    LoadResult::load_schema_of(&etl, &mut db, Some(skip)).await?.format(etl.yaml_format)
+}
+
 async fn plan_md(mut cfg: ConfigMap, log: &Logger) -> Result<String, String> {
     cfg.insert(&"dry_run".to_string(), "yes");
     cfg.insert(&"createdb".to_string(), "false");
@@ -271,20 +285,18 @@ async fn migrate_db(
     let mut err = baseline_deploy(&mut dbc, &mut t, &schema, cfg, "primary", log).await;
 
     let mut ct = match copy_log_client {
-        None => {None}
-        Some(lc) => {
-            if err.is_none() {
-                // debug!(log, "begin self install if not exists on log copy instance");
-                // TODO reuse loaded?
-                let mut t = lc.transaction().await.map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?;
-                let mut dbc = load_info_schema(cfg.get("logdb_name").as_str(), &mut t).await?;
-                // let mut t = lc.transaction().await.unwrap();
-                if !cfg.is_primary() {
-                    err = baseline_deploy(&mut dbc, &mut t, &schema, cfg, "copy", log).await;
-                }
-                Some(t)
-            } else { None }
+        Some(lc) if err.is_none() => {
+            // debug!(log, "begin self install if not exists on log copy instance");
+            // TODO reuse loaded?
+            let mut t = lc.transaction().await.map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?;
+            let mut dbc = load_info_schema(cfg.get("logdb_name").as_str(), &mut t).await?;
+            // let mut t = lc.transaction().await.unwrap();
+            if !cfg.is_primary() {
+                err = baseline_deploy(&mut dbc, &mut t, &schema, cfg, "copy", log).await;
+            }
+            Some(t)
         }
+        _ => None,
     };
     if let Some(e) = err {
         warn!(log, "{}", tr!("lib.rollback_self", err = e));
@@ -301,13 +313,13 @@ async fn migrate_db(
 
         let db_name = cfg.get("db_name");
         let mut dbc = if log_db_name != db_name {
-            let mut client = connect("db_", &cfg, None, "loading info schema",log).await?;
+            let mut client = connect("db_", cfg, None, "loading info schema",log).await?;
             let dbc = load_info_schema(db_name.as_str(), &mut client.transaction().await
                 .map_err(|e| tr!("lib.begin", err = dbm_pg::pg(&e)))?).await?;
             debug!(log, "{}", tr!("lib.info_schema_done"));
             dbc
         } else { dbc };
-        let mut client = connect("db_", &cfg, None, "migrate",log).await?;
+        let mut client = connect("db_", cfg, None, "migrate",log).await?;
         let r = migrate_all_versions(
             &mut client, // main target db client
             &mut dbc, // loaded info schema
@@ -321,7 +333,7 @@ async fn migrate_db(
     };
     let ret = match t.commit().await {
         Ok(()) => {
-            let _ = StatementLog::new(cfg).after("after", &files, &HashMap::new(), cfg, None,  log).await?;
+            StatementLog::new(cfg).after("after", &files, &HashMap::new(), cfg, None,  log).await?;
             match &res {
                 Ok(_) => {
                     debug!(log, "{}", tr!("lib.all_done"));
@@ -343,16 +355,10 @@ async fn migrate_db(
         match ret {
             // log it
             Ok(_) => {
-                match t.commit().await {
-                    Ok(_) => {}
-                    Err(_) => {}
-                }
+                let _ = t.commit().await;
             }
             Err(_) => {
-                match t.rollback().await {
-                    Ok(_) => {}
-                    Err(_) => {}
-                }
+                let _ = t.rollback().await;
             }
         }
     }
@@ -379,21 +385,16 @@ pub(crate) async fn baseline_deploy(
         cfg.dry_run(input)
     });
     dbm_digest::source('B', "", BASELINE, None);
-    match baseline.deploy_plan_pg(dbc, t, &schema, BASELINE,
+    match baseline.deploy_plan_pg(dbc, t, schema, BASELINE,
       if cfg.is_dry_run() { Some(dr.as_ref()) } else {None},
       &migration_options(cfg)
     ).await {
         Ok(exec) => {
             if exec {
                 debug!(log, "{}", tr!("lib.self_deploy_done", what = BASELINE));
-                if let Err(e) = StatementLog::new(cfg)
-                    .instance('S', &BASELINE.into(), &"".into(), &BASELINE.into())
-                    .persist(None, Some(t), &mut None).await
-                {
-                    Some(e)
-                } else {
-                    None
-                }
+                StatementLog::new(cfg)
+                    .instance('S', BASELINE, "", &BASELINE.into())
+                    .persist(None, Some(t), &mut None).await.err()
             } else {
                 None
             }
@@ -403,6 +404,7 @@ pub(crate) async fn baseline_deploy(
 }
 
 /// version level ordering
+#[allow(clippy::too_many_arguments)] // the stages of one deploy, each its own: a struct of them would only rename them
 async fn migrate_all_versions(
     client: &mut Client,
     dbc: &mut InfoSchemaType,
@@ -417,10 +419,10 @@ async fn migrate_all_versions(
     let draft = StatementLog::new(cfg);
     for ver in files.all_versions() {
         info!(log, "{}", tr!("lib.deploying_version", version = ver));
-        res.push(deploy_pre_files(&logs, &ver, &files, &cfg, t, clog_t, log).await?);
-        res.push(deploy_all_schemas(&logs, client, &ver, &files, dbc, &cfg, t, clog_t, log).await?);
-        res.push(deploy_all_files(&logs, &ver, &files, &cfg, t, clog_t, log).await?);
-        let _ = draft.after("after_each", files, &logs, cfg, Some(t), log).await?;
+        res.push(deploy_pre_files(logs, &ver, files, cfg, t, clog_t, log).await?);
+        res.push(deploy_all_schemas(logs, client, &ver, files, dbc, cfg, t, clog_t, log).await?);
+        res.push(deploy_all_files(logs, &ver, files, cfg, t, clog_t, log).await?);
+        draft.after("after_each", files, logs, cfg, Some(t), log).await?;
     }
     Ok(res)
 }
@@ -442,8 +444,8 @@ async fn deploy_pre_files(
         if let Some(file) = files.pre.get(ver) {
             let id = draft
                 .instance('P', &ver.s, &cfg.get("source_dir"), file)
-                .deploy(&logs, cfg, Some(t), clog_t, true, log).await?;
-            draft.after("after_each", files, &logs, cfg, Some(t), log).await?;
+                .deploy(logs, cfg, Some(t), clog_t, true, log).await?;
+            draft.after("after_each", files, logs, cfg, Some(t), log).await?;
             id
         } else { 0 }
     )
@@ -466,19 +468,20 @@ async fn deploy_all_files(
     if let Some(file) = &files.versions.get(ver) {
         id = draft
             .instance('V', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, cfg, Some(t), clog_t, true, log).await?;
+            .deploy(logs, cfg, Some(t), clog_t, true, log).await?;
     }
     // deploy re-runable
     if let Some(file) = &files.re_runnable.get(ver) {
         id = draft
             .instance('R', &ver.s, &cfg.get("source_dir"), file)
-            .deploy(&logs, cfg, Some(t), clog_t, true, log).await?;
+            .deploy(logs, cfg, Some(t), clog_t, true, log).await?;
     }
     Ok(id)
 }
 
 #[inline]
 /// deploy schema by definitions - declaratives
+#[allow(clippy::too_many_arguments)] // the stages of one deploy, each its own: a struct of them would only rename them
 async fn deploy_all_schemas(
     logs: &LogSchemaType,
     client: &mut Client,
@@ -673,15 +676,14 @@ async fn connect(
     log: &Logger,
 ) -> Result<Client, String> {
     let mut override_prefix = false;
-    if prefix == "logdb_" {
-        if let None = cfg.get_opt("logdb_name") {
+    if prefix == "logdb_"
+        && cfg.get_opt("logdb_name").is_none() {
             override_prefix = true;
-        }
-    };
+        };
     let prefix = if override_prefix { "db_" } else { prefix };
     let mut url = String::new();
     // todo test with cert, make condition packaging
-    let names = vec![
+    let names = [
         "host",
         "port", // "user", "password",
         "sslmode",
@@ -693,16 +695,13 @@ async fn connect(
         cfg.get_pow(&mut url, prefix, name, "&");
     }
 
-    let as_postgres_user = match create {
-        None => false,
-        Some(pc) => pc,
-    };
+    let as_postgres_user = create.unwrap_or_default();
 
     let (dbname, log_url) = if as_postgres_user {
         let _ = write!(
             url,
             "{}user={}",
-            if url.len() > 0 { "&" } else { "" },
+            if !url.is_empty() { "&" } else { "" },
             crate::dbm_cfg::url_value(&cfg.get_def(
                 format!("create{}user", prefix).as_str(),
                 cfg.get(format!("{}user", prefix).as_str())
@@ -754,7 +753,7 @@ async fn connect(
             Ok(client)
         }
         Err(err) => {
-            if let None = create {
+            if create.is_none() {
                 if let Some(code) = err.code() {
                     if code == &SqlState::UNDEFINED_DATABASE
                         || code == &SqlState::INVALID_PASSWORD
@@ -796,7 +795,7 @@ fn screen(_pwd: &String) -> &str {
 /// lower-case name - what it always was here - double-quoted otherwise, so a name
 /// with a capital, a space or a quote is that name, and not SQL
 pub(crate) fn quote_ident(name: &str) -> String {
-    let plain = name.chars().next().map_or(false, |c| c.is_ascii_lowercase() || c == '_')
+    let plain = name.chars().next().is_some_and(|c| c.is_ascii_lowercase() || c == '_')
         && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '$');
     if plain { name.to_string() } else { format!("\"{}\"", name.replace('"', "\"\"")) }
 }
@@ -829,7 +828,7 @@ async fn create_connect(
         Err(e) => {
             debug!(log, "{}", tr!("lib.testing_connection", db = dbname, err = e));
             info!(log, "{}", tr!("lib.creating_db", db = dbname));
-            let _ = client
+            client
                 .batch_execute(format!("CREATE DATABASE {} {}", quote_ident(dbname), owner).as_str()).await
                 .map_err(|e| tr!("lib.create_db", db = dbname, err = dbm_pg::pg(&e)))?;
         }
@@ -858,7 +857,7 @@ async fn create_role(
             None => "".to_string(),
             Some(pwd) => format!(" PASSWORD {}", quote_literal(&pwd)),
         };
-        let _ = db
+        db
             .batch_execute(format!("CREATE ROLE {} WITH LOGIN {}", quote_ident(user), pwd).as_str()).await
             .map_err(|e| tr!("lib.create_role", user = user, err = dbm_pg::pg(&e)))?;
         info!(log, "{}", tr!("lib.role_created", user = user));
@@ -1073,6 +1072,40 @@ database:
         assert_eq!(n, 0);
     }
 
+    /// [check] two databases compare by the text: the order they were made in does not show,
+    /// nor do the tables named, and a table on one alone does
+    #[tokio::test]
+    async fn a_snapshot_text_compares() {
+        let Some(pg) = Pg::start("snaptext") else { return };
+        let host = pg.dir.to_string_lossy().to_string();
+        let (c, conn) = tokio_postgres::connect(&format!("host={} port={} user=postgres dbname=postgres", host, pg.port), NoTls).await.unwrap();
+        tokio::spawn(conn);
+        c.batch_execute("CREATE DATABASE one").await.unwrap();
+        c.batch_execute("CREATE DATABASE two").await.unwrap();
+        let conn_to = |db: &str| format!("host={} port={} user=postgres dbname={}", host, pg.port, db);
+        let (one, conn) = tokio_postgres::connect(&conn_to("one"), NoTls).await.unwrap();
+        tokio::spawn(conn);
+        let (two, conn) = tokio_postgres::connect(&conn_to("two"), NoTls).await.unwrap();
+        tokio::spawn(conn);
+        one.batch_execute("CREATE TABLE public.a (id int primary key); CREATE TABLE public.b (id int); CREATE SCHEMA z; CREATE TABLE z.c (id int); CREATE TABLE public.own_one (x int);").await.unwrap();
+        two.batch_execute("CREATE SCHEMA z; CREATE TABLE z.c (id int); CREATE TABLE public.b (id int); CREATE TABLE public.a (id int primary key); CREATE TABLE public.own_two (y text);").await.unwrap();
+        let text = |db: &'static str, skip: Vec<String>| {
+            let mut cfg = ConfigMap::load("").unwrap();
+            for (k, v) in [("db_host", host.as_str()), ("db_port", &pg.port.to_string()), ("db_user", "postgres"), ("db_name", db)] {
+                cfg.insert(&k.to_string(), v);
+            }
+            async move { snapshot_text(cfg, &skip, &log()).await.unwrap() }
+        };
+        let skip = |o: &str| vec![format!("public.own_{}", o)];
+        let (a, b) = (text("one", skip("one")).await, text("two", skip("two")).await);
+        assert_eq!(a, b, "the same tables, made in another order");
+        assert!(a.contains("tableName: a") && a.contains("tableName: c"), "{}", a);
+        assert!(!a.contains("own_"), "{}", a);
+        let whole = text("two", vec![]).await;
+        assert!(whole.contains("tableName: own_two"), "{}", whole);
+        assert_ne!(whole, a);
+    }
+
     /// [plan] the database asked, read only: IF [NOT] EXISTS that does not hold is no
     /// change; the rows an UPDATE's and a DELETE's WHERE select, an INSERT's whose key is
     /// there or not, a DO's IF's branch, a data file's rows by key - with no key, by every
@@ -1257,6 +1290,109 @@ database:
         use base64::Engine;
         use md5::Digest;
         assert_eq!(r.get::<_, String>(0), base64::engine::general_purpose::STANDARD.encode(md5::Md5::digest(body.as_bytes())));
+    }
+
+    /// [yt] A node of a rolling migration can be killed between two scripts: while the second
+    /// runs the first's row is committed, so a run starting again does not apply it twice. The
+    /// history's lock is held meanwhile, and a worker's rows confuse neither a run nor `info`.
+    #[tokio::test]
+    async fn on_a_cluster_a_scripts_row_is_committed_as_it_ends() {
+        let Some(pg) = Pg::start("yteach") else { return };
+        let sql = pg.dir.join("sql");
+        std::fs::create_dir_all(&sql).unwrap();
+        std::fs::write(sql.join("V1_0__a.sql"), "CREATE TABLE public.a (id int);\n").unwrap();
+        std::fs::write(sql.join("V2_0__b.sql"), "SELECT pg_sleep(4);\nCREATE TABLE public.b (id int);\n").unwrap();
+        let host = pg.dir.to_string_lossy().to_string();
+        let port = pg.port;
+        let cfg = || {
+            let mut cfg = ConfigMap::load("").unwrap();
+            for (k, v) in [("db_host", host.as_str()), ("db_port", &port.to_string()), ("db_user", "postgres"), ("db_name", "postgres"),
+                ("source_dir", &sql.to_string_lossy()), ("createdb", "yes"), ("yt_cluster", "true")] {
+                cfg.insert(&k.to_string(), v);
+            }
+            cfg
+        };
+        migrate(cfg(), true, &log()).await.unwrap(); // the table
+        let url = format!("host={} port={} user=postgres dbname=postgres", host, port);
+        let (c, conn) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+        tokio::spawn(conn);
+        // what a worker writes: no catalog, no checksum, and for an operator no target or ''
+        c.batch_execute("insert into public.sge_history (source, target, source_type, version, msg, ok) values \
+            ('roll', 'a-node', 'Y', '1.0', 'yt:pending', false), ('roll', '', 'Y', '1.0', 'yt:done', true), ('roll', null, 'Y', '1.0', 'yt:roll', false)").await.unwrap();
+
+        // sge blocks in psql: a thread of its own watches from outside
+        let watch_url = url.clone();
+        let watcher = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(async move {
+                let (w, conn) = tokio_postgres::connect(&watch_url, NoTls).await.unwrap();
+                tokio::spawn(conn);
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+                while std::time::Instant::now() < until {
+                    let first: i64 = w.query_one("select count(*) from public.sge_history where source = 'V1_0__a.sql' and ok", &[]).await.unwrap().get(0);
+                    let second: i64 = w.query_one("select count(*) from pg_tables where tablename = 'b'", &[]).await.unwrap().get(0);
+                    if first == 1 && second == 0 {
+                        // the lock, while the run goes on: this row, and held
+                        let held = w.query("select id from public.sge_history where target = '' and source = 'baseline' and source_type = 'S' for update nowait", &[]).await;
+                        return (true, held.is_err());
+                    }
+                    if second == 1 {
+                        return (false, false);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                (false, false)
+            })
+        });
+        migrate(cfg(), false, &log()).await.unwrap();
+        let (committed, locked) = watcher.join().unwrap();
+        assert!(committed, "the first script's row was not there while the second ran");
+        assert!(locked, "the history's lock was not held");
+        let n: i64 = c.query_one("select count(*) from pg_tables where tablename in ('a', 'b')", &[]).await.unwrap().get(0);
+        assert_eq!(n, 2);
+        // run again: nothing applied twice, and the worker's rows read as no scripts
+        migrate(cfg(), false, &log()).await.unwrap();
+        // `sge info` reads every row: a worker's has no catalog
+        let mut client = c;
+        crate::dbm_log::StatementLog::status_for_test(&mut client, &cfg()).await.unwrap();
+    }
+
+    /// A second run waits for the first: the history's lock holds its row while a script runs
+    #[tokio::test]
+    async fn a_run_holds_the_historys_lock() {
+        let Some(pg) = Pg::start("hlock") else { return };
+        let sql = pg.dir.join("sql");
+        std::fs::create_dir_all(&sql).unwrap();
+        std::fs::write(sql.join("V1_0__a.sql"), "SELECT pg_sleep(4);\n").unwrap();
+        let host = pg.dir.to_string_lossy().to_string();
+        let port = pg.port;
+        let cfg = || {
+            let mut cfg = ConfigMap::load("").unwrap();
+            for (k, v) in [("db_host", host.as_str()), ("db_port", &port.to_string()), ("db_user", "postgres"), ("db_name", "postgres"),
+                ("source_dir", &sql.to_string_lossy()), ("createdb", "yes")] {
+                cfg.insert(&k.to_string(), v);
+            }
+            cfg
+        };
+        migrate(cfg(), true, &log()).await.unwrap(); // the table
+        let url = format!("host={} port={} user=postgres dbname=postgres", host, port);
+        let watcher = std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            rt.block_on(async move {
+                let (w, conn) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+                tokio::spawn(conn);
+                let until = std::time::Instant::now() + std::time::Duration::from_secs(20);
+                while std::time::Instant::now() < until {
+                    if !w.query("select 1 from pg_stat_activity where query like '%pg_sleep%' and pid <> pg_backend_pid() and state = 'active'", &[]).await.unwrap().is_empty() {
+                        return w.query("select id from public.sge_history where target = '' and source = 'baseline' and source_type = 'S' for update nowait", &[]).await.is_err();
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                false
+            })
+        });
+        migrate(cfg(), false, &log()).await.unwrap();
+        assert!(watcher.join().unwrap(), "the row was free while a script ran");
     }
 
     /// [connect] what is refused before any server is asked: no database named, TLS
