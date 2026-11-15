@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "schema_guard"
-version = "2.3.2"
+version = "2.3.3"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -1455,9 +1455,9 @@ dependencies = [
 
 [[package]]
 name = "schema_guard_tokio"
-version = "2.3.0"
+version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bf3aa9b978d4f7c782a1c22195bfce39fa51e9e11e6369a7dd0559792d50414"
+checksum = "710ca94b12b9e8750fff15c2af69224eb87374ea9addbc894e63101207faedf3"
 dependencies = [
  "lazy_static",
  "regex",

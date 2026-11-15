@@ -22,28 +22,11 @@
     </cargoProject>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="docs changes">
-      <change afterPath="$PROJECT_DIR$/src/dbm_compare.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.github/workflows/audit.yml" beforeDir="false" afterPath="$PROJECT_DIR$/.github/workflows/audit.yml" afterDir="false" />
+    <list default="true" id="221d26cc-8264-4bc2-9baa-48bb50299914" name="Default Changelist" comment="cleanup warnings&#10;add integration with diff_data">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Dockerfile" beforeDir="false" afterPath="$PROJECT_DIR$/Dockerfile" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dist/build.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/build.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/dist/docker-smoke.sh" beforeDir="false" afterPath="$PROJECT_DIR$/dist/docker-smoke.sh" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/security/trivy-sge.md" beforeDir="false" afterPath="$PROJECT_DIR$/security/trivy-sge.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_cfg.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_cfg.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_digest.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_digest.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_etl.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_etl.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_files.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_files.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_git.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_git.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_log.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_log.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/dbm_yt.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/dbm_yt.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/i18n.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/i18n.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/lib.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/lib.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/init/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/tests/init/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/postgres.sh" beforeDir="false" afterPath="$PROJECT_DIR$/tests/postgres.sh" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -132,23 +115,23 @@
   </component>
   <component name="NextEditCompletionFeaturesState">
     <decayedCancelled>
-      <entry key="MS100" value="1.0" />
-      <entry key="MS500" value="1.0" />
-      <entry key="S2" value="1.0" />
-      <entry key="S5" value="1.0" />
-      <entry key="S10" value="1.0" />
-      <entry key="S30" value="1.0" />
-      <entry key="S60" value="1.0" />
-      <entry key="M2" value="1.0" />
-      <entry key="M5" value="1.0" />
-      <entry key="M10" value="1.0" />
-      <entry key="M15" value="1.0" />
-      <entry key="M30" value="1.0" />
-      <entry key="H1" value="1.0000000000000209" />
-      <entry key="H2" value="1.00000014423812" />
-      <entry key="H4" value="1.0003797869402218" />
-      <entry key="D1" value="1.2691059732513232" />
-      <entry key="W1" value="1.829011350577038" />
+      <entry key="MS100" value="1.2698070591261068" />
+      <entry key="MS500" value="1.7695036100804313" />
+      <entry key="S2" value="1.9365967909046145" />
+      <entry key="S5" value="1.9741393238925662" />
+      <entry key="S10" value="1.987220063017758" />
+      <entry key="S30" value="2.1413967018411864" />
+      <entry key="S60" value="2.7544478420430396" />
+      <entry key="M2" value="3.734583948714418" />
+      <entry key="M5" value="4.86230337636317" />
+      <entry key="M10" value="5.383394679082251" />
+      <entry key="M15" value="5.577507100853075" />
+      <entry key="M30" value="5.782825028503435" />
+      <entry key="H1" value="5.889888198718435" />
+      <entry key="H2" value="5.9445577572575194" />
+      <entry key="H4" value="5.972558435471456" />
+      <entry key="D1" value="6.2641178905701524" />
+      <entry key="W1" value="6.828197862361295" />
     </decayedCancelled>
     <decayedSelected>
       <entry key="MS100" value="0.0" />
@@ -170,23 +153,23 @@
       <entry key="W1" value="0.0" />
     </decayedSelected>
     <decayedShown>
-      <entry key="MS100" value="0.5864174746159394" />
-      <entry key="MS500" value="0.8987551266110297" />
-      <entry key="S2" value="0.9736667628755977" />
-      <entry key="S5" value="0.9893823033619269" />
-      <entry key="S10" value="0.9946769844336034" />
-      <entry key="S30" value="0.9982225038573258" />
-      <entry key="S60" value="0.9991108566407062" />
-      <entry key="M2" value="0.9995553294544061" />
-      <entry key="M5" value="0.9998221080483063" />
-      <entry key="M10" value="0.999911050068108" />
-      <entry key="M15" value="0.9999406991662494" />
-      <entry key="M30" value="0.999970349143538" />
-      <entry key="H1" value="0.9999851744618916" />
-      <entry key="H2" value="0.9999927314404142" />
-      <entry key="H4" value="1.0003760789994716" />
-      <entry key="D1" value="1.269105174167584" />
-      <entry key="W1" value="1.8290111825198518" />
+      <entry key="MS100" value="0.9378100734734391" />
+      <entry key="MS500" value="1.6148838996809818" />
+      <entry key="S2" value="1.8893780168658243" />
+      <entry key="S5" value="1.9544543917624146" />
+      <entry key="S10" value="1.977221294555663" />
+      <entry key="S30" value="2.134563315080983" />
+      <entry key="S60" value="2.744299788752101" />
+      <entry key="M2" value="3.724393628883498" />
+      <entry key="M5" value="4.855949698340245" />
+      <entry key="M10" value="5.3797008165949" />
+      <entry key="M15" value="5.574916926963514" />
+      <entry key="M30" value="5.781462675469618" />
+      <entry key="H1" value="5.889189526416977" />
+      <entry key="H2" value="5.9442039595961" />
+      <entry key="H4" value="5.972380408624297" />
+      <entry key="D1" value="6.264087881153399" />
+      <entry key="W1" value="6.828193517513828" />
     </decayedShown>
   </component>
   <component name="ProjectColorInfo">{
@@ -652,7 +635,6 @@
   <component name="VcsManagerConfiguration">
     <option name="CHECK_CODE_SMELLS_BEFORE_PROJECT_COMMIT" value="false" />
     <option name="CHECK_NEW_TODO" value="false" />
-    <MESSAGE value="#9 IT final fixes" />
     <MESSAGE value="#9 IT fixes after serge yaml update" />
     <MESSAGE value="moved and merged" />
     <MESSAGE value="rc" />
@@ -677,7 +659,8 @@
     <MESSAGE value="sbom, plan: to preview changes fix" />
     <MESSAGE value="coverage" />
     <MESSAGE value="docs changes" />
-    <option name="LAST_COMMIT_MESSAGE" value="docs changes" />
+    <MESSAGE value="cleanup warnings&#10;add integration with diff_data" />
+    <option name="LAST_COMMIT_MESSAGE" value="cleanup warnings&#10;add integration with diff_data" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

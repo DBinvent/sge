@@ -1423,4 +1423,148 @@ database:
         let e = migrate(c, false, &log()).await.unwrap_err();
         assert!(e.starts_with("SGE-E602 "), "{}", e);
     }
+
+    /// [quote] What the apostrophe tests share: a throwaway server's settings for a database
+    /// of the test's own, made by the run, and a client to it
+    fn apos_cfg(pg: &Pg, db: &str, src: &std::path::Path, more: &[(&str, &str)]) -> ConfigMap {
+        let mut cfg = ConfigMap::load("").unwrap();
+        for (k, v) in [("db_host", &*pg.dir.to_string_lossy()), ("db_port", &pg.port.to_string()), ("db_user", "postgres"), ("db_name", db),
+            ("source_dir", &*src.to_string_lossy()), ("jira_prefix", "PROJ"), ("createdb", "yes")] {
+            cfg.insert(&k.to_string(), v);
+        }
+        for (k, v) in more {
+            cfg.insert(&k.to_string(), v);
+        }
+        cfg
+    }
+
+    async fn apos_db(pg: &Pg, db: &str) -> Client {
+        let (c, conn) = tokio_postgres::connect(&format!("host={} port={} user=postgres dbname={}", pg.dir.display(), pg.port, db), NoTls).await.unwrap();
+        tokio::spawn(conn);
+        c
+    }
+
+    async fn texts(c: &Client, sql: &str) -> Vec<String> {
+        c.query(sql, &[]).await.unwrap_or_else(|e| panic!("{}: {}", sql, e)).iter().map(|r| r.get::<_, Option<String>>(0).unwrap_or_else(|| "<null>".into())).collect()
+    }
+
+    /// [quote] An apostrophe is text, not SQL, wherever sge reads a text (2026-11-15): a
+    /// table's and a column's description - on a new table, and a table's changed later - a
+    /// default, a check, a data file's values and its key (insert, update and the clean
+    /// rule's delete), a script's name and its ticket line, the history's target, the
+    /// snapshot of all that, and its plan. On a database of the test's own, new.
+    #[tokio::test]
+    async fn an_apostrophe_is_text_wherever_sge_reads_one() {
+        let Some(pg) = Pg::start("apos") else { return };
+        crate::i18n::set_lang("en");
+        let src = pg.dir.join("it's a source");
+        std::fs::create_dir_all(&src).unwrap();
+        let s1 = r#"# PROJ-1 the buyer's tables
+database:
+  - schema:
+    schemaName: app
+    tables:
+      - table:
+          tableName: t
+          description: "the customer's orders -- and 'more'"
+          data_file: D1__t.csv
+          columns:
+            - column: {name: id, type: serial, constraint: {primaryKey: true, nullable: false}, description: "the row's key"}
+            - column: {name: name, type: varchar(50), description: "a buyer's name"}
+            - column: {name: note, type: text, defaultValue: "'it''s new'"}
+            - column: {name: kind, type: text, constraint: {nullable: false}, defaultValue: "'it''s'", sql: "CHECK (kind <> 'O''Brien')"}
+          constraint: "CONSTRAINT t_name_chk CHECK (name <> 'D''Arcy''s')"
+      - table:
+          tableName: k
+          data_file: D1__k.csv
+          columns:
+            - column: {name: code, type: varchar(20), constraint: {primaryKey: true, nullable: false}}
+            - column: {name: v, type: text}
+"#;
+        std::fs::write(src.join("S1__schema.yaml"), s1).unwrap();
+        std::fs::write(src.join("D1__t.csv"), "id,name,note\n1,O'Brien,it's here\n2,\"a 'quoted' one\",''\n3,plain,NULL\n").unwrap();
+        std::fs::write(src.join("D1__k.csv"), "code,v\nk'1,one's\n'',two\nk''3,\"three, 'and' more\"\n").unwrap();
+        std::fs::write(src.join("V1_1__it's a script.sql"), "-- PROJ-2 the buyer's rows\nINSERT INTO app.t (name) VALUES ('D''Arcy');\n").unwrap();
+        std::fs::write(src.join("after.sql"), "UPDATE app.t SET note = 'after''s' WHERE name = 'plain';\n").unwrap();
+        let more = [("etl", "clean"), ("snapshot_data", "app.k"), ("db_target", "o'brien's")];
+        let cfg = apos_cfg(&pg, "apos", &src, &more);
+
+        // a plan before anything is there, the run, and a plan of the run that has nothing left
+        let md = plan_md(apos_cfg(&pg, "postgres", &src, &more), &log()).await.unwrap();
+        assert!(md.contains("`V1_1__it's a script.sql`") && md.contains("`D1__k.csv`: dml insert 3"), "{}", md);
+        migrate(cfg.clone(), false, &log()).await.unwrap();
+        plan_md(cfg.clone(), &log()).await.unwrap();
+
+        let c = apos_db(&pg, "apos").await;
+        assert_eq!(texts(&c, "select obj_description('app.t'::regclass) union all \
+            select col_description('app.t'::regclass, n) from generate_series(1, 2) n").await,
+            ["the customer's orders -- and 'more'", "the row's key", "a buyer's name"]);
+        assert_eq!(texts(&c, "select id::text || '|' || name || '|' || coalesce(note, '<null>') || '|' || kind from app.t order by id").await,
+            ["1|O'Brien|it's here|it's", "2|a 'quoted' one|''|it's", "3|plain|after's|it's", "4|D'Arcy|it's new|it's"]);
+        assert_eq!(texts(&c, "select code || '|' || v from app.k order by code").await,
+            ["''|two", "k''3|three, 'and' more", "k'1|one's"]);
+        assert_eq!(texts(&c, "select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'app.t'::regclass and contype = 'c' order by conname").await,
+            ["CHECK ((kind <> 'O''Brien'::text))", "CHECK (((name)::text <> 'D''Arcy''s'::text))"]);
+        // the history: each source by its name, for the target as it was written
+        assert_eq!(texts(&c, "select source from public.sge_history where target = $$o'brien's$$ and ok order by source").await,
+            ["D1__k.csv", "D1__t.csv", "S1__schema.yaml", "V1_1__it's a script.sql", "baseline"]);
+        let mut history = connect("logdb_", &cfg, None, "t", &log()).await.unwrap();
+        let listed = StatementLog::status_for_test(&mut history, &cfg).await.unwrap();
+        assert_eq!(listed.keys().collect::<Vec<_>>(), ["o'brien's"]);
+
+        // the snapshot says the same, and is a schema file again
+        let snap = snapshot_text(cfg.clone(), &[], &log()).await.unwrap();
+        let again = schema_guard_tokio::parse_yaml_schema(YamlLoader::load_from_str(&snap).unwrap().remove(0), "S1__snap.yaml").unwrap();
+        let t = again.list.iter().find(|s| s.schema_name == "app").unwrap().tables.list.iter().find(|t| t.table_name == "t").unwrap();
+        assert_eq!(t.description, "the customer's orders -- and 'more'", "{}", snap);
+        assert_eq!(t.columns.list.iter().map(|c| c.description.as_str()).collect::<Vec<_>>(), ["the row's key", "a buyer's name", "", ""]);
+        assert_eq!(t.columns.list[2].default_value.as_deref(), Some("'it''s new'::text"));
+
+        // a run again: a column more and the description another (the comment is written
+        // with a table's change), the keyed file's rows other - one changed, one gone (the
+        // clean rule's delete names the keys that stay), one new
+        let s2 = s1.replace("the customer's orders -- and 'more'", "the customers' orders")
+            .replace("          constraint: \"CONSTRAINT t_name_chk", "            - column: {name: extra, type: text, defaultValue: \"'x''s'\"}\n          constraint: \"CONSTRAINT t_name_chk");
+        assert!(s2.contains("customers' orders") && s2.contains("name: extra"));
+        std::fs::write(src.join("S2__schema.yaml"), s2).unwrap();
+        std::fs::write(src.join("D1__k.csv"), "code,v\n'',two's\nk''3,\"three, 'and' more\"\nk'4,four's\n").unwrap();
+        migrate(cfg.clone(), false, &log()).await.unwrap();
+        assert_eq!(texts(&c, "select obj_description('app.t'::regclass)").await, ["the customers' orders"]);
+        assert_eq!(texts(&c, "select extra from app.t where id = 1").await, ["x's"]);
+        assert_eq!(texts(&c, "select code || '|' || v from app.k order by code").await,
+            ["''|two's", "k''3|three, 'and' more", "k'4|four's"]);
+    }
+
+    /// [quote] A row written in the schema file itself (`data`) is text too: `O'Brien` is
+    /// that name, and a value that reads as SQL is a value. The statement is
+    /// schema_guard_tokio's, right since its 2.3.1: before, SGE-E705 at the first `'`
+    #[tokio::test]
+    async fn a_row_in_a_schema_file_keeps_its_apostrophe() {
+        let Some(pg) = Pg::start("aposrow") else { return };
+        crate::i18n::set_lang("en");
+        let src = pg.dir.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("S1__schema.yaml"), r#"database:
+  - schema:
+    schemaName: app
+    tables:
+      - table:
+          tableName: d
+          columns:
+            - column: {name: id, type: int, constraint: {primaryKey: true, nullable: false}}
+            - column: {name: name, type: text}
+          data:
+            - ["1", "plain"]
+            - ["2", "O'Brien"]
+            - ["3", "it''s"]
+            - ["4", "x'); drop table app.d; --"]
+"#).unwrap();
+        let cfg = apos_cfg(&pg, "aposrow", &src, &[]);
+        let md = plan_md(apos_cfg(&pg, "postgres", &src, &[]), &log()).await.unwrap();
+        assert!(md.contains("- **app.d**\n"), "{}", md);
+        migrate(cfg.clone(), false, &log()).await.unwrap();
+        let c = apos_db(&pg, "aposrow").await;
+        assert_eq!(texts(&c, "select id::text || '|' || name from app.d order by id").await,
+            ["1|plain", "2|O'Brien", "3|it''s", "4|x'); drop table app.d; --"]);
+    }
 }
