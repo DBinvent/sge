@@ -71,7 +71,7 @@ base64 = "^0.23.1"
 uuid = {version="^1.28.0", features = ["v4"]}
 # [digest] a dry run's SQL read for its digest (dbm_digest.rs): tables, columns, rows.
 # No recursive-protection: its stacker builds C; sqlparser's own depth limit stays
-sqlparser = { version = "^0.63", default-features = false, features = ["std"] }
+sqlparser = { version = "^0.64", default-features = false, features = ["std"] }
 csv = "1.1.6"
 # [zip] a zip archive as the script source (dbm_zip.rs): stored and deflated entries
 # only - flate2's default backend, miniz_oxide, pure Rust; no bzip2, zstd, lzma or AES,
