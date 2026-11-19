@@ -15,8 +15,26 @@ async fn main() {
             None => { eprintln!("--attach {}: SCHEMA=FILE", a); std::process::exit(2); }
         }
     }
+    // [review 2026-11-19] a plan or a snapshot makes no file: a plan of one not there is a plan on
+    // an empty database in memory, a snapshot of one not there an error
+    let mut path = m.get_one::<String>("database").cloned().unwrap_or_default();
+    let missing = |p: &str| p != ":memory:" && !std::path::Path::new(p).exists();
+    if m.get_one::<String>("snapshot").is_some() && missing(&path) {
+        eprintln!("{}: no such database", path);
+        std::process::exit(1);
+    }
+    if m.get_flag("plan") {
+        if missing(&path) {
+            path = ":memory:".into();
+        }
+        for (_, f) in attach.iter_mut() {
+            if missing(f) {
+                *f = ":memory:".into();
+            }
+        }
+    }
     let mut t = Sqlite {
-        path: m.get_one::<String>("database").cloned().unwrap_or_default(),
+        path,
         attach,
         client: m.get_one::<String>("client").cloned().unwrap_or_else(|| "sqlite3".into()),
     };

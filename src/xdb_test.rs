@@ -70,8 +70,16 @@ fn the_history_table_is_mysqls_by_the_mapping() {
     let create = p.statements.iter().find(|x| x.starts_with("CREATE TABLE `app`.`sge_history`")).unwrap();
     assert!(create.contains("`id` int auto_increment NOT NULL"), "{}", create);
     assert!(create.contains("`ok` tinyint(1) NOT NULL DEFAULT false"), "{}", create);
-    let (host, port, user, pw, db) = mysql::parts("mysql://ro%40t:p%3Aw@db.example:3307/app?ssl-mode=required").unwrap();
-    assert_eq!((host.as_str(), port.as_str(), user.as_str(), pw.as_str(), db.as_str()), ("db.example", "3307", "ro@t", "p:w", "app"));
+    let u = mysql::parts("mysql://ro%40t:p%3Aw@db.example:3307/app?ssl-mode=required").unwrap();
+    assert_eq!((u.host.as_str(), u.port.as_str(), u.user.as_str(), u.password.as_str(), u.database.as_str()),
+               ("db.example", "3307", "ro@t", "p:w", "app"));
+    // [review 2026-11-19] a `?` and `@` in the password, IPv6, a socket, a stray % before a multibyte char
+    let u = mysql::parts("mysql://me:a?b@c%2F@[::1]/app?socket=%2Frun%2Fmysqld.sock").unwrap();
+    assert_eq!((u.host.as_str(), u.port.as_str(), u.password.as_str(), u.database.as_str()), ("::1", "3306", "a?b@c/", "app"));
+    assert_eq!(u.socket.as_deref(), Some("/run/mysqld.sock"));
+    let u = mysql::parts("mysql://me:%1\u{e9}@[::1]:3307").unwrap();
+    assert_eq!((u.host.as_str(), u.port.as_str(), u.password.as_str(), u.database.as_str()), ("::1", "3307", "%1\u{e9}", ""));
+    assert!(mysql::parts("postgres://x").is_err());
 }
 
 /// sge-sqlite's target with its scripts run through turso: the test needs no sqlite3
