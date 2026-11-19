@@ -42,6 +42,10 @@ sge-mysql mysql://user:pw@host:3306/app migrations/ --plan
 sge-mysql mysql://user:pw@host:3306/app --snapshot S1__app.yaml
 ```
 
+The `dbinvent/sge` image carries both binaries but neither client (their Alpine packages have
+unfixed HIGH CVEs): there they deploy YAML schemas; for `.sql` scripts add `sqlite` or
+`mariadb-client` in an image built `FROM dbinvent/sge`.
+
 Combines two ways:
 
 1. Declarative for rapid development,

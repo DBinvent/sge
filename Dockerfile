@@ -53,8 +53,11 @@ LABEL org.opencontainers.image.title="Schema Guard Enterprise" \
 # 3.23's busybox (drop the upgrade) once a stable release has the fix.
 # apk upgrade: the base image's packages to 3.23's fixes - its zlib 1.3.2-r1 has CVE-2026-4738
 # (critical, Docker Scout 2026-11-09), fixed in 3.23's 1.4-r0
-# [xdb] sqlite3 and the mysql client: the scripts of sge-sqlite and sge-mysql
-RUN apk upgrade --no-cache && apk add --no-cache postgresql18-client sqlite mariadb-client \
+# [xdb] no sqlite3 nor mysql client here (2026-11-19): Alpine 3.23's sqlite 3.53.4 and mariadb-client
+# 11.4.13 carry HIGH CVEs with no fix (Docker Scout: CVE-2026-119586, -119379, -119374, -119373,
+# CVE-2025-13699). In the image sge-sqlite and sge-mysql deploy YAML schemas; a .sql script needs
+# the client in an image built FROM this one, or --client
+RUN apk upgrade --no-cache && apk add --no-cache postgresql18-client \
     && apk info -e 'zlib>=1.4' \
     && apk upgrade --no-cache -X https://dl-cdn.alpinelinux.org/alpine/edge/main \
         busybox busybox-binsh ssl_client \
