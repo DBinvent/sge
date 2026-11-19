@@ -278,6 +278,13 @@ pub const GRANT_ALL : &str = "GRANT ALL ON SCHEMA ";
 /// rather than the line filtered out: dropping it would stop the fixture
 /// asserting that ownership is set at all, which is a real thing to check.
 fn norm_dump_line(x: &str) -> String {
+    // [mapping] a snapshot's source names the test server's major version: compared as
+    // postgres.$VERSION, so the fixture holds for every version the tests run on (2026-11-18)
+    if let Some(rest) = x.strip_prefix("source: postgres.") {
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit() || c == '.') {
+            return "source: postgres.$VERSION".to_string();
+        }
+    }
     if x.contains(OWNER_TO) && x.trim_start().starts_with("ALTER SEQUENCE ") {
         x.replacen("ALTER SEQUENCE ", "ALTER TABLE ", 1)
     } else {

@@ -15,6 +15,7 @@ use slog::Logger;
 use sloggers::Build;
 use sloggers::terminal::{Destination, TerminalLoggerBuilder};
 use sloggers::types::{Format, Severity, SourceLocation};
+#[cfg(feature = "postgres")]
 use crate::dbm_log::StatementLog;
 
 #[derive(Debug, Clone)]
@@ -292,6 +293,7 @@ impl ConfigMap {
         }
     }
 
+    #[cfg(feature = "postgres")]
     pub fn dry_run(&self, input: Vec<String>) -> Result<(), String> {
         StatementLog::dry_store(self.get_opt("dry_run_to"), input.into_iter().collect(), &self.log)
             .map(|_| ())

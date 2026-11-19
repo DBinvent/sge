@@ -1,5 +1,26 @@
 //! sge (Schema Guard Enterprise): no unsafe code - the compiler holds it to that
 #![forbid(unsafe_code)]
+// [db] without a database's feature, the parts any database shares only (the config, the
+// script sources): what only PostgreSQL's deploy uses stands unused there
+#![cfg_attr(not(feature = "postgres"), allow(dead_code, unused_imports))]
+
+
+/// [db] schema_guard_tokio's other databases and its mappings, for a binary of each to come
+/// (owner, 2026-11-19): `sge::sg::sqlite`, `sge::sg::mysql`, `sge::sg::mapping`
+/// [xdb] the core of sge for SQLite and MySQL: sge-sqlite, sge-mysql
+#[cfg(any(feature = "sqlite", feature = "mysql"))]
+pub mod xdb;
+/// [xdb] their command line
+#[cfg(all(feature = "cli", any(feature = "sqlite", feature = "mysql")))]
+pub mod xdb_cli;
+
+pub mod sg {
+    pub use schema_guard_tokio::mapping;
+    #[cfg(feature = "sqlite")]
+    pub use schema_guard_tokio::sqlite;
+    #[cfg(feature = "mysql")]
+    pub use schema_guard_tokio::mysql;
+}
 
 #[macro_use]
 extern crate slog;
@@ -14,26 +35,34 @@ rust_i18n::i18n!("locales", fallback = "en");
 // first: tr! is declared there, for the modules below
 #[macro_use]
 pub mod i18n;
+#[cfg(feature = "postgres")]
 /// [pg] Postgres's errors, in full and in one place
 mod dbm_pg;
 pub mod dbm_cfg;
+#[cfg(feature = "postgres")]
 mod dbm_log;
-mod dbm_files;
+pub(crate) mod dbm_files;
 /// [git] git repository as a script source - see `source_git`
 mod dbm_git;
 /// [zip] zip archive as a script source, unpacked for the run - see `source_zip`
 mod dbm_zip;
+#[cfg(feature = "postgres")]
 #[cfg(feature = "superset")]
 pub(crate) mod dbm_superset;
+#[cfg(feature = "postgres")]
 /// [yt] YT Cluster's own, not a public API: not covered by the crate's version
 #[doc(hidden)]
 pub mod dbm_yt;
+#[cfg(feature = "postgres")]
 /// [plan] what migrate would change, per table, for a review - see `plan`
 mod dbm_digest;
+#[cfg(feature = "postgres")]
 pub mod dbm_etl;
+#[cfg(feature = "postgres")]
 /// [compare] two databases' schemas compared: a comprehensive diff's schema part, diff_data's the data
 pub mod dbm_compare;
 
+#[cfg(feature = "postgres")]
 use crate::dbm_log::*;
 
 // #[cfg(feature = "tls")]
@@ -45,18 +74,24 @@ use crate::dbm_log::*;
 // #[cfg(feature = "tls")]
 // use postgres_openssl::MakeTlsConnector;
 
+#[cfg(feature = "postgres")]
 use tokio_postgres::{Client, NoTls, Transaction};
 use slog::Logger;
 
 use yaml_rust2::YamlLoader;
 
 use crate::dbm_cfg::ConfigMap;
+#[cfg(feature = "postgres")]
 use tokio_postgres::error::SqlState;
 use std::collections::HashMap;
+#[cfg(feature = "postgres")]
 use std::fmt::Write;
+#[cfg(feature = "postgres")]
 use schema_guard_tokio::loader::{InfoSchemaType, load_info_schema};
 use schema_guard_tokio::table::Table;
+#[cfg(feature = "postgres")]
 use schema_guard_tokio::changes::{Changes, DryRun};
+#[cfg(feature = "postgres")]
 use crate::dbm_files::{FilesMap, FileVersion, load_all};
 
 const STATEMENT_LOG_TABLE_YML: &str = include_str!("hl_table.yaml");
@@ -117,6 +152,7 @@ lazy_static! {
 
 }
 
+#[cfg(feature = "postgres")]
 /// [sg-tokio] Connect and drive the connection.
 ///
 /// `tokio_postgres::connect` hands back a `(Client, Connection)` pair, and the
@@ -133,6 +169,7 @@ async fn spawn_connect(url: &str) -> Result<Client, tokio_postgres::Error> {
     Ok(client)
 }
 
+#[cfg(feature = "postgres")]
 #[cfg(feature = "tls")]
 async fn spawn_connect_tls<T>(url: &str, tls: T) -> Result<Client, tokio_postgres::Error>
 where
@@ -146,6 +183,7 @@ where
     Ok(client)
 }
 
+#[cfg(feature = "postgres")]
 /// [sg-tokio] sge configuration expressed as SchemaGuard migration options.
 ///
 /// `is_retry` used to be a parameter on `deploy`; in sg_tokio it is one flag of
@@ -174,12 +212,14 @@ fn migration_options(cfg: &ConfigMap) -> schema_guard_tokio::MigrationOptions {
     }
 }
 
+#[cfg(feature = "postgres")]
 /// Main entry point
 /// Relational (PostgreSQL) database migration management
 pub async fn migrate(cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
     migrate_run(cfg, prepare_only, log).await
 }
 
+#[cfg(feature = "postgres")]
 /// [plan] What migrate would change, as Markdown on standard output: migrate's dry
 /// run - the database read, selects alone; '--createdb' not followed. Its own scope:
 /// the digest is this run's
@@ -188,11 +228,13 @@ pub async fn plan(cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "postgres")]
 /// [check] What `plan` prints, returned: a caller compares it between databases
 pub async fn plan_text(cfg: ConfigMap, log: &Logger) -> Result<String, String> {
     plan_md(cfg, log).await
 }
 
+#[cfg(feature = "postgres")]
 /// [check] The schema `snapshot` writes, returned: sorted by name, so two databases' compare,
 /// without the tables `skip` names (`schema.table`)
 pub async fn snapshot_text(cfg: ConfigMap, skip: &[String], log: &Logger) -> Result<String, String> {
@@ -202,6 +244,7 @@ pub async fn snapshot_text(cfg: ConfigMap, skip: &[String], log: &Logger) -> Res
     LoadResult::load_schema_of(&etl, &mut db, Some(skip)).await?.format(etl.yaml_format)
 }
 
+#[cfg(feature = "postgres")]
 async fn plan_md(mut cfg: ConfigMap, log: &Logger) -> Result<String, String> {
     cfg.insert(&"dry_run".to_string(), "yes");
     cfg.insert(&"createdb".to_string(), "false");
@@ -219,6 +262,7 @@ async fn plan_md(mut cfg: ConfigMap, log: &Logger) -> Result<String, String> {
     }).await
 }
 
+#[cfg(feature = "postgres")]
 async fn migrate_run(mut cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Result<(), String> {
     trace!(log, "{}", tr!("lib.trace_migrate", prepare = prepare_only, logdb = cfg.get("logdb"),
         is_logdb = cfg.is_logdb(), is_primary = cfg.is_primary()));
@@ -249,6 +293,7 @@ async fn migrate_run(mut cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Re
     result
 }
 
+#[cfg(feature = "postgres")]
 /// Steps on execute:
 /// * connect to DB
 /// * self create history table
@@ -366,6 +411,7 @@ async fn migrate_db(
     ret
 }
 
+#[cfg(feature = "postgres")]
 pub(crate) async fn baseline_deploy(
     dbc: &mut InfoSchemaType,
     t: &mut Transaction<'_>,
@@ -403,6 +449,7 @@ pub(crate) async fn baseline_deploy(
     }
 }
 
+#[cfg(feature = "postgres")]
 /// version level ordering
 #[allow(clippy::too_many_arguments)] // the stages of one deploy, each its own: a struct of them would only rename them
 async fn migrate_all_versions(
@@ -427,6 +474,7 @@ async fn migrate_all_versions(
     Ok(res)
 }
 
+#[cfg(feature = "postgres")]
 #[inline]
 /// deploy changes by files
 async fn deploy_pre_files(
@@ -451,6 +499,7 @@ async fn deploy_pre_files(
     )
 }
 
+#[cfg(feature = "postgres")]
 #[inline]
 /// deploy changes by files
 async fn deploy_all_files(
@@ -479,6 +528,7 @@ async fn deploy_all_files(
     Ok(id)
 }
 
+#[cfg(feature = "postgres")]
 #[inline]
 /// deploy schema by definitions - declaratives
 #[allow(clippy::too_many_arguments)] // the stages of one deploy, each its own: a struct of them would only rename them
@@ -667,6 +717,7 @@ async fn deploy_all_schemas(
     }
 }
 
+#[cfg(feature = "postgres")]
 #[inline]
 async fn connect(
     prefix: &str,
@@ -785,6 +836,7 @@ async fn connect(
     }
 }
 
+#[cfg(feature = "postgres")]
 /// a password as the logs show it: never - a debug build showed it in clear
 #[inline]
 fn screen(_pwd: &String) -> &str {
@@ -805,6 +857,7 @@ pub(crate) fn quote_literal(s: &str) -> String {
     format!("'{}'", s.replace('\'', "''"))
 }
 
+#[cfg(feature = "postgres")]
 #[inline(never)]
 async fn create_connect(
     dbname: &str,
@@ -837,6 +890,7 @@ async fn create_connect(
     connect(prefix, cfg, Some(false), module, log).await
 }
 
+#[cfg(feature = "postgres")]
 async fn create_role(
     db: &mut Client,
     user: &String,
@@ -865,6 +919,7 @@ async fn create_role(
     Ok(())
 }
 
+#[cfg(feature = "postgres")]
 #[inline]
 #[cfg(feature = "tls")]
 fn make_tls_connector(cert: &String) -> Result<postgres_native_tls::MakeTlsConnector, String> {
@@ -877,12 +932,14 @@ fn make_tls_connector(cert: &String) -> Result<postgres_native_tls::MakeTlsConne
 }
 
 /* openssl
+#[cfg(feature = "postgres")]
 fn make_tls_connector(cert: &String) -> Result<MakeTlsConnector, ErrorStack> {
     let mut builder = SslConnector::builder(SslMethod::tls())?;
     builder.set_ca_file(cert)?;
     Ok(MakeTlsConnector::new(builder.build()))
 } */
 
+#[cfg(feature = "postgres")]
 #[inline]
 pub async fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String> {
     let mut log_client = connect("logdb_", &cfg, None, "loading logs",log).await?;
@@ -917,6 +974,7 @@ pub async fn load(dump: bool, cfg: ConfigMap, log: &Logger) -> Result<(), String
     etl.dump_loaded(result)
 }
 
+#[cfg(feature = "postgres")]
 #[cfg(test)]
 mod tests {
     use super::*;

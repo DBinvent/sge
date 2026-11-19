@@ -1,0 +1,55 @@
+name: sbom
+
+# [sbom] sge's CycloneDX 1.5 SBOM, kept on this repository's `sbom` branch (owner, 2026-11-17):
+# every crate the sge binary links, as the deb builds it (the default features), with its
+# version, purl and license - by dist/sbom.py (yt-cluster-lite's tools/sbom.py), from cargo metadata. A crate
+# without a license stops the run: a question of redistribution, for the owner. One commit on
+# that branch, replaced each time; no commit on main (each one there publishes). The deb ships
+# its own SBOM and lib-licenses.txt, and dbinvent.com lists them by deb at /licenses.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "dist/sbom.py"
+      - ".github/workflows/sbom.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: sbom
+  cancel-in-progress: false
+
+jobs:
+  sbom:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write   # the push to the sbom branch
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: the SBOM
+        run: |
+          mkdir -p /tmp/sbom
+          python3 -I dist/sbom.py --online --dir . --package schema_guard --name sge \
+            --out /tmp/sbom/sbom-sge.cdx.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: /tmp/sbom/
+      # from the default branch only: run by hand on another, it makes them and keeps them as the
+      # run's artifact, and pushes nothing
+      - name: to the sbom branch
+        if: github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          cd /tmp/sbom
+          git init -q -b sbom
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "SBOMs of ${SHA:0:12}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" sbom

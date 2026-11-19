@@ -662,12 +662,27 @@ fn hash_md5<R: Read>(reader: &mut R) -> String {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct LoadResult {
+    /// [mapping] the vendor and version the snapshot was taken from, `postgres.16`, at the
+    /// schema's top level (schema_guard_tokio's mapping reads it); not written when unknown
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub source: String,
     pub database: Vec<Schema>,
 }
 
 impl LoadResult {
     pub(crate) async fn load(etl: &Etl, db_client: &mut Transaction<'_>, log: &Logger) -> Result<Self, String> {
         let mut lr = LoadResult::load_schema(etl, db_client).await?;
+        // [mapping] the server's major version, as its source: postgres.16 - and 9.6's, from before
+        // 10, as 9.6. [review 2026-11-18] current_setting(.., true) answers NULL rather than fail:
+        // a failed statement would abort the transaction the snapshot reads in
+        lr.source = match db_client.query_one("select current_setting('server_version_num', true)::int", &[]).await {
+            Ok(r) => match r.get::<_, Option<i32>>(0) {
+                Some(v) if v >= 100000 => format!("postgres.{}", v / 10000),
+                Some(v) => format!("postgres.{}.{}", v / 10000, (v / 100) % 100),
+                None => "postgres".to_string(),
+            },
+            Err(_) => "postgres".to_string(),
+        };
         etl.extract(&mut lr, db_client, log).await?;
         Ok(lr)
     }
@@ -751,7 +766,7 @@ impl LoadResult {
             };
             schemas.push(ys);
         }
-        Ok(LoadResult { database: schemas })
+        Ok(LoadResult { source: String::new(), database: schemas })
     }
 
     /// load impl
@@ -847,14 +862,17 @@ mod tests {
             \x20               constraint:\n                  primaryKey: true\n\
             \x20           - column:\n                name: note\n                type: varchar(100)\n";
         let y = yaml_rust2::YamlLoader::load_from_str(src).unwrap().remove(0);
-        let lr = LoadResult { database: schema_guard_tokio::parse_yaml_schema(y, "S1__snap.yaml").unwrap().list };
+        let lr = LoadResult { source: String::new(), database: schema_guard_tokio::parse_yaml_schema(y, "S1__snap.yaml").unwrap().list };
         reads_back_as_its_json(&lr);
         let again = yaml_rust2::YamlLoader::load_from_str(&lr.format(true).unwrap()).unwrap().remove(0);
         let back = schema_guard_tokio::parse_yaml_schema(again, "S1__snap.yaml").unwrap();
         // the tables as they were; the schema's empty owner is schema_guard's to fill in
         let tables = |v: serde_json::Value| v[0]["tables"].clone();
         assert_eq!(tables(serde_json::to_value(&back.list).unwrap()), tables(serde_json::to_value(&lr.database).unwrap()));
-        assert_eq!(LoadResult { database: vec![] }.format(false).unwrap(), "{\"database\":[]}");
+        assert_eq!(LoadResult { source: String::new(), database: vec![] }.format(false).unwrap(), "{\"database\":[]}");
+        // [mapping] a snapshot's source, first at its top level
+        assert_eq!(LoadResult { source: "postgres.16".into(), database: vec![] }.format(false).unwrap(),
+                   "{\"source\":\"postgres.16\",\"database\":[]}");
     }
 
     fn log() -> Logger {

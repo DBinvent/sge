@@ -1,3 +1,4 @@
+source: postgres.$VERSION
 database:
 - schemaName: public
   owner: $USER
@@ -22,7 +23,7 @@ database:
           type: varchar(250)
       - column:
           name: source_type
-          type: bpchar
+          type: bpchar(1)
           constraint:
             nullable: false
           description: "P: Pre-Deploy, S: Schema, V: Version, R: Re-Runnable, A: After-Migrate"

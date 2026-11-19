@@ -1386,7 +1386,7 @@ Boston,United States,\"4628910\"\"\"
         let dir = scratch("find");
         let mut e = etl_test();
         e.dir = dir.clone();
-        let mut lr = LoadResult { database: vec![schema("app", vec![yt_test()])] };
+        let mut lr = LoadResult { source: String::new(), database: vec![schema("app", vec![yt_test()])] };
         let (file, s, t, _) = e.find_set(&mut lr, &"rdict".to_string()).unwrap();
         assert_eq!((file.clone(), s.as_str(), t.as_str()), (format!("{}D1__app_rdict.csv", dir), "app", "rdict"));
         assert_eq!(lr.database[0].tables.get(&"rdict".to_string()).unwrap().data_file, Some(file));

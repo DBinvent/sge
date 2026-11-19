@@ -28,6 +28,11 @@ RUN cargo build --release --locked --target x86_64-unknown-linux-musl --bin sge 
     && cargo cyclonedx --format json --spec-version 1.5 --target x86_64-unknown-linux-musl \
         --override-filename sbom.cdx \
     && cp sbom.cdx.json /sbom.cdx.json
+# [xdb] sge-sqlite and sge-mysql, static too, each with its own database's feature (owner, 2026-11-19)
+RUN cargo build --release --locked --target x86_64-unknown-linux-musl --no-default-features --features cli,sqlite --bin sge-sqlite \
+    && cargo build --release --locked --target x86_64-unknown-linux-musl --no-default-features --features cli,mysql --bin sge-mysql \
+    && cp target/x86_64-unknown-linux-musl/release/sge-sqlite target/x86_64-unknown-linux-musl/release/sge-mysql / \
+    && /sge-sqlite --version && /sge-mysql --version
 # [compare] diff_data's command line beside sge: the published crate at the version sge links (its
 # Cargo.lock), static, built from the crate's own lock (2026-11-11)
 RUN v="$(awk '/^name = "diff_data"$/{getline; gsub(/version = |"/,""); print; exit}' Cargo.lock)" && test -n "$v" \
@@ -48,7 +53,8 @@ LABEL org.opencontainers.image.title="Schema Guard Enterprise" \
 # 3.23's busybox (drop the upgrade) once a stable release has the fix.
 # apk upgrade: the base image's packages to 3.23's fixes - its zlib 1.3.2-r1 has CVE-2026-4738
 # (critical, Docker Scout 2026-11-09), fixed in 3.23's 1.4-r0
-RUN apk upgrade --no-cache && apk add --no-cache postgresql18-client \
+# [xdb] sqlite3 and the mysql client: the scripts of sge-sqlite and sge-mysql
+RUN apk upgrade --no-cache && apk add --no-cache postgresql18-client sqlite mariadb-client \
     && apk info -e 'zlib>=1.4' \
     && apk upgrade --no-cache -X https://dl-cdn.alpinelinux.org/alpine/edge/main \
         busybox busybox-binsh ssl_client \
@@ -56,6 +62,7 @@ RUN apk upgrade --no-cache && apk add --no-cache postgresql18-client \
     && addgroup -g 1000 sge && adduser -D -u 1000 -G sge -h /home/sge sge
 COPY --from=build /sge /usr/local/bin/sge
 COPY --from=build /dd/bin/diff_data /usr/local/bin/diff_data
+COPY --from=build /sge-sqlite /sge-mysql /usr/local/bin/
 COPY LICENSE /usr/share/doc/schema-guard/LICENSE
 COPY --from=build /sbom.cdx.json /usr/share/doc/schema-guard/sbom.cdx.json
 WORKDIR /work

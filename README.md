@@ -20,6 +20,28 @@ The relational database schema management tool.
 
 ## SQL script tracker and DB deployment tool by schema definition for Postgres
 
+**Features: a database each.** `postgres` is on by default, and the `sge` binary is PostgreSQL's:
+each other database gets a binary of its own, built with its feature. A crate using sge as a
+library without the default features (no command line) names it:
+`sge = { version = "2.4", package = "schema_guard", default-features = false, features = ["postgres"] }` (since 2.4.0).
+Without a database's feature the library keeps what every database shares: the config and the
+script sources (files, git, zip). `sqlite` (embedded, through turso) and `mysql` (through sqlx) bring
+schema_guard_tokio's deploy and catalog read for those databases, as `sge::sg::sqlite` and
+`sge::sg::mysql`.
+
+**sge-sqlite and sge-mysql** (since 2.4.0): sge's core for SQLite (embedded, through turso) and for
+MySQL (through sqlx), a binary each. A directory applied in sge's order, each file once, kept in the
+same `sge_history` table: `S<version>__name.yaml` schemas through the driver (another vendor's schema
+mapped for the target first), `V<version>__name.sql` scripts once and `R__name.sql` again when
+changed, both by the database's own client (`sqlite3`, `mysql`); `--plan` says what would run,
+`--snapshot FILE` writes the database's schema as YAML with its `source`.
+
+```sh
+sge-sqlite app.db migrations/            # --attach SCHEMA=FILE for another database as a schema
+sge-mysql mysql://user:pw@host:3306/app migrations/ --plan
+sge-mysql mysql://user:pw@host:3306/app --snapshot S1__app.yaml
+```
+
 Combines two ways:
 
 1. Declarative for rapid development,

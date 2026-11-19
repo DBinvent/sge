@@ -78,6 +78,11 @@ cd "$SRC_DIR"
 # Postgres of their own
 cargo test --lib --bins
 cargo build --release
+# [xdb] sge-sqlite and sge-mysql, each built with its own database's feature only (owner, 2026-11-19);
+# the core they share tested with both
+cargo test --lib --no-default-features --features cli,sqlite,mysql xdb
+cargo build --release --no-default-features --features cli,sqlite --bin sge-sqlite
+cargo build --release --no-default-features --features cli,mysql --bin sge-mysql
 # [compare] diff_data's command line beside sge, in every form: the published crate at the version
 # sge links (Cargo.lock), built from the crate's own lock - for the deb into target/release (2026-11-11)
 DD_VERSION="$(awk '/^name = "diff_data"$/{getline; gsub(/version = |"/,""); print; exit}' "$SRC_DIR/Cargo.lock")"
@@ -112,10 +117,40 @@ docker cp "$cid:/usr/local/bin/sge" "$MUSL"
 # [compare] and its diff_data, beside it
 MUSL_DD="$(dirname "$MUSL")/diff_data"
 docker cp "$cid:/usr/local/bin/diff_data" "$MUSL_DD"
+# [xdb] and sge-sqlite, sge-mysql
+for b in sge-sqlite sge-mysql; do
+  docker cp "$cid:/usr/local/bin/$b" "$(dirname "$MUSL")/$b"
+  file "$(dirname "$MUSL")/$b" | grep -q 'static' || { echo "ERROR: the image's $b is not a static binary" >&2; exit 1; }
+done
 docker cp "$cid:/usr/share/doc/schema-guard/sbom.cdx.json" "$SBOM"; docker rm "$cid" >/dev/null
 file "$MUSL" | grep -q 'static' || { echo "ERROR: the image's sge is not a static binary" >&2; exit 1; }
 file "$MUSL_DD" | grep -q 'static' || { echo "ERROR: the image's diff_data is not a static binary" >&2; exit 1; }
 grep -q '"bomFormat": *"CycloneDX"' "$SBOM" || { echo "ERROR: the image's sbom.cdx.json is no CycloneDX SBOM" >&2; exit 1; }
+
+# [sbom] each third-party library's license, copyright and notice texts, for the deb, the rpm and
+# the tarball (owner, 2026-11-17): sge's crates, and diff_data's as installed above - its published
+# crate, from a copy of its source (the registry's is read-only), as dist/sbom.py reads them
+DD_SRC="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/diff_data-"$DD_VERSION" 2>/dev/null | head -1)"
+[ -n "$DD_SRC" ] || { echo "ERROR: no diff_data $DD_VERSION source in the cargo registry" >&2; exit 1; }
+DD_COPY="$(mktemp -d)"
+cp -r "$DD_SRC/." "$DD_COPY/"
+TEXTS_JSON="$SRC_DIR/target/sbom/texts.json"
+TEXTS="$SRC_DIR/target/sbom/THIRD-PARTY-LICENSES.txt"
+rm -f "$TEXTS_JSON"
+# the copy goes on a failure too [review 2026-11-17]
+texts_fail() { rm -rf "$DD_COPY" "$TEXTS_JSON"; echo "ERROR: the license texts (dist/sbom.py)" >&2; exit 1; }
+python3 -I "$SCRIPT_DIR/sbom.py" --dir "$SRC_DIR" --package schema_guard --name sge \
+    --out "$SRC_DIR/target/sbom/sbom-sge.cdx.json" --texts-json "$TEXTS_JSON" || texts_fail
+# [xdb] sge-sqlite's and sge-mysql's crates: turso and sqlx, with their features only (2026-11-19)
+python3 -I "$SCRIPT_DIR/sbom.py" --dir "$SRC_DIR" --package schema_guard --name sge-sqlite --no-default-features \
+    --features cli,sqlite --out "$SRC_DIR/target/sbom/sbom-sge-sqlite.cdx.json" --texts-json "$TEXTS_JSON" || texts_fail
+python3 -I "$SCRIPT_DIR/sbom.py" --dir "$SRC_DIR" --package schema_guard --name sge-mysql --no-default-features \
+    --features cli,mysql --out "$SRC_DIR/target/sbom/sbom-sge-mysql.cdx.json" --texts-json "$TEXTS_JSON" || texts_fail
+python3 -I "$SCRIPT_DIR/sbom.py" --dir "$DD_COPY" --package diff_data --name diff_data \
+    --out "$SRC_DIR/target/sbom/sbom-diff_data.cdx.json" --texts-json "$TEXTS_JSON" || texts_fail
+python3 -I "$SCRIPT_DIR/sbom.py" --render-texts "$TEXTS_JSON" --out "$TEXTS" \
+    --title "Third-party libraries in Schema Guard $VERSION (the schema-guard package: sge, sge-sqlite, sge-mysql and diff_data): their license, copyright and notice texts." || texts_fail
+rm -rf "$DD_COPY" "$TEXTS_JSON"
 
 # 3. the deb, now the SBOM is there.
 # --no-build: package exactly the binary tested and built above
@@ -145,8 +180,10 @@ RPM="${RPMS[0]}"
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
 install -D -m 755 "$MUSL" "$STAGE/bin/sge"
 install -m 755 "$MUSL_DD" "$STAGE/bin/diff_data"
+install -m 755 "$(dirname "$MUSL")/sge-sqlite" "$STAGE/bin/sge-sqlite"
+install -m 755 "$(dirname "$MUSL")/sge-mysql" "$STAGE/bin/sge-mysql"
 install -d "$STAGE/share/doc/schema-guard" "$STAGE/share/man"
-install -m 644 LICENSE COPYRIGHT lib-licenses.txt "$SBOM" "$STAGE/share/doc/schema-guard/"
+install -m 644 LICENSE COPYRIGHT lib-licenses.txt "$SBOM" "$TEXTS" "$STAGE/share/doc/schema-guard/"
 cp -r target/man/. "$STAGE/share/man/"
 mkdir -p target/tgz
 TGZ="$SRC_DIR/target/tgz/sge-$VERSION-x86_64-linux.tar.gz"
