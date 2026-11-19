@@ -2902,9 +2902,9 @@ dependencies = [
 
 [[package]]
 name = "schema_guard_tokio"
-version = "2.4.0"
+version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "49a423f9c0b077ac06193683db55b43088e1c3dc08fcc34810a208a92c030195"
+checksum = "330f5446a2a6e228c88b85c26f4d37e2ae63301692b0dcb0adffb1fcd7c27d13"
 dependencies = [
  "lazy_static",
  "regex",
