@@ -184,6 +184,34 @@ where
 }
 
 #[cfg(feature = "postgres")]
+/// [security] What `sg_migration` says after `security=`, trimmed; `None` not said
+fn security_said(cfg: &ConfigMap) -> Option<String> {
+    cfg.get("sg_migration").split(',').find_map(|o| o.split_once('=').filter(|(k, _)| k.trim().eq_ignore_ascii_case("security"))
+        .map(|(_, v)| v.trim().to_string()))
+}
+
+#[cfg(feature = "postgres")]
+/// [security] The `security=lsr|rls` option of `sg_migration`, any case. Anything else - not said,
+/// `off`, a word that is no mode - is schema_guard's default: off, nothing of a table's `security`
+/// deployed. sge reads several schema files, so its lsr is without the file's traversal check:
+/// `Lsr(false)`.
+fn security_option(cfg: &ConfigMap) -> schema_guard_tokio::security::SecurityMode {
+    use schema_guard_tokio::security::SecurityMode;
+    match security_said(cfg).map(|v| v.parse::<SecurityMode>().unwrap_or_default()) {
+        Some(SecurityMode::Lsr(_)) => SecurityMode::Lsr(false),
+        Some(mode) => mode,
+        None => SecurityMode::Off,
+    }
+}
+
+#[cfg(feature = "postgres")]
+/// [security] [review 2026-11-22] A `security=` word that is neither a mode nor `off`: it is taken as
+/// off, and `migrate_run` says so - a mistyped `security=rls` deploys no policy
+fn security_unknown(cfg: &ConfigMap) -> Option<String> {
+    security_said(cfg).filter(|v| !["off", "lsr", "rls"].contains(&v.to_lowercase().as_str()))
+}
+
+#[cfg(feature = "postgres")]
 /// [sg-tokio] sge configuration expressed as SchemaGuard migration options.
 ///
 /// `is_retry` used to be a parameter on `deploy`; in sg_tokio it is one flag of
@@ -198,31 +226,6 @@ where
 /// in `migrate`), because the cluster's own schema check judges differences by the
 /// same options - one setting, set deliberately in the cluster's config. Standalone,
 /// SchemaGuard's defaults. `with_ddl_retry` also follows `is_retry`, as before.
-/// [security] What `sg_migration` says after `security=`, trimmed; `None` not said
-fn security_said(cfg: &ConfigMap) -> Option<String> {
-    cfg.get("sg_migration").split(',').find_map(|o| o.split_once('=').filter(|(k, _)| k.trim().eq_ignore_ascii_case("security"))
-        .map(|(_, v)| v.trim().to_string()))
-}
-
-/// [security] The `security=lsr|rls` option of `sg_migration`, any case. Anything else - not said,
-/// `off`, a word that is no mode - is schema_guard's default: off, nothing of a table's `security`
-/// deployed. sge reads several schema files, so its lsr is without the file's traversal check:
-/// `Lsr(false)`.
-fn security_option(cfg: &ConfigMap) -> schema_guard_tokio::security::SecurityMode {
-    use schema_guard_tokio::security::SecurityMode;
-    match security_said(cfg).map(|v| v.parse::<SecurityMode>().unwrap_or_default()) {
-        Some(SecurityMode::Lsr(_)) => SecurityMode::Lsr(false),
-        Some(mode) => mode,
-        None => SecurityMode::Off,
-    }
-}
-
-/// [security] [review 2026-11-22] A `security=` word that is neither a mode nor `off`: it is taken as
-/// off, and `migrate_run` says so - a mistyped `security=rls` deploys no policy
-fn security_unknown(cfg: &ConfigMap) -> Option<String> {
-    security_said(cfg).filter(|v| !["off", "lsr", "rls"].contains(&v.to_lowercase().as_str()))
-}
-
 fn migration_options(cfg: &ConfigMap) -> schema_guard_tokio::MigrationOptions {
     let sg = cfg.get("sg_migration");
     let on = |name: &str| sg.split(',').any(|o| o.trim().eq_ignore_ascii_case(name));
