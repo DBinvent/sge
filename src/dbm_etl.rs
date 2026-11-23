@@ -1211,6 +1211,7 @@ Boston,United States,\"4628910\"\"\"
             owner: "".to_string(),
             data: vec![],
             grant: vec![],
+            security: None,
         }
     }
 

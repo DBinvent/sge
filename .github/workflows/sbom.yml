@@ -1,6 +1,6 @@
 name: sbom
 
-# [sbom] sge's CycloneDX 1.5 SBOM, kept on this repository's `sbom` branch (owner, 2026-11-17):
+# [sbom] sge's CycloneDX 1.5 SBOM, kept on this repository's `sbom` branch:
 # every crate the sge binary links, as the deb builds it (the default features), with its
 # version, purl and license - by dist/sbom.py (yt-cluster-lite's tools/sbom.py), from cargo metadata. A crate
 # without a license stops the run: a question of redistribution, for the owner. One commit on

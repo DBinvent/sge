@@ -730,6 +730,8 @@ impl LoadResult {
                     owner: table.owner.clone().unwrap_or("".to_string()),
                     data: vec![],
                     grant: vec![],
+                    // [security] what the database's registry says of it
+                    security: table.security.clone(),
                 };
                 let mut columns = table.columns.values().cloned().collect::<Vec<PgColumnDfn>>();
                 columns.sort_by_key(|a| a.sort_order);

@@ -185,7 +185,11 @@ pub(crate) fn parse_schema_file(path: &str, file_name: &str) -> Result<Option<Or
     if y["database"].as_vec().is_none() {
         return Ok(None);
     }
-    parse_yaml_schema(y, file_name).map(Some)
+    let mut schemas = parse_yaml_schema(y, file_name)?;
+    // [security] [review 2026-11-22] as schema_guard's migrate links a file: a table whose path reaches
+    // an entity this file defines takes its alias. The one-file checks stay off (several files).
+    schema_guard_tokio::security::link(&mut schemas, false).map_err(|e| format!("{e} ({file_name})"))?;
+    Ok(Some(schemas))
 }
 
 #[inline(never)]

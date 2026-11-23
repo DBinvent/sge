@@ -69,6 +69,22 @@ cargo check --no-default-features
   branch.
 - A change to the YAML format is `schema_guard_tokio`'s (`src/schema.yaml` there), not sge's.
 
+## State on 2026-11-21
+
+- schema_guard_tokio ^2.5.0, uncommitted (a local `.cargo/config.toml` patch, in `.git/info/exclude`, until 2.5.0
+  is published): a table's `security: {schemaPath, alias, softDelete}` (the key `labac` before) deploys through sg as any
+  other part of a YAML; a dump of a database writes back the declarations its registry (`labac.tables`) holds,
+  an alias left out where it is the entity's own. The struct literals of `Table` and `PgTable` took `security`.
+  sge builds its `MigrationOptions` with sg's builder. The mode is the deploy's: `sg_migration` takes
+  `security=lsr|rls`, any case; not said, `off`, or a word that is no mode is off - nothing of a table's
+  `security` deployed (`security_option`; a word that is no mode is said in the log, `lib.sg_security`).
+  sge reads several schema files, so a `security` path may leave the file and its lsr is `Lsr(false)`, without
+  sg's one-file checks - deploy the file that defines an entity before the ones that reach it, or say the alias.
+  sge steps through a file's tables itself (`migrate_db`: `deploy_all_tables_plan_pg`, or table by table), so it
+  runs sg's security steps itself too: `security::link` as a file is parsed (`dbm_files::parse_schema_file`) and
+  `security::deploy_all` after the tables, before the foreign keys, in both paths - a table's deploy alone leaves
+  its `security` undeployed (review 2026-11-22; test `a_schema_files_security_is_deployed`, a real server).
+
 ## State on 2026-11-19
 
 - Version 2.4.0, uncommitted, not published: the database features, the `source` line of a

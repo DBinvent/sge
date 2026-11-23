@@ -5,8 +5,8 @@
 #![cfg_attr(not(feature = "postgres"), allow(dead_code, unused_imports))]
 
 
-/// [db] schema_guard_tokio's other databases and its mappings, for a binary of each to come
-/// (owner, 2026-11-19): `sge::sg::sqlite`, `sge::sg::mysql`, `sge::sg::mapping`
+/// [db] schema_guard_tokio's other databases and its mappings, for a binary of each to come:
+/// `sge::sg::sqlite`, `sge::sg::mysql`, `sge::sg::mapping`
 /// [xdb] the core of sge for SQLite and MySQL: sge-sqlite, sge-mysql
 #[cfg(any(feature = "sqlite", feature = "mysql"))]
 pub mod xdb;
@@ -198,18 +198,47 @@ where
 /// in `migrate`), because the cluster's own schema check judges differences by the
 /// same options - one setting, set deliberately in the cluster's config. Standalone,
 /// SchemaGuard's defaults. `with_ddl_retry` also follows `is_retry`, as before.
+/// [security] What `sg_migration` says after `security=`, trimmed; `None` not said
+fn security_said(cfg: &ConfigMap) -> Option<String> {
+    cfg.get("sg_migration").split(',').find_map(|o| o.split_once('=').filter(|(k, _)| k.trim().eq_ignore_ascii_case("security"))
+        .map(|(_, v)| v.trim().to_string()))
+}
+
+/// [security] The `security=lsr|rls` option of `sg_migration`, any case. Anything else - not said,
+/// `off`, a word that is no mode - is schema_guard's default: off, nothing of a table's `security`
+/// deployed. sge reads several schema files, so its lsr is without the file's traversal check:
+/// `Lsr(false)`.
+fn security_option(cfg: &ConfigMap) -> schema_guard_tokio::security::SecurityMode {
+    use schema_guard_tokio::security::SecurityMode;
+    match security_said(cfg).map(|v| v.parse::<SecurityMode>().unwrap_or_default()) {
+        Some(SecurityMode::Lsr(_)) => SecurityMode::Lsr(false),
+        Some(mode) => mode,
+        None => SecurityMode::Off,
+    }
+}
+
+/// [security] [review 2026-11-22] A `security=` word that is neither a mode nor `off`: it is taken as
+/// off, and `migrate_run` says so - a mistyped `security=rls` deploys no policy
+fn security_unknown(cfg: &ConfigMap) -> Option<String> {
+    security_said(cfg).filter(|v| !["off", "lsr", "rls"].contains(&v.to_lowercase().as_str()))
+}
+
 fn migration_options(cfg: &ConfigMap) -> schema_guard_tokio::MigrationOptions {
     let sg = cfg.get("sg_migration");
     let on = |name: &str| sg.split(',').any(|o| o.trim().eq_ignore_ascii_case(name));
-    schema_guard_tokio::MigrationOptions {
-        with_size_cut: on("with_size_cut"),
-        with_index_drop: on("with_index_drop"),
-        with_trigger_drop: on("with_trigger_drop"),
-        exclude_triggers: on("exclude_triggers"),
-        with_revoke: on("with_revoke"),
-        without_failfast: on("without_failfast"),
-        with_ddl_retry: cfg.is_retry() || on("with_ddl_retry"),
-    }
+    // [options] schema_guard's builder: an option added there needs no change here
+    schema_guard_tokio::MigrationOptions::new()
+        .with_size_cut(on("with_size_cut"))
+        .with_index_drop(on("with_index_drop"))
+        .with_trigger_drop(on("with_trigger_drop"))
+        .exclude_triggers(on("exclude_triggers"))
+        .with_revoke(on("with_revoke"))
+        .without_failfast(on("without_failfast"))
+        .with_ddl_retry(cfg.is_retry() || on("with_ddl_retry"))
+        // [security] `security=lsr|rls` among the options: the tables' declarations for this deploy,
+        // off unless said. sge reads several schema files - a `security` path may lead to a table of
+        // another file - so its lsr is `Lsr(false)`: the database's registry answers for the aliases
+        .security(security_option(cfg))
 }
 
 #[cfg(feature = "postgres")]
@@ -285,6 +314,10 @@ async fn migrate_run(mut cfg: ConfigMap, prepare_only: bool, log: &Logger) -> Re
             debug!(log, "{}", tr!("lib.yt_options", options = sg));
             cfg.insert(&"sg_migration".to_string(), sg.as_str());
         }
+    }
+    // [security] [review 2026-11-22] a `security=` word that is no mode is taken as off, and said
+    if let Some(v) = security_unknown(&cfg) {
+        slog::warn!(log, "{}", tr!("lib.sg_security", value = v));
     }
     let result = { migrate_db(&mut client, &mut copy_log, &cfg, prepare_only, log).await };
     // [sg-tokio] tokio_postgres has no Client::close(): the connection task
@@ -595,6 +628,18 @@ async fn deploy_all_schemas(
                                 }
                             }
                         }
+                        // [security] [review 2026-11-22] the tables' `security` declarations, once every
+                        // table of the file exists: schema_guard's migrate does it after its table pass, and
+                        // sge, which steps through the tables itself, does it here
+                        if err.is_none() {
+                            match schema_guard_tokio::security::deploy_all(ysv, dbc, &mut t, dry, &opt, file).await {
+                                Ok(n) => do_persist = do_persist || n > 0,
+                                Err(e) => {
+                                    do_persist = true;
+                                    err = Some(e);
+                                }
+                            }
+                        }
                         if err.is_none() {
                             for ys in &ysv.list {
                                 match ys.deploy_all_fk_plan_pg(ysv, dbc, &mut t, cfg.is_retry(), dry).await {
@@ -633,6 +678,23 @@ async fn deploy_all_schemas(
                                         err = Some(dbm_pg::deploy(e));
                                         break 'tables;
                                     }
+                                }
+                            }
+                        }
+                        // [security] [review 2026-11-22] as above, committed as the tables are
+                        if err.is_none() {
+                            match schema_guard_tokio::security::deploy_all(ysv, dbc, &mut t, dry, &opt, file).await {
+                                Ok(n) => {
+                                    do_persist = do_persist || n > 0;
+                                    if n > 0 && !dry_run {
+                                        if let Err(ec) = t.batch_execute("COMMIT; BEGIN").await {
+                                            err = Some(tr!("lib.commit_table", table = "security", err = dbm_pg::pg(&ec)));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    do_persist = true;
+                                    err = Some(e);
                                 }
                             }
                         }
@@ -1015,6 +1077,28 @@ mod tests {
         assert!(!o.with_trigger_drop && !o.exclude_triggers && !o.with_revoke && !o.without_failfast);
         // schema_transaction=retry keeps meaning ddl retry
         assert!(migration_options(&ConfigMap::of(&[("schema_transaction", "retry")])).with_ddl_retry);
+    }
+
+    /// [security] `security=lsr|rls` among the options, any case; off unless said. sge reads several
+    /// schema files, so its lsr is without the file's traversal check. A word that is no mode is off,
+    /// as schema_guard reads one - and is said in the log
+    #[test]
+    fn migration_options_security() {
+        use schema_guard_tokio::security::SecurityMode;
+        let of = |sg: &str| ConfigMap::of(&[("sg_migration", sg)]);
+        assert_eq!(migration_options(&ConfigMap::of(&[])).security, SecurityMode::Off, "off unless said");
+        assert_eq!(migration_options(&of("with_revoke, security=rls")).security, SecurityMode::Rls);
+        assert_eq!(migration_options(&of("Security = OFF")).security, SecurityMode::Off);
+        assert_eq!(security_option(&of("security=lsr,with_size_cut")), SecurityMode::Lsr(false), "several files: no traversal check");
+        assert_eq!(security_option(&of("with_size_cut, SECURITY = Lsr")), SecurityMode::Lsr(false));
+        assert_eq!(security_option(&of("with_size_cut")), SecurityMode::Off);
+        for (said, unknown) in [("security=rsl", Some("rsl")), ("with_revoke, security=", Some("")), ("security=of f", Some("of f")),
+                                ("security=off", None), ("security=RLS", None), ("security=lsr", None), ("with_revoke", None)] {
+            assert_eq!(security_unknown(&of(said)).as_deref(), unknown, "{said}");
+            if unknown.is_some() {
+                assert_eq!(security_option(&of(said)), SecurityMode::Off, "{said}: a word that is no mode is off");
+            }
+        }
     }
 
     #[test]
@@ -1624,5 +1708,74 @@ database:
         let c = apos_db(&pg, "aposrow").await;
         assert_eq!(texts(&c, "select id::text || '|' || name from app.d order by id").await,
             ["1|plain", "2|O'Brien", "3|it''s", "4|x'); drop table app.d; --"]);
+    }
+
+    /// [security] [review 2026-11-22] sge steps through a file's tables itself, and the tables'
+    /// `security` declarations are deployed all the same - in the file's one transaction and table
+    /// by table (schema_transaction=table): the SQL part, the registry with the entity's alias taken
+    /// by the table that reaches it (declared above its entity in the file), the forced policies, the
+    /// data rows - under `security=rls`; `security=lsr` registers only; not said, `off` or a word that is no
+    /// mode leaves all of it out.
+    #[tokio::test]
+    async fn a_schema_files_security_is_deployed() {
+        let Some(pg) = Pg::start("security") else { return };
+        crate::i18n::set_lang("en");
+        let yaml = r#"database:
+  - schema:
+    schemaName: app
+    tables:
+      - table:
+          tableName: order_items
+          security: {schemaPath: {dml: [app.order_items.order_id, app.orders.dept], sal: [app.order_items.order_id, app.orders.sal]}}
+          columns:
+            - column: {name: id, type: int, constraint: {primaryKey: true, nullable: false}}
+            - column: {name: order_id, type: int}
+      - table:
+          tableName: orders
+          security: {schemaPath: {dml: [dept], sal: [sal]}, alias: department}
+          columns:
+            - column: {name: id, type: int, constraint: {primaryKey: true, nullable: false}}
+            - column: {name: dept, type: text}
+            - column: {name: sal, type: smallint}
+          data:
+            - ["1", "sales", "2"]
+"#;
+        let source = |name: &str| {
+            let src = pg.dir.join(format!("src_{name}"));
+            std::fs::create_dir_all(&src).unwrap();
+            std::fs::write(src.join("S1__schema.yaml"), yaml).unwrap();
+            src
+        };
+        for (db, more) in [("sec_one", &[("sg_migration", "security=rls")][..]),
+                           ("sec_table", &[("sg_migration", "security=rls"), ("schema_transaction", "table")][..])] {
+            migrate(apos_cfg(&pg, db, &source(db), more), false, &log()).await.unwrap_or_else(|e| panic!("{db}: {e}"));
+            let c = apos_db(&pg, db).await;
+            assert_eq!(texts(&c, "select table_name || '|' || kind || '|' || rls || '|' || endpoint from labac.tables order by 1").await,
+                ["order_items|department|true|app.orders.dept", "orders|department|true|app.orders.dept"], "{db}");
+            assert_eq!(texts(&c, "select relname || '|' || relrowsecurity || '|' || relforcerowsecurity from pg_class \
+                where relnamespace = 'app'::regnamespace and relname in ('orders', 'order_items') order by 1").await,
+                ["order_items|true|true", "orders|true|true"], "{db}");
+            assert_eq!(texts(&c, "select count(*)::text from pg_policy where polname like 'labac%'").await, ["8"], "{db}");
+            assert_eq!(texts(&c, "select count(*)::text from pg_policy where polname = 'labac_select' \
+                and pg_get_expr(polqual, polrelid) like '%labac.ids(''department''%'").await, ["2"], "{db}: the entity's alias in both");
+            assert_eq!(texts(&c, "select count(*)::text from app.orders").await, ["1"], "{db}");
+            // [levels] a table's levels go the same way: registered, and in each policy beside the dml condition
+            assert_eq!(texts(&c, "select table_name || '|' || levels from labac.tables order by 1").await,
+                ["order_items|{\"sal\":\"app.order_items.order_id|app.orders.sal\"}", "orders|{\"sal\":\"sal\"}"], "{db}");
+            assert_eq!(texts(&c, "select count(*)::text from pg_policy where polname like 'labac%' \
+                and coalesce(pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid)) like '%labac.level(''sal''%'").await, ["8"], "{db}");
+        }
+        // lsr: registered for ytproxy's rewrite, no policy
+        migrate(apos_cfg(&pg, "sec_lsr", &source("sec_lsr"), &[("sg_migration", "security=lsr")]), false, &log()).await.unwrap();
+        let c = apos_db(&pg, "sec_lsr").await;
+        assert_eq!(texts(&c, "select table_name || '|' || kind || '|' || rls || '|' || (levels is not null) from labac.tables order by 1").await,
+            ["order_items|department|false|true", "orders|department|false|true"]);
+        assert_eq!(texts(&c, "select count(*)::text from pg_policy where polname like 'labac%'").await, ["0"]);
+        // off - not said, said, or a word that is no mode: nothing of it deployed, the tables and rows as ever
+        for (db, more) in [("sec_none", &[][..]), ("sec_off", &[("sg_migration", "security=off")][..]), ("sec_bad", &[("sg_migration", "security=rsl")][..])] {
+            migrate(apos_cfg(&pg, db, &source(db), more), false, &log()).await.unwrap_or_else(|e| panic!("{db}: {e}"));
+            let c = apos_db(&pg, db).await;
+            assert_eq!(texts(&c, "select (to_regclass('labac.tables') is null)::text || '|' || (select count(*) from app.orders)").await, ["true|1"], "{db}");
+        }
     }
 }

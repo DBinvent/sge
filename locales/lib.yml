@@ -196,6 +196,13 @@ lib.yt_options:
   de: "[yt] SchemaGuard-Migrationsoptionen aus dem Cluster: [%{options}]"
   zh: "[yt] 来自集群的 SchemaGuard 迁移选项：[%{options}]"
   ja: "[yt] クラスターの SchemaGuard マイグレーションオプション：[%{options}]"
+lib.sg_security:
+  en: "sg_migration: security=%{value} is not a mode (lsr or rls) - taken as off"
+  ru: "sg_migration: security=%{value} - не режим (lsr или rls): принято как off"
+  fr: "sg_migration : security=%{value} n'est pas un mode (lsr ou rls) - pris comme off"
+  de: "sg_migration: security=%{value} ist kein Modus (lsr oder rls) - als off genommen"
+  zh: "sg_migration：security=%{value} 不是有效模式（lsr 或 rls）- 按 off 处理"
+  ja: "sg_migration：security=%{value} はモードではありません（lsr または rls）- off として扱います"
 lib.rollback_self:
   en: "rollback on fail self deploy: %{err}"
   ru: "откат после ошибки самоустановки: %{err}"

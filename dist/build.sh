@@ -78,7 +78,7 @@ cd "$SRC_DIR"
 # Postgres of their own
 cargo test --lib --bins
 cargo build --release
-# [xdb] sge-sqlite and sge-mysql, each built with its own database's feature only (owner, 2026-11-19);
+# [xdb] sge-sqlite and sge-mysql, each built with its own database's feature only;
 # the core they share tested with both
 cargo test --lib --no-default-features --features cli,sqlite,mysql xdb
 cargo build --release --no-default-features --features cli,sqlite --bin sge-sqlite
@@ -128,7 +128,7 @@ file "$MUSL_DD" | grep -q 'static' || { echo "ERROR: the image's diff_data is no
 grep -q '"bomFormat": *"CycloneDX"' "$SBOM" || { echo "ERROR: the image's sbom.cdx.json is no CycloneDX SBOM" >&2; exit 1; }
 
 # [sbom] each third-party library's license, copyright and notice texts, for the deb, the rpm and
-# the tarball (owner, 2026-11-17): sge's crates, and diff_data's as installed above - its published
+# the tarball: sge's crates, and diff_data's as installed above - its published
 # crate, from a copy of its source (the registry's is read-only), as dist/sbom.py reads them
 DD_SRC="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/diff_data-"$DD_VERSION" 2>/dev/null | head -1)"
 [ -n "$DD_SRC" ] || { echo "ERROR: no diff_data $DD_VERSION source in the cargo registry" >&2; exit 1; }

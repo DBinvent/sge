@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # [sbom] A copy of yt-cluster-lite's tools/sbom.py (MIT, the same owner), so sge's build and its
-# sbom workflow need no other checkout: keep the two alike (owner, 2026-11-17).
+# sbom workflow need no other checkout: keep the two alike.
 """The CycloneDX 1.5 SBOM of one binary built from a Rust crate, from `cargo metadata`: every
 crate the binary links - normal and build dependencies, not dev ones - with its version, purl
 and license, and the crate's own as the SBOM's component. Optionally the npm packages a crate

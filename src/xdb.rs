@@ -1,4 +1,4 @@
-//! [xdb] sge for another database than PostgreSQL (owner, 2026-11-19): the core of what sge does,
+//! [xdb] sge for another database than PostgreSQL: the core of what sge does,
 //! for the binaries sge-sqlite and sge-mysql - a directory applied in sge's file order, each file
 //! once, kept in the same history table (`sge_history`); a plan (a dry run); a snapshot of the
 //! database written as a YAML schema with its `source`.
@@ -210,7 +210,7 @@ pub fn snapshot(info: InfoSchemaType, source: &Source) -> Result<String, String>
             let _ = ytables.append(Table {
                 table_name: t.table_name.clone(), description: String::new(), transaction: String::new(), sql: String::new(),
                 constraint: String::new(), columns, triggers: OrderedHashMap::new(), data_file: None, data: vec![],
-                owner: String::new(), grant: vec![], is_template: None, use_templates: vec![],
+                owner: String::new(), grant: vec![], is_template: None, use_templates: vec![], security: None,
             });
         }
         database.push(Schema { schema_name, owner: String::new(), tables: ytables, file: String::new() });

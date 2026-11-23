@@ -165,6 +165,7 @@ mod tests {
             sort_order: 0,
             table_comment: None,
             owner: None,
+            security: None,
         }
     }
 
