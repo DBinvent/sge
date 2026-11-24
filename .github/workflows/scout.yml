@@ -27,7 +27,7 @@ jobs:
     steps:
       # pinned to a commit, like trivy-action in trivy.yml. Dependabot bumps the pin.
       # The token is apt.yml's, of the Docker Hub account dbinvent: Scout needs a login
-      - uses: docker/scout-action@e7e2a72bf1485d10a58f30696b6c513b261ce4fa # v1.29.0
+      - uses: docker/scout-action@b265cd48f8a1451d2680815b3e8dc4ed65ee16e7 # v1.30.0
         with:
           command: cves
           image: registry://dbinvent/sge:latest
